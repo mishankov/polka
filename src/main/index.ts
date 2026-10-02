@@ -1,0 +1,704 @@
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  safeStorage,
+  clipboard,
+  Notification,
+  Menu,
+  Tray,
+  nativeImage,
+  globalShortcut,
+  screen,
+  powerMonitor,
+  session,
+  shell,
+  autoUpdater as nativeUpdater,
+} from 'electron';
+import { Worker } from 'node:worker_threads';
+import { promises as fs } from 'node:fs';
+import { extname, join } from 'node:path';
+import { randomUUID, createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { z } from 'zod';
+import { autoUpdater } from 'electron-updater';
+import { UpdateService } from './updates';
+import { chooseDocuments, openDroppedDocuments } from './documentFiles';
+import { createExtensionViews } from './extension-views';
+import { ConnectionCredentials } from './connections';
+import { readDocumentClipboard, writeDocumentClipboard } from './documentClipboard';
+import { externalWebUrl } from '../shared/externalLinks';
+const execFileAsync = promisify(execFile);
+if (process.env.EVERYTHING_PROFILE) app.setPath('userData', process.env.EVERYTHING_PROFILE);
+const windows = new Map<number, { window: BrowserWindow; appId?: string; mode: string }>(),
+  pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+let updates: UpdateService;
+let extensionViews: ReturnType<typeof createExtensionViews>;
+let worker: Worker,
+  tray: Tray | null = null,
+  quitting = false,
+  quitPending = false,
+  updateInstalling = false,
+  pendingPackage: string | undefined;
+const root = app.getPath('userData');
+const flushRequests = new Map<
+  string,
+  {
+    senderId: number;
+    resolve: () => void;
+    reject: (e: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+>();
+function flushWindow(win: BrowserWindow) {
+  if (win.isDestroyed()) return Promise.resolve();
+  const token = randomUUID();
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      flushRequests.delete(token);
+      reject(
+        Error(
+          'Окно не подтвердило сохранение черновиков. Повторите закрытие после завершения операции.',
+        ),
+      );
+    }, 10000);
+    flushRequests.set(token, { senderId: win.webContents.id, resolve, reject, timer });
+    win.webContents.send('platform:event', { type: 'workspace.beforeClose', token });
+  });
+}
+function broadcast(event: any) {
+  for (const { window } of windows.values())
+    if (!window.isDestroyed()) window.webContents.send('platform:event', event);
+}
+function call(method: string, params: any = {}) {
+  return new Promise<any>((resolve, reject) => {
+    const id = randomUUID();
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ kind: 'call', id, method, params });
+  });
+}
+function secretPath(id: string) {
+  return join(root, 'secrets', createHash('sha256').update(id).digest('hex'));
+}
+async function host(method: string, p: any): Promise<any> {
+  if (method === 'secret.read') {
+    const encrypted = await fs.readFile(secretPath(p.id)).catch(() => null);
+    if (!encrypted) return null;
+    if (!safeStorage.isEncryptionAvailable()) throw Error('Связка ключей macOS недоступна');
+    return safeStorage.decryptString(encrypted);
+  }
+  if (method === 'secret.write') {
+    if (!safeStorage.isEncryptionAvailable()) throw Error('Связка ключей macOS недоступна');
+    await fs.mkdir(join(root, 'secrets'), { recursive: true, mode: 0o700 });
+    const target = secretPath(p.id),
+      temp = target + '.tmp';
+    await fs.writeFile(temp, safeStorage.encryptString(p.value), { mode: 0o600 });
+    await fs.rename(temp, target);
+    return true;
+  }
+  if (method === 'connection.read') {
+    const instance = await call('apps.get', { appId: p.appId });
+    if (!instance.definition.connections?.some((c: any) => c.id === p.connectionId))
+      throw Error('Подключение не объявлено');
+    return connections.read(p.appId, p.connectionId, p.origin);
+  }
+  if (method === 'clipboard.read') return clipboard.readText();
+  if (method === 'clipboard.write') {
+    clipboard.writeText(String(p.text || ''));
+    return true;
+  }
+  if (method === 'notifications.show') {
+    if (Notification.isSupported())
+      new Notification({
+        title: String(p.title || 'Everything App'),
+        body: String(p.body || ''),
+      }).show();
+    return true;
+  }
+  if (method === 'system.media') {
+    try {
+      const { stdout } = await execFileAsync(
+        app.isPackaged
+          ? join(process.resourcesPath, 'media-probe')
+          : join(app.getAppPath(), 'build/media-probe'),
+        [],
+        { timeout: 5000, maxBuffer: 128 * 1024 },
+      );
+      return JSON.parse(stdout);
+    } catch {
+      return Object.fromEntries(
+        ['camera', 'microphone', 'screen', 'mute'].map((k) => [
+          k,
+          { state: 'unknown', detail: 'Нативный адаптер недоступен' },
+        ]),
+      );
+    }
+  }
+  throw Error('Неизвестная системная операция');
+}
+const connections = new ConnectionCredentials({
+  getMetadata: (key) => call('settings.get', { key }),
+  setMetadata: (key, value) => call('settings.set', { key, value }),
+  readSecret: (id) => host('secret.read', { id }),
+  writeSecret: (id, value) => host('secret.write', { id, value }),
+  removeSecret: (id) => fs.rm(secretPath(id), { force: true }),
+});
+async function openWindow(appId?: string, mode = 'window') {
+  // Opening an app also resumes it, including when its window already exists.
+  const instance = appId ? await call('apps.start', { appId }) : undefined;
+  const existing = [...windows.values()].find((w) => w.appId === appId && w.mode === mode);
+  if (existing) {
+    existing.window.show();
+    existing.window.focus();
+    return existing.window.id;
+  }
+  const geometry = await call('settings.get', { key: `window:${appId || 'shell'}:${mode}` });
+  const display = screen.getPrimaryDisplay().workArea;
+  const width = Math.min(geometry?.width || (mode === 'quick' ? 620 : 1280), display.width),
+    height = Math.min(geometry?.height || (mode === 'quick' ? 460 : 840), display.height);
+  const visible =
+    geometry &&
+    screen
+      .getAllDisplays()
+      .some(
+        (d) =>
+          geometry.x >= d.workArea.x &&
+          geometry.y >= d.workArea.y &&
+          geometry.x + 80 < d.workArea.x + d.workArea.width &&
+          geometry.y + 80 < d.workArea.y + d.workArea.height,
+      );
+  const win = new BrowserWindow({
+    width,
+    height,
+    ...(visible ? { x: geometry.x, y: geometry.y } : {}),
+    minWidth: 560,
+    minHeight: 420,
+    title: instance?.name || 'Everything App',
+    titleBarStyle: appId ? 'default' : 'hiddenInset',
+    backgroundColor: '#f5f5f3',
+    alwaysOnTop: mode === 'overlay',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webviewTag: false,
+    },
+  });
+  if (mode === 'overlay') {
+    // Keep this floating window at the same screen position in every macOS Space,
+    // including Spaces occupied by a full-screen app.
+    win.setAlwaysOnTop(true, 'floating');
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+  windows.set(win.id, { window: win, appId, mode });
+  if (updateInstalling) win.setEnabled(false);
+  let closing = false;
+  win.on('close', (event) => {
+    if (quitting || closing) return;
+    event.preventDefault();
+    void flushWindow(win)
+      .then(() => {
+        closing = true;
+        win.close();
+      })
+      .catch((error) => {
+        broadcast({ type: 'platform.error', message: String(error) });
+      });
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.webContents.on('will-attach-webview', (e) => e.preventDefault());
+  const save = () => {
+    if (!win.isDestroyed())
+      void call('settings.set', {
+        key: `window:${appId || 'shell'}:${mode}`,
+        value: win.getBounds(),
+      });
+  };
+  win.on('resized', save);
+  win.on('moved', save);
+  const ownerContentsId = win.webContents.id;
+  win.webContents.on('destroyed', () => extensionViews?.disposeOwner(ownerContentsId));
+  win.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument)
+      extensionViews?.disposeOwner(ownerContentsId);
+  });
+  win.on('closed', () => windows.delete(win.id));
+  const query: Record<string, string> = appId ? { appId } : {};
+  if (process.env.ELECTRON_RENDERER_URL)
+    await win.loadURL(`${process.env.ELECTRON_RENDERER_URL}?${new URLSearchParams(query)}`);
+  else await win.loadFile(join(__dirname, '../renderer/index.html'), { query });
+  if (pendingPackage) {
+    const file = pendingPackage;
+    pendingPackage = undefined;
+    setTimeout(() => void previewPackage(file), 500);
+  }
+  return win.id;
+}
+async function previewPackage(path: string) {
+  try {
+    const preview = await call('packages.importPreview', { path });
+    broadcast({ type: 'package.opened', preview });
+  } catch (e) {
+    broadcast({ type: 'platform.error', message: String(e) });
+  }
+}
+const rpcSchema = z.tuple([
+  z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[a-zA-Z][a-zA-Z0-9.]*$/),
+  z.record(z.string(), z.unknown()),
+]);
+const forbidden = new Set([
+  'packages.export',
+  'packages.importPreview',
+  'packages.updatePreview',
+  'attachments.add',
+  'docs.openPath',
+  'docs.savePath',
+  'docs.path',
+]);
+async function packageOperation(method: string, params: any) {
+  const taskId = params.taskId || randomUUID();
+  try {
+    return await call(method, { ...params, taskId });
+  } catch (error) {
+    const task = await call('packages.taskStatus', { taskId }).catch(() => undefined);
+    if (task?.status === 'cancelled') return null;
+    throw error;
+  }
+}
+async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, params: any = {}) {
+  const sender = [...windows.values()].find((w) => w.window.webContents === event.sender);
+  if (!sender || event.senderFrame !== event.sender.mainFrame)
+    throw Error('Недоверенный отправитель');
+  rpcSchema.parse([method, params]);
+  if (JSON.stringify(params).length > 48 * 1024 * 1024) throw Error('Запрос превышает лимит');
+  if (
+    method.startsWith('state.') ||
+    method.startsWith('secret.') ||
+    method.startsWith('runtime.') ||
+    forbidden.has(method)
+  )
+    throw Error('Операция доступна только ядру');
+  if (method.startsWith('extensions.view.'))
+    return extensionViews.handle(event.sender, method, params);
+  if (method === 'links.openExternal') {
+    const url = externalWebUrl(params.url);
+    if (!url) throw Error('Можно открыть только веб-ссылки HTTP или HTTPS без логина и пароля');
+    await shell.openExternal(url);
+    return { opened: true };
+  }
+  if (method === 'docs.openMany') return chooseDocuments(sender.window, call, params);
+  if (method === 'documents.clipboardRead') return readDocumentClipboard(params);
+  if (method === 'documents.clipboardWrite') return writeDocumentClipboard(params);
+  if (method.startsWith('connections.')) {
+    const instance = await call('apps.get', { appId: params.appId });
+    const declared = instance.definition.connections || [];
+    if (method === 'connections.list')
+      return Promise.all(
+        declared.map(async (connection: any) => {
+          const meta = await call('settings.get', {
+            key: `connection:${instance.id}:${connection.id}`,
+          });
+          return { ...connection, origin: meta?.origin || '', configured: !!meta?.configured };
+        }),
+      );
+    if (!declared.some((c: any) => c.id === params.connectionId))
+      throw Error('Подключение не объявлено приложением');
+    if (method === 'connections.remove')
+      return connections.remove(instance.id, params.connectionId);
+    if (method === 'connections.save')
+      return connections.save(instance.id, params.connectionId, params.origin, params.token);
+    throw Error('Неизвестная операция подключения');
+  }
+  if (method === 'packages.chooseImport') {
+    const r = await dialog.showOpenDialog(sender.window, {
+      properties: ['openFile'],
+      filters: [{ name: 'Приложение Everything', extensions: ['everyapp'] }],
+    });
+    return r.canceled
+      ? null
+      : packageOperation('packages.importPreview', { path: r.filePaths[0], taskId: params.taskId });
+  }
+  if (method === 'packages.chooseUpdate') {
+    const r = await dialog.showOpenDialog(sender.window, {
+      properties: ['openFile'],
+      filters: [{ name: 'Приложение Everything', extensions: ['everyapp'] }],
+    });
+    return r.canceled
+      ? null
+      : packageOperation('packages.updatePreview', {
+          appId: params.appId,
+          path: r.filePaths[0],
+          taskId: params.taskId,
+        });
+  }
+  if (method === 'packages.saveExport') {
+    const preview = await call('packages.preview', params);
+    const r = await dialog.showSaveDialog(sender.window, {
+      defaultPath: `${String(preview.name || 'Приложение').replace(/[\\/:]/g, '-')}.everyapp`,
+      filters: [{ name: 'Приложение Everything', extensions: ['everyapp'] }],
+    });
+    return r.canceled ? null : packageOperation('packages.export', { ...params, path: r.filePath });
+  }
+  if (method === 'attachments.choose') {
+    const r = await dialog.showOpenDialog(sender.window, { properties: ['openFile'] });
+    return r.canceled
+      ? null
+      : call('attachments.add', { appId: params.appId, path: r.filePaths[0] });
+  }
+  if (method === 'docs.open') {
+    const r = await dialog.showOpenDialog(sender.window, { properties: ['openFile'] });
+    return r.canceled
+      ? null
+      : call('docs.openPath', {
+          appId: params.appId,
+          path: r.filePaths[0],
+          encoding: params.encoding,
+          kind: params.kind,
+        });
+  }
+  if (method === 'docs.save') {
+    let path = await call('docs.path', params);
+    const doc = await call('docs.get', params);
+    const mime =
+      doc.kind === 'image'
+        ? String(doc.content || '')
+            .match(/^data:image\/(png|jpeg|gif|webp);base64,/i)?.[1]
+            .toLowerCase()
+        : undefined;
+    const extension = mime === 'jpeg' ? 'jpg' : mime;
+    const currentExtension = path ? extname(path).slice(1).toLowerCase() : '';
+    const matches =
+      !mime ||
+      (mime === 'jpeg' ? ['jpg', 'jpeg'].includes(currentExtension) : currentExtension === mime);
+    if (!path || params.saveAs || !matches) {
+      const defaultPath = extension
+        ? `${String(doc.name).replace(/\.[^.]+$/, '')}.${extension}`
+        : doc.name;
+      const r = await dialog.showSaveDialog(sender.window, {
+        defaultPath,
+        ...(extension
+          ? {
+              filters: [
+                {
+                  name: `${extension.toUpperCase()} image`,
+                  extensions: extension === 'jpg' ? ['jpg', 'jpeg'] : [extension],
+                },
+              ],
+            }
+          : {}),
+      });
+      if (r.canceled) return null;
+      path = r.filePath;
+    }
+    return call('docs.savePath', { appId: params.appId, id: params.id, path, force: params.force });
+  }
+  if (method === 'windows.confirmClose') {
+    const request = flushRequests.get(params.token);
+    if (!request || request.senderId !== event.sender.id)
+      throw Error('Неверное подтверждение закрытия');
+    clearTimeout(request.timer);
+    flushRequests.delete(params.token);
+    params.error ? request.reject(Error(String(params.error))) : request.resolve();
+    return true;
+  }
+  if (method === 'windows.open') return openWindow(params.appId, params.mode || 'window');
+  if (method === 'windows.close') {
+    sender.window.close();
+    return true;
+  }
+  if (method === 'system.media') return host(method, {});
+  if (method === 'system.status')
+    return {
+      platform: process.platform,
+      arch: process.arch,
+      electron: process.versions.electron,
+      node: process.versions.node,
+      login: app.getLoginItemSettings().openAtLogin,
+      windows: [...windows.values()].map((w) => ({ appId: w.appId, mode: w.mode })),
+      backgroundPolicy:
+        'Локальные задания выполняются только при включённом компьютере. Во сне запуски пропускаются или переносятся по политике правила.',
+    };
+  if (method === 'system.login') {
+    app.setLoginItemSettings({ openAtLogin: !!params.enabled });
+    return app.getLoginItemSettings().openAtLogin;
+  }
+  if (method === 'system.shortcut') {
+    const accelerator = z.string().max(80).parse(params.accelerator);
+    if (globalShortcut.isRegistered(accelerator)) throw Error('Сочетание уже занято');
+    const ok = globalShortcut.register(accelerator, () => void openWindow(params.appId, 'quick'));
+    if (!ok) throw Error('Сочетание недоступно или занято другой программой');
+    await call('settings.set', { key: `shortcut:${params.appId || 'shell'}`, value: accelerator });
+    return true;
+  }
+  if (method.startsWith('updates.')) return updates.handle(method);
+  return call(method, params);
+}
+if (!app.requestSingleInstanceLock()) app.quit();
+app.on('second-instance', (_e, argv) => {
+  void openWindow();
+  const file = argv.find((a) => a.endsWith('.everyapp'));
+  if (file) void previewPackage(file);
+});
+app.on('open-file', (event, path) => {
+  event.preventDefault();
+  if (worker) void openWindow().then(() => previewPackage(path));
+  else pendingPackage = path;
+});
+app
+  .whenReady()
+  .then(async () => {
+    await fs.mkdir(root, { recursive: true, mode: 0o700 });
+    session.defaultSession.setPermissionRequestHandler((_wc, _p, cb) => cb(false));
+    session.defaultSession.setPermissionCheckHandler(() => false);
+    if (app.isPackaged)
+      process.env.ESBUILD_BINARY_PATH = join(
+        process.resourcesPath,
+        'app.asar.unpacked/node_modules/@esbuild/darwin-arm64/bin/esbuild',
+      );
+    worker = new Worker(join(__dirname, 'worker.js'), { workerData: { root } });
+    worker.on('message', async (m) => {
+      if (m.kind === 'result') {
+        const request = pending.get(m.id);
+        if (request) {
+          pending.delete(m.id);
+          m.error ? request.reject(Error(m.error)) : request.resolve(m.result);
+        }
+      } else if (m.kind === 'event') {
+        broadcast(m.event);
+        if (m.event.type === 'workspace.changed' && m.event.appId)
+          void extensionViews?.refreshApp(m.event.appId);
+      } else if (m.kind === 'host') {
+        try {
+          worker.postMessage({
+            kind: 'hostResult',
+            id: m.id,
+            result: await host(m.method, m.params),
+          });
+        } catch (e) {
+          worker.postMessage({ kind: 'hostResult', id: m.id, error: String(e) });
+        }
+      }
+    });
+    worker.on('error', (e) => {
+      for (const p of pending.values()) p.reject(e instanceof Error ? e : Error(String(e)));
+      pending.clear();
+      broadcast({
+        type: 'platform.error',
+        message:
+          'Рабочий процесс остановился. Перезапустите платформу; локальные данные сохранены.',
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      worker.once('error', reject);
+      const ready = (m: any) => {
+        if (m.kind === 'ready') {
+          worker.off('message', ready);
+          resolve();
+        }
+      };
+      worker.on('message', ready);
+    });
+    extensionViews = createExtensionViews({
+      call,
+      preloadPath: join(__dirname, '../preload/extension.js'),
+    });
+    ipcMain.handle('platform:call', rendererCall);
+    ipcMain.handle('docs:drop', async (event, params, paths) => {
+      const sender = [...windows.values()].find((w) => w.window.webContents === event.sender);
+      if (!sender || event.senderFrame !== event.sender.mainFrame)
+        throw Error('Недоверенный отправитель');
+      const input = z
+        .object({ appId: z.string().max(200), encoding: z.string().max(50).optional() })
+        .parse(params);
+      const selected = z.array(z.string().min(1).max(4096)).max(100).parse(paths);
+      return openDroppedDocuments(call, input, selected);
+    });
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([
+        {
+          label: 'Everything App',
+          submenu: [
+            { role: 'about' },
+            { label: 'Открыть рабочее пространство', click: () => void openWindow() },
+            { type: 'separator' },
+            { role: 'hide' },
+            { role: 'quit', label: 'Выйти из платформы' },
+          ],
+        },
+        {
+          label: 'Файл',
+          submenu: [
+            {
+              label: 'Импортировать приложение…',
+              accelerator: 'CmdOrCtrl+O',
+              click: async () => {
+                const r = await dialog.showOpenDialog({
+                  properties: ['openFile'],
+                  filters: [{ name: 'Everything App', extensions: ['everyapp'] }],
+                });
+                if (!r.canceled) {
+                  await openWindow();
+                  await previewPackage(r.filePaths[0]);
+                }
+              },
+            },
+          ],
+        },
+        {
+          label: 'Правка',
+          submenu: [
+            { role: 'undo' },
+            { role: 'redo' },
+            { type: 'separator' },
+            { role: 'cut' },
+            { role: 'copy' },
+            { role: 'paste' },
+            { role: 'selectAll' },
+          ],
+        },
+        {
+          label: 'Вид',
+          submenu: [
+            { role: 'reload' },
+            { role: 'toggleDevTools' },
+            { role: 'resetZoom' },
+            { role: 'zoomIn' },
+            { role: 'zoomOut' },
+          ],
+        },
+      ]),
+    );
+    const image = nativeImage.createFromDataURL(
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAFUlEQVQ4T2NkYGD4z0ABYBw1YBgNAwDqDwEfGKzJMgAAAABJRU5ErkJggg==',
+    );
+    image.setTemplateImage(true);
+    tray = new Tray(image);
+    tray.setTitle('◉');
+    tray.setToolTip('Everything App — фоновые приложения');
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: 'Открыть Everything App', click: () => void openWindow() },
+        {
+          label: 'Работающие приложения',
+          click: () => {
+            void openWindow().then(() => broadcast({ type: 'navigate', page: 'inbox' }));
+          },
+        },
+        { type: 'separator' },
+        { label: 'Выйти из платформы', click: () => app.quit() },
+      ]),
+    );
+    powerMonitor.on('resume', () => {
+      void call('runtime.signal', { event: 'resume' });
+      broadcast({ type: 'system.resume' });
+    });
+    powerMonitor.on('suspend', () => {
+      void call('runtime.signal', { event: 'suspend' });
+      broadcast({ type: 'system.suspend' });
+    });
+    screen.on('display-removed', () => {
+      const area = screen.getPrimaryDisplay().workArea;
+      for (const { window } of windows.values()) {
+        const bounds = window.getBounds();
+        if (
+          !screen
+            .getAllDisplays()
+            .some((d) => bounds.x >= d.bounds.x && bounds.x < d.bounds.x + d.bounds.width)
+        )
+          window.setBounds({
+            x: area.x,
+            y: area.y,
+            width: Math.min(bounds.width, area.width),
+            height: Math.min(bounds.height, area.height),
+          });
+      }
+    });
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
+    autoUpdater.allowPrerelease = false;
+    autoUpdater.allowDowngrade = false;
+    const metadata = JSON.parse(await fs.readFile(join(app.getAppPath(), 'package.json'), 'utf8'));
+    const officialRelease =
+      app.isPackaged &&
+      metadata.release?.signed === true &&
+      /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(metadata.release?.repository || '');
+    updates = new UpdateService(
+      autoUpdater,
+      app.getVersion(),
+      officialRelease,
+      (state) => broadcast({ type: 'updates.state', state }),
+      async () => {
+        updateInstalling = true;
+        for (const { window } of windows.values())
+          if (!window.isDestroyed()) window.setEnabled(false);
+        await Promise.all([...windows.values()].map(({ window }) => flushWindow(window)));
+      },
+      () => {
+        updateInstalling = false;
+        for (const { window } of windows.values())
+          if (!window.isDestroyed()) window.setEnabled(true);
+      },
+    );
+    await openWindow();
+    const settings = await call('settings.get');
+    for (const [key, value] of Object.entries(settings || {}))
+      if (key.startsWith('shortcut:') && typeof value === 'string')
+        globalShortcut.register(
+          value,
+          () => void openWindow(key.slice(9) === 'shell' ? undefined : key.slice(9), 'quick'),
+        );
+  })
+  .catch((e) => {
+    console.error('Startup failed', e);
+    app.quit();
+  });
+app.on('window-all-closed', () => {
+  /* Closing a workspace does not stop background work. */
+});
+app.on('activate', () => {
+  if (worker) void openWindow();
+});
+// Squirrel emits this only when staging succeeded, immediately before closing windows.
+// A normal before-quit arrives too late for the updater's window-close sequence.
+nativeUpdater.on('before-quit-for-update', () => {
+  if (!updateInstalling) return;
+  quitting = true;
+  globalShortcut.unregisterAll();
+  // Keep core alive during download/staging; persisted jobs recover if exit wins this flush.
+  try {
+    worker?.postMessage({ kind: 'shutdown' });
+  } catch {
+    /* Native install must still exit if core has already stopped. */
+  }
+});
+app.on('before-quit', (event) => {
+  if (quitting) return;
+  if (!worker) {
+    quitting = true;
+    return;
+  }
+  event.preventDefault();
+  if (quitPending) return;
+  quitPending = true;
+  void Promise.all([...windows.values()].map(({ window }) => flushWindow(window)))
+    .then(async () => {
+      globalShortcut.unregisterAll();
+      const stopped = new Promise<void>((resolve) => worker.once('exit', () => resolve()));
+      worker.postMessage({ kind: 'shutdown' });
+      await stopped;
+      quitting = true;
+      app.quit();
+    })
+    .catch((error) => {
+      quitPending = false;
+      broadcast({ type: 'platform.error', message: String(error) });
+    });
+});
