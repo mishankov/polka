@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { ActionIcon, Alert, Button, Group, Loader, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Alert, Button, Group, Loader, Menu, TextInput, Tooltip } from '@mantine/core';
 import {
   IconClipboard,
   IconSearch,
@@ -8,14 +8,75 @@ import {
   IconTrash,
   IconPlayerPause,
   IconPlayerPlay,
-  IconX,
+  IconDots,
+  IconEye,
+  IconArrowLeft,
+  IconTextSize,
 } from '@tabler/icons-react';
 import {
   clipboardResults,
   type ClipboardState,
   type ClipboardPresentation,
+  type ClipboardClip,
 } from '../../shared/clipboard';
 import { api, errorMessage } from './api';
+
+function clipDate(timestamp: number) {
+  const date = new Date(timestamp);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const day =
+    date.toDateString() === today.toDateString()
+      ? 'Сегодня'
+      : date.toDateString() === yesterday.toDateString()
+        ? 'Вчера'
+        : date.toLocaleDateString('ru', { day: 'numeric', month: 'short' });
+  return `${day}, ${date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function ClipboardPreview({ clip }: { clip: ClipboardClip }) {
+  const [image, setImage] = useState('');
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (clip.kind !== 'image') return;
+    let cancelled = false;
+    setImage('');
+    setError('');
+    void api<string>('clipboardHistory.preview', { id: clip.id })
+      .then((result) => {
+        if (!cancelled) setImage(result);
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(errorMessage(reason));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clip.id, clip.kind, attempt]);
+  return (
+    <div
+      className="clipboard-preview-content"
+      aria-busy={clip.kind === 'image' && !image && !error}
+    >
+      {clip.kind === 'text' ? (
+        <pre>{clip.content}</pre>
+      ) : error ? (
+        <div className="clipboard-empty" role="alert">
+          <p>{error}</p>
+          <Button variant="subtle" color="gray" onClick={() => setAttempt(attempt + 1)}>
+            Повторить
+          </Button>
+        </div>
+      ) : image ? (
+        <img src={image} alt="Просмотр скопированного изображения" />
+      ) : (
+        <Loader size="sm" color="gray" />
+      )}
+    </div>
+  );
+}
 
 export default function ClipboardShelf() {
   const hasOpened = useRef(false);
@@ -37,6 +98,8 @@ export default function ClipboardShelf() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [previewId, setPreviewId] = useState<string>();
+  const [menuOpen, setMenuOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const request = useRef(0);
   const pending = useRef(false);
@@ -46,6 +109,19 @@ export default function ClipboardShelf() {
     results.findIndex((clip) => clip.id === selected),
   );
   const selection = results[index];
+  const preview = state?.clips.find((clip) => clip.id === previewId);
+  function openPreview(id: string) {
+    setSelected(id);
+    setPreviewId(id);
+  }
+  function closeConfirmation() {
+    setConfirmClear(false);
+    requestAnimationFrame(() => input.current?.focus());
+  }
+  function closePreview() {
+    setPreviewId(undefined);
+    requestAnimationFrame(() => input.current?.focus());
+  }
   const refresh = useCallback(async () => {
     const token = ++request.current;
     try {
@@ -69,6 +145,8 @@ export default function ClipboardShelf() {
         setSelected(undefined);
         setError('');
         setConfirmClear(false);
+        setPreviewId(undefined);
+        setMenuOpen(false);
         void refresh();
       }
       if (event.type === 'workspace.beforeClose')
@@ -81,7 +159,7 @@ export default function ClipboardShelf() {
   }, [refresh, applyPresentation]);
   useEffect(() => {
     // The snapshot also carries focus intent if the initial shown event arrived
-    // before React subscribed. Hover must never focus a newly mounted input.
+    // before React subscribed, including the first hover opening.
     if (presentation.visible && presentation.focusSearch) input.current?.focus();
   }, [presentation]);
   useEffect(() => {
@@ -94,7 +172,7 @@ export default function ClipboardShelf() {
   }, [presentation]);
   useEffect(() => {
     document.getElementById(`clip-${selection?.id}`)?.scrollIntoView({ block: 'nearest' });
-  }, [selection?.id]);
+  }, [selection?.id, previewId, confirmClear]);
   async function run(method: string, params = {}) {
     if (pending.current) return;
     pending.current = true;
@@ -114,6 +192,7 @@ export default function ClipboardShelf() {
   return (
     <main
       className={`clipboard-shelf ${presentation.visible ? 'is-open' : hasOpened.current ? 'is-closed' : 'is-idle'}`}
+      data-notched={presentation.topInset > 0 || undefined}
       style={
         {
           '--notch-width': `${presentation.notchWidth}px`,
@@ -133,84 +212,96 @@ export default function ClipboardShelf() {
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           event.preventDefault();
-          if (confirmClear) setConfirmClear(false);
+          if (menuOpen) setMenuOpen(false);
+          else if (confirmClear) closeConfirmation();
+          else if (preview) closePreview();
           else void run('hide');
         }
       }}
     >
       <header className="clipboard-header">
-        <div className="clipboard-header-icon" aria-hidden="true">
-          <IconClipboard size={20} stroke={1.5} />
-        </div>
         <div className="clipboard-heading">
           <h1>Буфер обмена</h1>
-          <span>
-            {state?.preferences.paused ? 'Запись на паузе' : 'Недавние копии · только на этом Mac'}
-          </span>
+          {state?.preferences.paused && <span>Запись на паузе</span>}
         </div>
-        <Tooltip label={state?.preferences.paused ? 'Продолжить запись' : 'Приостановить запись'}>
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="lg"
-            data-active={state?.preferences.paused || undefined}
-            disabled={!state || busy}
-            aria-label={state?.preferences.paused ? 'Продолжить запись' : 'Приостановить запись'}
-            onClick={() => void run('preferences', { paused: !state?.preferences.paused })}
-          >
-            {state?.preferences.paused ? (
-              <IconPlayerPlay size={18} />
-            ) : (
-              <IconPlayerPause size={18} />
-            )}
-          </ActionIcon>
-        </Tooltip>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size="lg"
-          aria-label="Закрыть историю"
-          onClick={() => void run('hide')}
-        >
-          <IconX size={18} />
-        </ActionIcon>
+        <div className="clipboard-header-actions">
+          <Tooltip label={state?.preferences.paused ? 'Продолжить запись' : 'Приостановить запись'}>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="sm"
+              data-active={state?.preferences.paused || undefined}
+              disabled={!state || busy}
+              aria-label={state?.preferences.paused ? 'Продолжить запись' : 'Приостановить запись'}
+              onClick={() => void run('preferences', { paused: !state?.preferences.paused })}
+            >
+              {state?.preferences.paused ? (
+                <IconPlayerPlay size={18} />
+              ) : (
+                <IconPlayerPause size={18} />
+              )}
+            </ActionIcon>
+          </Tooltip>
+          <Menu opened={menuOpen} onChange={setMenuOpen} withinPortal={false} position="bottom-end">
+            <Menu.Target>
+              <ActionIcon variant="subtle" color="gray" size="sm" aria-label="Действия с историей">
+                <IconDots size={18} />
+              </ActionIcon>
+            </Menu.Target>
+            <Menu.Dropdown className="clipboard-menu">
+              <Menu.Item
+                leftSection={<IconTrash size={15} />}
+                disabled={!state?.clips.length || busy}
+                onClick={() => {
+                  setPreviewId(undefined);
+                  setConfirmClear(true);
+                }}
+              >
+                Очистить историю…
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
+        </div>
       </header>
-      <div className="clipboard-search">
-        <TextInput
-          ref={input}
-          aria-label="Найти в истории"
-          placeholder="Найти скопированный текст…"
-          leftSection={<IconSearch size={17} />}
-          value={query}
-          onChange={(event) => {
-            setQuery(event.currentTarget.value);
-            setSelected(undefined);
-          }}
-          role="combobox"
-          aria-expanded="true"
-          aria-controls="clipboard-results"
-          aria-autocomplete="list"
-          aria-activedescendant={selection ? `clip-${selection.id}` : undefined}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              event.preventDefault();
-              const next =
-                results[
-                  Math.max(
-                    0,
-                    Math.min(results.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)),
-                  )
-                ];
-              setSelected(next?.id);
-            }
-            if (event.key === 'Enter' && selection) {
-              event.preventDefault();
-              void run('copy', { id: selection.id });
-            }
-          }}
-        />
-      </div>
+      {!preview && !confirmClear && (
+        <div className="clipboard-search">
+          <TextInput
+            ref={input}
+            aria-label="Найти в истории"
+            placeholder="Найти скопированный текст…"
+            leftSection={<IconSearch size={17} />}
+            value={query}
+            onChange={(event) => {
+              setQuery(event.currentTarget.value);
+              setSelected(undefined);
+            }}
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="clipboard-results"
+            aria-autocomplete="list"
+            aria-activedescendant={selection ? `clip-${selection.id}` : undefined}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const next =
+                  results[
+                    Math.max(
+                      0,
+                      Math.min(results.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)),
+                    )
+                  ];
+                setSelected(next?.id);
+              }
+              if (event.key === 'Enter' && selection) {
+                event.preventDefault();
+                if (event.metaKey) openPreview(selection.id);
+                else void run('copy', { id: selection.id });
+              }
+            }}
+          />
+        </div>
+      )}
       {(error || state?.error) && (
         <Alert className="clipboard-error" color="red">
           {error || state?.error}
@@ -226,17 +317,36 @@ export default function ClipboardShelf() {
               loading={busy}
               onClick={() =>
                 void run('clear').then((ok) => {
-                  if (ok) setConfirmClear(false);
+                  if (ok) closeConfirmation();
                 })
               }
             >
               Удалить всю историю
             </Button>
-            <Button variant="default" onClick={() => setConfirmClear(false)}>
+            <Button variant="default" onClick={closeConfirmation} autoFocus>
               Отмена
             </Button>
           </Group>
         </div>
+      ) : preview ? (
+        <section className="clipboard-preview" aria-label="Просмотр записи">
+          <div className="clipboard-preview-toolbar">
+            <button className="clipboard-back" onClick={closePreview} autoFocus>
+              <IconArrowLeft size={16} />
+              Назад
+            </button>
+            <span>{clipDate(preview.createdAt)}</span>
+            <Button
+              size="compact-sm"
+              variant="default"
+              disabled={busy}
+              onClick={() => void run('copy', { id: preview.id })}
+            >
+              Копировать
+            </Button>
+          </div>
+          <ClipboardPreview key={preview.id} clip={preview} />
+        </section>
       ) : (
         <div
           className="clipboard-results"
@@ -275,27 +385,46 @@ export default function ClipboardShelf() {
                   disabled={busy}
                   onFocus={() => setSelected(clip.id)}
                   onClick={() => void run('copy', { id: clip.id })}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && event.metaKey) {
+                      event.preventDefault();
+                      openPreview(clip.id);
+                    }
+                  }}
                 >
-                  {clip.kind === 'image' ? (
-                    <img src={clip.preview} alt="Скопированное изображение" />
-                  ) : (
-                    <span className="clipboard-text">{clip.preview}</span>
-                  )}
-                  <span className="clipboard-meta">
-                    {clip.pinned && <IconPin size={12} />}
-                    {clip.kind === 'image'
-                      ? 'Изображение'
-                      : `${clip.content.length.toLocaleString('ru')} симв.`}
-                    <span>·</span>
-                    {new Date(clip.createdAt).toLocaleString('ru', {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                  <span className="clipboard-thumbnail">
+                    {clip.kind === 'image' ? (
+                      <img src={clip.preview} alt="Скопированное изображение" />
+                    ) : (
+                      <IconTextSize size={20} stroke={1.5} aria-hidden="true" />
+                    )}
+                  </span>
+                  <span className="clipboard-row-content">
+                    <span className="clipboard-text">
+                      {clip.kind === 'image'
+                        ? 'Изображение'
+                        : clip.preview.trim() || 'Пустой текст'}
+                    </span>
+                    <span className="clipboard-meta">
+                      {clip.pinned && <IconPin size={12} aria-label="Закреплено" />}
+                      {clipDate(clip.createdAt)}
+                    </span>
                   </span>
                 </button>
                 <div className="clipboard-row-actions">
+                  <Tooltip label="Просмотр · ⌘↵">
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      aria-label="Просмотреть запись"
+                      disabled={busy}
+                      onClick={() => {
+                        openPreview(clip.id);
+                      }}
+                    >
+                      <IconEye size={16} />
+                    </ActionIcon>
+                  </Tooltip>
                   <Tooltip label={clip.pinned ? 'Открепить' : 'Закрепить'}>
                     <ActionIcon
                       variant="subtle"
@@ -326,21 +455,32 @@ export default function ClipboardShelf() {
         </div>
       )}
       <footer className="clipboard-footer">
-        <div className="clipboard-shortcuts">
-          <span>
-            <kbd>↑</kbd>
-            <kbd>↓</kbd> выбрать
-          </span>
-          <span>
-            <kbd>↵</kbd> копировать
-          </span>
-          <span>
-            <kbd>esc</kbd> закрыть
-          </span>
-        </div>
-        <button disabled={!state?.clips.length || busy} onClick={() => setConfirmClear(true)}>
-          Очистить…
-        </button>
+        {!preview && !confirmClear && (
+          <div className="clipboard-shortcuts">
+            <span>
+              <kbd>↑</kbd>
+              <kbd>↓</kbd> выбрать
+            </span>
+            <span>
+              <kbd>↵</kbd> копировать
+            </span>
+            <span>
+              <kbd>esc</kbd> закрыть
+            </span>
+          </div>
+        )}
+        {preview ? (
+          <span>esc вернуться к списку</span>
+        ) : confirmClear ? (
+          <span>esc отменить</span>
+        ) : (
+          <button
+            disabled={!selection || busy}
+            onClick={() => selection && openPreview(selection.id)}
+          >
+            ⌘↵ просмотр
+          </button>
+        )}
       </footer>
     </main>
   );

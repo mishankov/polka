@@ -205,17 +205,18 @@ export function createClipboardShelf(
     presentation = {
       revision: revision + 1,
       visible: true,
-      focusSearch: source === 'keyboard',
+      focusSearch: true,
       topInset: geometry.topInset,
       notchWidth: geometry.target.width,
       notchHeight: geometry.target.height,
     };
     window.setIgnoreMouseEvents(false);
     window.setBounds(geometry.panel);
-    if (source === 'keyboard') {
-      window.show();
-      window.focus();
-    } else window.showInactive();
+    // Both entry points are immediately keyboard-operable. Keep the native panel
+    // and its Space behavior; only the shelf receives focus, not the workspace.
+    if (process.platform === 'darwin') app.focus({ steal: true });
+    window.show();
+    window.focus();
     window.webContents.send('platform:event', {
       type: 'clipboardHistory.shown',
       presentation,
@@ -415,6 +416,22 @@ export function createClipboardShelf(
       return true;
     }
     if (method === 'clipboardHistory.state') return state();
+    if (method === 'clipboardHistory.preview') {
+      const id = z.string().parse(params.id);
+      await history.prune();
+      const clip = history.snapshot().clips.find((item) => item.id === id);
+      if (!clip || clip.kind !== 'image') throw Error('Изображение уже удалено');
+      const image = nativeImage.createFromBuffer(Buffer.from(clip.content, 'base64'));
+      const size = image.getSize();
+      if (image.isEmpty()) throw Error('Не удалось открыть изображение');
+      const scale = Math.min(1, 1000 / size.width, 700 / size.height);
+      return image
+        .resize({
+          width: Math.max(1, Math.round(size.width * scale)),
+          height: Math.max(1, Math.round(size.height * scale)),
+        })
+        .toDataURL();
+    }
     if (method === 'clipboardHistory.preferences') {
       const patch = z
         .object({

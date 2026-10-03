@@ -54,6 +54,20 @@ async function main() {
     await expect.poll(async () => (await state()).clips.length).toBe(1);
     const large = (await state()).clips[0];
     assert.equal(large.kind, 'image');
+    const preview = await shell.evaluate(
+      (id) => window.platform.call<string>('clipboardHistory.preview', { id }),
+      large.id,
+    );
+    const previewSize = await app.evaluate(
+      ({ nativeImage }, data) => nativeImage.createFromDataURL(data).getSize(),
+      preview,
+    );
+    assert.equal(
+      previewSize.width,
+      1000,
+      'On-demand preview must use the original image, not the small list thumbnail',
+    );
+    assert(previewSize.height <= 700);
     await shell.evaluate((id) => window.platform.call('clipboardHistory.copy', { id }), large.id);
     const dimensions = await app.evaluate(async ({ clipboard, nativeImage }) => {
       const item = (await clipboard.read())[0];

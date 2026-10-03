@@ -81,6 +81,14 @@ async function main() {
     const search = panel.getByRole('combobox', { name: 'Найти в истории' });
     await expect(search).toBeFocused();
     await expect(panel.getByRole('option')).toHaveCount(2);
+    await search.press('Meta+Enter');
+    await expect(panel.getByRole('region', { name: 'Просмотр записи' })).toBeVisible();
+    await expect(panel.locator('.clipboard-preview pre')).toHaveText(
+      'Второй пример: https://example.com/reference',
+    );
+    await panel.keyboard.press('Escape');
+    await expect(search).toBeFocused();
+    assert(await visible(), 'Closing the preview must keep the shelf open');
     await search.fill('план');
     await expect(panel.getByRole('option')).toHaveCount(1);
     await panel.getByRole('button', { name: 'Закрепить запись', exact: true }).click();
@@ -127,6 +135,16 @@ async function main() {
     });
     await expect.poll(async () => (await clips()).length).toBe(3);
     await expect(panel.getByRole('img', { name: 'Скопированное изображение' })).toBeVisible();
+    const imageRow = panel
+      .locator('.clipboard-row')
+      .filter({ has: panel.getByRole('img', { name: 'Скопированное изображение' }) });
+    await imageRow.hover();
+    await imageRow.getByRole('button', { name: 'Просмотреть запись' }).click();
+    await expect(
+      panel.getByRole('img', { name: 'Просмотр скопированного изображения' }),
+    ).toBeVisible();
+    await panel.getByRole('button', { name: 'Назад', exact: true }).click();
+    await expect(search).toBeFocused();
     await panel
       .getByRole('option')
       .filter({ has: panel.getByRole('img', { name: 'Скопированное изображение' }) })
@@ -137,10 +155,49 @@ async function main() {
     await search.fill('невозможный запрос');
     await panel.getByText('Ничего не найдено').waitFor();
     await search.fill('');
+    const savedIds = (await clips()).map((clip: any) => clip.id);
+    const longText =
+      'Обсудить макет на следующей встрече\n' +
+      'Проверить поиск, изображения и длинные записи.\n'.repeat(20);
+    for (const text of [
+      longText,
+      'npm run typecheck',
+      'https://example.com/design',
+      'Сначала найти, затем скопировать',
+    ]) {
+      const count = (await clips()).length;
+      await copy(text);
+      await expect.poll(async () => (await clips()).length).toBe(count + 1);
+    }
+    await search.fill('Обсудить макет');
+    await search.press('Meta+Enter');
+    await expect(panel.locator('.clipboard-preview pre')).toHaveText(longText);
+    await panel.keyboard.press('Escape');
+    await expect(search).toHaveValue('Обсудить макет');
+    await search.fill('');
+    await expect(panel.getByRole('option')).toHaveCount(7);
+    const rowHeight = await panel
+      .locator('.clipboard-row')
+      .first()
+      .evaluate((el) => el.getBoundingClientRect().height);
+    const availableHeight = await panel
+      .locator('.clipboard-results')
+      .evaluate((el) => el.clientHeight);
+    assert(
+      rowHeight <= 64 && Math.floor((availableHeight - 12) / rowHeight) >= 6,
+      'Shelf must fit at least six compact entries',
+    );
     await search.hover();
     await expect(panel.locator('.mantine-Tooltip-tooltip')).toHaveCount(0);
     await mkdir('artifacts', { recursive: true });
     await panel.screenshot({ path: 'artifacts/clipboard-shelf.png' });
+    for (const clip of await clips()) {
+      if (!savedIds.includes(clip.id))
+        await shell.evaluate(
+          (id) => window.platform.call('clipboardHistory.remove', { id }),
+          clip.id,
+        );
+    }
     await panel.keyboard.press('Escape');
     await expect.poll(visible).toBe(false);
     // Drive the real pointer polling entrypoint with a deterministic top-edge position.
@@ -164,14 +221,39 @@ async function main() {
     await expect.poll(visible).toBe(true);
     assert.equal(
       await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)!.isFocused(), panelId),
-      false,
+      true,
     );
+    await expect(search).toBeFocused();
     await app.evaluate(({ BrowserWindow }, id) => {
       const bounds = BrowserWindow.fromId(id)!.getBounds();
       (globalThis as any).__qaCursor = { x: bounds.x + 100, y: bounds.y + 100 };
     }, panelId);
     await new Promise((resolve) => setTimeout(resolve, 700));
     assert(await visible());
+    // No click or explicit focus: hover alone must enable navigation and copying.
+    await panel.keyboard.press('ArrowDown');
+    await expect(panel.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true');
+    await panel.keyboard.press('ArrowUp');
+    await expect(panel.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+    await panel.keyboard.press('Enter');
+    await expect.poll(visible).toBe(false);
+    assert.equal(
+      await app.evaluate(({ clipboard }) => clipboard.readText()),
+      'Первый пример: план проекта',
+    );
+    // Leave and re-enter the target to check hover departure after explicit dismissal.
+    await app.evaluate(() => {
+      (globalThis as any).__qaCursor = { x: 0, y: 500 };
+    });
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    await app.evaluate(({ screen }) => {
+      const { bounds } = screen.getPrimaryDisplay();
+      (globalThis as any).__qaCursor = {
+        x: Math.round(bounds.x + bounds.width / 2),
+        y: bounds.y + 1,
+      };
+    });
+    await expect.poll(visible).toBe(true);
     await app.evaluate(() => {
       (globalThis as any).__qaCursor = { x: 0, y: 500 };
     });
@@ -237,7 +319,12 @@ async function main() {
     const reopened = app.waitForEvent('window');
     await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
     panel = await reopened;
-    await panel.getByRole('button', { name: 'Очистить…' }).click();
+    await panel.getByRole('button', { name: 'Действия с историей' }).click();
+    await panel.getByRole('menuitem', { name: 'Очистить историю…' }).click();
+    await panel.getByRole('button', { name: 'Отмена', exact: true }).click();
+    await expect(panel.getByRole('option')).toHaveCount(3);
+    await panel.getByRole('button', { name: 'Действия с историей' }).click();
+    await panel.getByRole('menuitem', { name: 'Очистить историю…' }).click();
     await panel.getByRole('button', { name: 'Удалить всю историю', exact: true }).click();
     await expect.poll(async () => (await clips()).length).toBe(0);
     await panel.getByText('Здесь появится скопированное').waitFor();

@@ -52,8 +52,8 @@ async function main() {
       'First hover preserves the app activation policy',
     );
     assert(
-      activation.windows.every((win) => !win.focused),
-      'First hover does not steal focus',
+      activation.windows.find((win) => win.shelf)?.focused,
+      'First hover focuses the shelf for immediate keyboard navigation',
     );
     assert(
       activation.windows.filter((win) => !win.shelf).every((win) => !win.visible),
@@ -62,7 +62,7 @@ async function main() {
     assert(activation.windows.find((win) => win.shelf)?.allSpaces);
     assert.equal(
       await panel.locator('input').evaluate((el) => el === document.activeElement),
-      false,
+      true,
     );
     await app.evaluate(() => {
       (globalThis as any).__qaCursor.y += 100;
@@ -93,6 +93,13 @@ async function main() {
         topRight: css.borderTopRightRadius,
         inset: css.getPropertyValue('--notch-inset'),
         headerTop: header.querySelector('h1')!.getBoundingClientRect().top,
+        titleRight: header.querySelector('h1')!.getBoundingClientRect().right,
+        actionsLeft: header.querySelector('.clipboard-header-actions')!.getBoundingClientRect()
+          .left,
+        actionsTop: header.querySelector('.clipboard-header-actions')!.getBoundingClientRect().top,
+        notchLeft: (element.clientWidth - parseFloat(css.getPropertyValue('--notch-width'))) / 2,
+        notchRight: (element.clientWidth + parseFloat(css.getPropertyValue('--notch-width'))) / 2,
+        searchTop: element.querySelector('.clipboard-search')!.getBoundingClientRect().top,
         animation: css.animationName,
         duration: css.animationDuration,
       };
@@ -101,7 +108,13 @@ async function main() {
     assert.equal(layout.border, '0px');
     assert.equal(layout.topLeft, '0px');
     assert.equal(layout.topRight, '0px');
-    assert(layout.headerTop >= parseFloat(layout.inset));
+    if (parseFloat(layout.inset) > 0) {
+      assert(layout.headerTop < parseFloat(layout.inset), 'Title sits beside the notch');
+      assert(layout.actionsTop < parseFloat(layout.inset), 'Controls sit beside the notch');
+      assert(layout.titleRight < layout.notchLeft, 'Title stays clear of the camera');
+      assert(layout.actionsLeft > layout.notchRight, 'Controls stay clear of the camera');
+      assert(layout.searchTop >= parseFloat(layout.inset), 'Search stays below the camera');
+    }
     assert.equal(layout.animation, 'clipboard-reveal');
     assert.equal(layout.duration, '0.2s');
     const visible = () =>
