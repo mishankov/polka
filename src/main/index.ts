@@ -32,6 +32,7 @@ import { ConnectionCredentials } from './connections';
 import { externalWebUrl } from '../shared/externalLinks';
 import type { AppInstance } from '../shared/types';
 import { createLauncher } from './launcher';
+import { createClipboardShelf } from './clipboard-shelf';
 import { LauncherShortcut } from './launcher-shortcut';
 import { DEFAULT_LAUNCHER_SHORTCUT } from '../shared/launcher';
 import { InstalledApps, readApplicationIcons } from './installed-apps';
@@ -75,6 +76,16 @@ const launcherShortcut = new LauncherShortcut(
     void launcher.toggle()?.catch((error) => console.error('Could not open launcher', error));
   },
   (accelerator) => call('settings.set', { key: 'launcherShortcut', value: accelerator }),
+);
+const clipboardShelf = createClipboardShelf(
+  root,
+  (win) => {
+    windows.set(win.id, { window: win, mode: 'clipboard' });
+    bindSettingsShortcut(win.webContents, showSettings);
+    win.on('closed', () => windows.delete(win.id));
+  },
+  () => broadcast({ type: 'clipboardHistory.changed' }),
+  () => quitting,
 );
 const flushRequests = new Map<
   string,
@@ -200,6 +211,10 @@ async function refreshTrayMenu() {
       Menu.buildFromTemplate([
         { label: 'Открыть Everything App', click: () => void openWindow() },
         { label: 'Запуск приложений', click: () => void launcher.show().catch(console.error) },
+        {
+          label: 'История буфера обмена',
+          click: () => void clipboardShelf.show().catch(console.error),
+        },
         {
           label: 'Работающие приложения',
           click: () => {
@@ -379,6 +394,7 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     throw Error('Недоверенный отправитель');
   rpcSchema.parse([method, params]);
   if (JSON.stringify(params).length > 48 * 1024 * 1024) throw Error('Запрос превышает лимит');
+  if (method.startsWith('clipboardHistory.')) return clipboardShelf.handle(method, params);
   if (method === 'launcher.show') {
     await launcher.show();
     return true;
@@ -734,6 +750,10 @@ app
             { type: 'separator' },
             { label: 'Открыть рабочее пространство', click: () => void openWindow() },
             { label: 'Запуск приложений', click: () => void launcher.show().catch(console.error) },
+            {
+              label: 'История буфера обмена',
+              click: () => void clipboardShelf.show().catch(console.error),
+            },
             { type: 'separator' },
             { role: 'hide' },
             { role: 'quit', label: 'Выйти из платформы' },
@@ -791,13 +811,17 @@ app
     tray.setToolTip('Everything App — фоновые приложения');
     await refreshTrayMenu();
     powerMonitor.on('resume', () => {
+      clipboardShelf.resume();
       void call('runtime.signal', { event: 'resume' });
       broadcast({ type: 'system.resume' });
     });
     powerMonitor.on('suspend', () => {
+      clipboardShelf.suspend();
       void call('runtime.signal', { event: 'suspend' });
       broadcast({ type: 'system.suspend' });
     });
+    powerMonitor.on('lock-screen', () => clipboardShelf.suspend('lock'));
+    powerMonitor.on('unlock-screen', () => clipboardShelf.resume('lock'));
     screen.on('display-removed', () => {
       const area = screen.getPrimaryDisplay().workArea;
       for (const { window } of windows.values()) {
@@ -854,6 +878,7 @@ app
         ? settings.launcherShortcut
         : DEFAULT_LAUNCHER_SHORTCUT,
     );
+    await clipboardShelf.start();
   })
   .catch((e) => {
     console.error('Startup failed', e);
@@ -871,6 +896,7 @@ nativeUpdater.on('before-quit-for-update', () => {
   if (!updateInstalling) return;
   quitting = true;
   globalShortcut.unregisterAll();
+  void clipboardShelf.stop();
   // Keep core alive during download/staging; persisted jobs recover if exit wins this flush.
   try {
     worker?.postMessage({ kind: 'shutdown' });
@@ -890,6 +916,7 @@ app.on('before-quit', (event) => {
   void Promise.all([...windows.values()].map(({ window }) => flushWindow(window)))
     .then(async () => {
       globalShortcut.unregisterAll();
+      await clipboardShelf.stop();
       const stopped = new Promise<void>((resolve) => worker.once('exit', () => resolve()));
       worker.postMessage({ kind: 'shutdown' });
       await stopped;

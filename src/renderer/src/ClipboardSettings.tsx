@@ -1,0 +1,151 @@
+import { useEffect, useState } from 'react';
+import { Alert, Button, Group, Select, Stack, Switch, Text, TextInput } from '@mantine/core';
+import type { ClipboardState } from '../../shared/clipboard';
+import { shortcutLabel } from '../../shared/launcher';
+import { api, errorMessage } from './api';
+
+export default function ClipboardSettings() {
+  const [state, setState] = useState<ClipboardState>();
+  const [error, setError] = useState('');
+  const [recording, setRecording] = useState(false);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let active = true;
+    const refresh = () =>
+      void api<ClipboardState>('clipboardHistory.state')
+        .then((next) => {
+          if (active) setState(next);
+        })
+        .catch((reason) => {
+          if (active) setError(errorMessage(reason));
+        });
+    refresh();
+    const unsubscribe = window.platform.onEvent((event) => {
+      if (event.type === 'clipboardHistory.changed') refresh();
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+  async function save(method: string, params: Record<string, unknown>) {
+    setSaving(true);
+    setError('');
+    setRecording(false);
+    try {
+      setState(await api(`clipboardHistory.${method}`, params));
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <Stack gap="sm" className="clipboard-settings">
+      <Text size="sm" fw={500}>
+        История буфера обмена
+      </Text>
+      <Text size="sm" c="dimmed">
+        Наведите указатель на вырез камеры и задержите его, затем переместите вниз к истории. На
+        других мониторах — к середине верхнего края. Выбор записи копирует её снова; вставьте её
+        обычным сочетанием ⌘ V.
+      </Text>
+      <Switch
+        label="Сохранять скопированный текст и изображения"
+        checked={!!state && !state.preferences.paused}
+        disabled={!state || saving}
+        onChange={(event) => void save('preferences', { paused: !event.currentTarget.checked })}
+      />
+      <Switch
+        label="Открывать историю при наведении к вырезу камеры"
+        checked={state?.preferences.hoverEnabled || false}
+        disabled={!state || saving}
+        onChange={(event) =>
+          void save('preferences', { hoverEnabled: event.currentTarget.checked })
+        }
+      />
+      <Select
+        label="Хранить незакреплённые записи"
+        value={String(state?.preferences.retentionDays || 7)}
+        data={[
+          { value: '1', label: '1 день' },
+          { value: '7', label: '7 дней' },
+          { value: '30', label: '30 дней' },
+        ]}
+        disabled={!state || saving}
+        onChange={(value) => {
+          if (value) void save('preferences', { retentionDays: Number(value) });
+        }}
+      />
+      <TextInput
+        label="Сочетание для истории буфера"
+        readOnly
+        disabled={!state || saving}
+        value={
+          recording
+            ? ''
+            : state?.preferences.accelerator
+              ? shortcutLabel(state.preferences.accelerator)
+              : 'Не назначено'
+        }
+        placeholder="Нажмите сочетание клавиш…"
+        onFocus={() => setRecording(true)}
+        onBlur={() => setRecording(false)}
+        onKeyDown={(event) => {
+          if (!recording) return;
+          if (event.key === 'Tab') {
+            setRecording(false);
+            return;
+          }
+          event.preventDefault();
+          if (event.key === 'Escape') {
+            setRecording(false);
+            return;
+          }
+          const key =
+            event.code === 'Space'
+              ? 'Space'
+              : /^Key[A-Z]$/.test(event.code)
+                ? event.code.slice(3)
+                : /^Digit[0-9]$/.test(event.code)
+                  ? event.code.slice(5)
+                  : /^F(?:[1-9]|1[0-2])$/.test(event.code)
+                    ? event.code
+                    : '';
+          if (!key || !(event.metaKey || event.ctrlKey || event.altKey)) return;
+          const modifiers = [
+            event.metaKey && 'CommandOrControl',
+            event.ctrlKey && 'Control',
+            event.altKey && 'Alt',
+            event.shiftKey && 'Shift',
+          ].filter(Boolean);
+          void save('shortcut', { accelerator: [...modifiers, key].join('+') });
+          event.currentTarget.blur();
+        }}
+      />
+      {(error || state?.error) && <Alert color="red">{error || state?.error}</Alert>}
+      <Group>
+        <Button
+          variant="default"
+          onClick={() =>
+            void api('clipboardHistory.show').catch((reason) => setError(errorMessage(reason)))
+          }
+        >
+          Открыть историю буфера
+        </Button>
+        <Button
+          variant="subtle"
+          disabled={!state?.preferences.accelerator || saving}
+          onClick={() => void save('shortcut', { accelerator: '' })}
+        >
+          Отключить сочетание
+        </Button>
+      </Group>
+      <Text size="xs" c="dimmed">
+        История хранится локально в зашифрованном виде: до 200 записей и 128 МБ. Закреплённые записи
+        сохраняются дольше выбранного срока. Данные, помеченные программой как конфиденциальные или
+        временные, пропускаются.
+      </Text>
+    </Stack>
+  );
+}

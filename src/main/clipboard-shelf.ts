@@ -1,0 +1,497 @@
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  ClipboardItem,
+  globalShortcut,
+  nativeImage,
+  safeStorage,
+  screen,
+} from 'electron';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { join } from 'node:path';
+import { z } from 'zod';
+import {
+  ClipboardHistory,
+  clipboardContentType,
+  excludedClipboardType,
+  MAX_IMAGE_BYTES,
+} from './clipboard-history';
+import { ClipboardHover, contains, shelfGeometry, type Notch } from './clipboard-hover';
+import { LauncherShortcut } from './launcher-shortcut';
+import type { ClipboardState, ClipboardPresentation } from '../shared/clipboard';
+
+export function createClipboardShelf(
+  root: string,
+  register: (win: BrowserWindow) => void,
+  notify: () => void,
+  isQuitting: () => boolean,
+) {
+  let window: BrowserWindow | undefined;
+  let loading: Promise<void> | undefined;
+  let requested = false;
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
+  let presentation: ClipboardPresentation = {
+    revision: 0,
+    visible: false,
+    focusSearch: false,
+    topInset: 0,
+    notchWidth: 96,
+    notchHeight: 3,
+  };
+  let openedBy: 'hover' | 'keyboard' = 'keyboard';
+  let displayId: number | undefined;
+  let probe: ChildProcess | undefined;
+  let hoverTimer: ReturnType<typeof setInterval> | undefined;
+  let expiryTimer: ReturnType<typeof setInterval> | undefined;
+  let disposed = false;
+  const suspensions = new Set<string>();
+  let captureBusy = false;
+  let captureAgain = false;
+  let generation = 0;
+  let error = '';
+  let initialized = false;
+  let notches: Notch[] = [];
+  let receivedScreenGeometry = false;
+  const hover = new ClipboardHover();
+  function changed() {
+    notify();
+  }
+  const history = new ClipboardHistory(
+    join(root, 'clipboard-history', 'history.enc'),
+    {
+      encode: (value) => {
+        if (!safeStorage.isEncryptionAvailable())
+          throw Error('Защищённое хранилище macOS недоступно');
+        return safeStorage.encryptString(value);
+      },
+      decode: (value) => safeStorage.decryptString(value),
+    },
+    changed,
+  );
+  const shortcut = new LauncherShortcut(
+    globalShortcut,
+    () => {
+      void (requested ? Promise.resolve(hide()) : show('keyboard')).catch(failed);
+    },
+    (accelerator) => history.preferences({ accelerator }),
+  );
+  function failed(reason: unknown) {
+    error = reason instanceof Error ? reason.message : String(reason);
+    changed();
+  }
+  function state(): ClipboardState {
+    const snapshot = history.snapshot();
+    return {
+      ...snapshot,
+      // Image originals stay in the main process; only small thumbnails cross IPC.
+      clips: snapshot.clips.map((clip) => ({
+        ...clip,
+        content: clip.kind === 'image' ? '' : clip.content,
+      })),
+      registered: shortcut.getPreferences().registered,
+      error: error || shortcut.getPreferences().error,
+    };
+  }
+  function finishHide(revision: number) {
+    if (presentation.revision !== revision || requested) return;
+    clearTimeout(hideTimer);
+    hideTimer = undefined;
+    if (window && !window.isDestroyed()) window.hide();
+  }
+  function hide(animate = true) {
+    requested = false;
+    hover.dismiss();
+    if (!window || window.isDestroyed() || !window.isVisible()) return;
+    if (hideTimer && animate) return;
+    clearTimeout(hideTimer);
+    presentation = { ...presentation, visible: false, revision: presentation.revision + 1 };
+    window.setIgnoreMouseEvents(true);
+    if (!animate) {
+      finishHide(presentation.revision);
+      return;
+    }
+    window.webContents.send('platform:event', {
+      type: 'clipboardHistory.presentation',
+      presentation,
+    });
+    // The renderer confirms animation completion; this also works if it stops responding.
+    const revision = presentation.revision;
+    hideTimer = setTimeout(() => finishHide(revision), 240);
+  }
+  async function show(source: 'hover' | 'keyboard' = 'keyboard') {
+    if (disposed || suspensions.size > 0) return;
+    clearTimeout(hideTimer);
+    hideTimer = undefined;
+    requested = true;
+    const revision = presentation.revision + 1;
+    presentation = { ...presentation, revision };
+    openedBy = source;
+    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    displayId = display.id;
+    const geometry = shelfGeometry(
+      display.bounds,
+      notches.find((item) => item.id === display.id),
+    );
+    if (!window || window.isDestroyed()) {
+      const win = new BrowserWindow({
+        ...geometry.panel,
+        show: false,
+        frame: false,
+        // CSS owns the bottom curve; native rounding must not cut the top corners.
+        roundedCorners: false,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        title: 'История буфера обмена',
+        transparent: true,
+        enableLargerThanScreen: true,
+        hasShadow: false,
+        backgroundColor: '#00000000',
+        ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),
+        webPreferences: {
+          preload: join(__dirname, '../preload/index.js'),
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+        },
+      });
+      window = win;
+      register(win);
+      // A nonactivating panel can join Spaces without transforming the entire app
+      // (which hides its Dock icon and can disturb the current Space on first open).
+      win.setVisibleOnAllWorkspaces(true, {
+        visibleOnFullScreen: true,
+        skipTransformProcessType: true,
+      });
+      win.setAlwaysOnTop(true, 'pop-up-menu');
+      win.on('blur', () => hide());
+      win.on('close', (event) => {
+        if (!isQuitting()) {
+          event.preventDefault();
+          hide();
+        }
+      });
+      win.on('closed', () => {
+        if (window === win) {
+          window = undefined;
+          requested = false;
+        }
+      });
+      win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      win.webContents.on('will-navigate', (event) => event.preventDefault());
+      win.webContents.on('will-attach-webview', (event) => event.preventDefault());
+      loading = process.env.ELECTRON_RENDERER_URL
+        ? win.loadURL(`${process.env.ELECTRON_RENDERER_URL}?mode=clipboard`)
+        : win.loadFile(join(__dirname, '../renderer/index.html'), { query: { mode: 'clipboard' } });
+      loading.catch(() => {
+        requested = false;
+        win.destroy();
+      });
+    }
+    await loading;
+    if (
+      !requested ||
+      !window ||
+      window.isDestroyed() ||
+      disposed ||
+      presentation.revision !== revision
+    )
+      return;
+    presentation = {
+      revision: revision + 1,
+      visible: true,
+      focusSearch: source === 'keyboard',
+      topInset: geometry.topInset,
+      notchWidth: geometry.target.width,
+      notchHeight: geometry.target.height,
+    };
+    window.setIgnoreMouseEvents(false);
+    window.setBounds(geometry.panel);
+    if (source === 'keyboard') {
+      window.show();
+      window.focus();
+    } else window.showInactive();
+    window.webContents.send('platform:event', {
+      type: 'clipboardHistory.shown',
+      presentation,
+    });
+  }
+  async function capture() {
+    if (disposed || suspensions.size > 0 || !initialized || history.getPreferences().paused) return;
+    if (captureBusy) {
+      captureAgain = true;
+      return;
+    }
+    captureBusy = true;
+    const currentGeneration = generation;
+    try {
+      const items = await clipboard.read();
+      if (items.some((item) => excludedClipboardType(item.types))) {
+        return;
+      }
+      for (const item of items) {
+        const mime = clipboardContentType(item.types);
+        if (!mime) continue;
+        const blob = await item.getType(mime);
+        const kind = mime === 'text/plain' ? 'text' : 'image';
+        if (blob.size > (kind === 'text' ? 1024 * 1024 : MAX_IMAGE_BYTES))
+          throw Error(
+            kind === 'image'
+              ? 'Изображение не сохранено: размер превышает 32 МБ. Скопируйте меньшую область.'
+              : 'Текст не сохранён: размер превышает 1 МБ.',
+          );
+        let content: string, preview: string;
+        if (kind === 'image') {
+          const bytes = Buffer.from(await blob.arrayBuffer());
+          const image = nativeImage.createFromBuffer(bytes);
+          if (image.isEmpty())
+            throw Error(
+              'Не удалось прочитать скопированное изображение. Попробуйте скопировать его ещё раз.',
+            );
+          const png = mime === 'image/png' ? bytes : image.toPNG();
+          if (png.length > MAX_IMAGE_BYTES)
+            throw Error(
+              'Изображение не сохранено: размер PNG превышает 32 МБ. Скопируйте меньшую область.',
+            );
+          content = png.toString('base64');
+          const size = image.getSize();
+          const scale = Math.min(1, 240 / size.width, 100 / size.height);
+          preview = image
+            .resize({
+              width: Math.max(1, Math.round(size.width * scale)),
+              height: Math.max(1, Math.round(size.height * scale)),
+            })
+            .toDataURL();
+        } else {
+          content = await blob.text();
+          preview = content.slice(0, 400);
+        }
+        if (
+          currentGeneration !== generation ||
+          suspensions.size > 0 ||
+          disposed ||
+          history.getPreferences().paused
+        )
+          return;
+        await history.add(kind, content, preview);
+        if (error) {
+          error = '';
+          changed();
+        }
+        return;
+      }
+    } catch (reason) {
+      failed(reason);
+    } finally {
+      captureBusy = false;
+      if (captureAgain) {
+        captureAgain = false;
+        void capture();
+      }
+    }
+  }
+  function tick() {
+    if (suspensions.size > 0 || disposed) return;
+    const point = screen.getCursorScreenPoint();
+    const display = requested
+      ? screen.getAllDisplays().find((display) => display.id === displayId)
+      : screen.getDisplayNearestPoint(point);
+    if (!display) {
+      hide();
+      return;
+    }
+    const geometry = shelfGeometry(
+      display.bounds,
+      notches.find((item) => item.id === display.id),
+    );
+    if (requested && openedBy === 'keyboard') return;
+    if (!history.getPreferences().hoverEnabled && !requested) return;
+    const action = hover.step(
+      Date.now(),
+      contains(geometry.target, point),
+      contains(geometry.corridor, point),
+      requested,
+    );
+    if (action === 'show') void show('hover').catch(failed);
+    if (action === 'hide') hide();
+  }
+  const displayChanged = () => {
+    hide(false);
+  };
+  async function start() {
+    try {
+      await history.initialize();
+      initialized = true;
+      shortcut.initialize(history.getPreferences().accelerator);
+      const probePath = app.isPackaged
+        ? join(process.resourcesPath, 'clipboard-probe')
+        : join(app.getAppPath(), 'build/clipboard-probe');
+      await new Promise<void>((resolve, reject) => {
+        probe = spawn(probePath, [], { stdio: ['ignore', 'pipe', 'ignore'] });
+        const timeout = setTimeout(() => {
+          probe?.kill();
+          reject(Error('Не удалось запустить наблюдение за буфером обмена'));
+        }, 5000);
+        const lines = createInterface({ input: probe.stdout! });
+        probe.on('error', (reason) => {
+          clearTimeout(timeout);
+          reject(reason);
+          failed(
+            Error(
+              'Наблюдение за буфером недоступно. Перезапустите приложение после сборки native:build.',
+            ),
+          );
+        });
+        probe.on('exit', () => {
+          clearTimeout(timeout);
+          lines.close();
+          if (!disposed) {
+            const reason = Error('Наблюдение за буфером остановлено. Перезапустите приложение.');
+            failed(reason);
+            reject(reason);
+          }
+        });
+        lines.on('line', (line) => {
+          try {
+            const message = JSON.parse(line);
+            if (message.type === 'ready') {
+              clearTimeout(timeout);
+              resolve();
+            }
+            if (message.type === 'clipboard') void capture();
+            if (message.type === 'screens') {
+              const initialGeometry = !receivedScreenGeometry;
+              notches = z
+                .array(
+                  z.object({
+                    id: z.number(),
+                    x: z.number(),
+                    width: z.number(),
+                    height: z.number(),
+                  }),
+                )
+                .parse(message.displays);
+              receivedScreenGeometry = true;
+              if (requested) {
+                // The first snapshot may arrive after the user opens the shelf.
+                // Apply its geometry without treating startup as a monitor change.
+                if (initialGeometry) void show(openedBy).catch(failed);
+                else hide();
+              }
+            }
+          } catch (reason) {
+            failed(reason);
+          }
+        });
+      });
+    } catch (reason) {
+      failed(reason);
+    }
+    hoverTimer = setInterval(tick, 80);
+    expiryTimer = setInterval(() => {
+      void history.prune().catch(failed);
+    }, 60000);
+    screen.on('display-removed', displayChanged);
+    screen.on('display-metrics-changed', displayChanged);
+    changed();
+  }
+  async function handle(method: string, params: Record<string, unknown>) {
+    if (method === 'clipboardHistory.presentation') return presentation;
+    if (method === 'clipboardHistory.didHide') {
+      finishHide(z.number().int().parse(params.revision));
+      return true;
+    }
+    if (method === 'clipboardHistory.show') {
+      await show();
+      return true;
+    }
+    if (method === 'clipboardHistory.hide') {
+      hide();
+      return true;
+    }
+    if (method === 'clipboardHistory.state') return state();
+    if (method === 'clipboardHistory.preferences') {
+      const patch = z
+        .object({
+          paused: z.boolean().optional(),
+          hoverEnabled: z.boolean().optional(),
+          retentionDays: z.union([z.literal(1), z.literal(7), z.literal(30)]).optional(),
+        })
+        .strict()
+        .parse(params);
+      generation++;
+      await history.preferences(patch);
+    } else if (method === 'clipboardHistory.shortcut') {
+      const accelerator = z.string().max(80).parse(params.accelerator);
+      if (
+        accelerator &&
+        (!/^(?:(?:CommandOrControl|Control|Alt|Shift)\+)+(?:[A-Z0-9]|Space|F(?:[1-9]|1[0-2]))$/.test(
+          accelerator,
+        ) ||
+          !/(CommandOrControl|Control|Alt)\+/.test(accelerator))
+      )
+        throw Error('Выберите сочетание с Command, Control или Option');
+      await shortcut.set(accelerator);
+      changed();
+    } else if (method === 'clipboardHistory.clear') {
+      generation++;
+      await history.clear();
+    } else if (method === 'clipboardHistory.remove') {
+      generation++;
+      await history.remove(z.string().parse(params.id));
+    } else if (method === 'clipboardHistory.pin')
+      await history.pin(z.string().parse(params.id), z.boolean().parse(params.pinned));
+    else if (method === 'clipboardHistory.copy') {
+      await history.prune();
+      const clip = history.snapshot().clips.find((item) => item.id === params.id);
+      if (!clip) throw Error('Запись уже удалена');
+      generation++;
+      await clipboard.write([
+        new ClipboardItem({
+          ...(clip.kind === 'text'
+            ? { 'text/plain': clip.content }
+            : {
+                'image/png': new Blob([Buffer.from(clip.content, 'base64')], { type: 'image/png' }),
+              }),
+          'electron application/osclipboard;format="org.nspasteboard.AutoGeneratedType"': new Blob([
+            '',
+          ]),
+        }),
+      ]);
+      hide();
+      return true;
+    } else throw Error('Неизвестная операция истории буфера');
+    return state();
+  }
+  async function stop() {
+    disposed = true;
+    generation++;
+    clearTimeout(hideTimer);
+    clearInterval(hoverTimer);
+    clearInterval(expiryTimer);
+    probe?.kill();
+    screen.removeListener('display-removed', displayChanged);
+    screen.removeListener('display-metrics-changed', displayChanged);
+    await history.flush();
+  }
+  return {
+    start,
+    stop,
+    handle,
+    show,
+    hide,
+    suspend(reason = 'sleep') {
+      suspensions.add(reason);
+      generation++;
+      hide(false);
+    },
+    resume(reason = 'sleep') {
+      suspensions.delete(reason);
+    },
+  };
+}

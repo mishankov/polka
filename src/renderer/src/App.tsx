@@ -52,7 +52,9 @@ import Inbox from './Inbox';
 import { flushDocuments } from './documentFlush';
 import StandaloneApp from './StandaloneApp';
 import Launcher from './Launcher';
+import ClipboardShelf from './ClipboardShelf';
 export default function App() {
+  if (new URLSearchParams(location.search).get('mode') === 'clipboard') return <ClipboardShelf />;
   if (new URLSearchParams(location.search).get('mode') === 'launcher') return <Launcher />;
   const appId = new URLSearchParams(location.search).get('appId');
   return appId ? <StandaloneApp appId={appId} /> : <Workspace />;
