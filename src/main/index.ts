@@ -30,6 +30,7 @@ import { createExtensionViews } from './extension-views';
 import { ConnectionCredentials } from './connections';
 import { readDocumentClipboard, writeDocumentClipboard } from './documentClipboard';
 import { externalWebUrl } from '../shared/externalLinks';
+import type { AppInstance } from '../shared/types';
 const execFileAsync = promisify(execFile);
 if (process.env.EVERYTHING_PROFILE) app.setPath('userData', process.env.EVERYTHING_PROFILE);
 const windows = new Map<number, { window: BrowserWindow; appId?: string; mode: string }>(),
@@ -145,19 +146,79 @@ const connections = new ConnectionCredentials({
   writeSecret: (id, value) => host('secret.write', { id, value }),
   removeSecret: (id) => fs.rm(secretPath(id), { force: true }),
 });
-async function openWindow(appId?: string, mode = 'window') {
+let trayRefresh = 0;
+let trayAppsKey: string | undefined;
+async function refreshTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  const refresh = ++trayRefresh;
+  try {
+    const apps: AppInstance[] = await call('apps.list');
+    if (refresh !== trayRefresh || !tray || tray.isDestroyed()) return;
+    const listed = apps
+      .filter((instance) => instance.status !== 'archived')
+      .sort(
+        (a, b) =>
+          Number(b.favorite) - Number(a.favorite) ||
+          a.name.localeCompare(b.name, 'ru') ||
+          a.id.localeCompare(b.id),
+      );
+    const key = JSON.stringify(listed.map(({ id, name }) => [id, name]));
+    if (key === trayAppsKey) return;
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: 'Открыть Everything App', click: () => void openWindow() },
+        {
+          label: 'Работающие приложения',
+          click: () => {
+            void openWindow().then(() => broadcast({ type: 'navigate', page: 'inbox' }));
+          },
+        },
+        { type: 'separator' },
+        ...(listed.length
+          ? listed.map((instance) => ({
+              id: `app:${instance.id}`,
+              label: instance.name,
+              click: () => {
+                void openWindow(instance.id).catch((error) => {
+                  dialog.showErrorBox('Не удалось открыть приложение', String(error));
+                });
+              },
+            }))
+          : [{ label: 'Пока нет приложений', enabled: false }]),
+        { type: 'separator' },
+        { label: 'Выйти из платформы', click: () => app.quit() },
+      ]),
+    );
+    trayAppsKey = key;
+  } catch (error) {
+    console.error('Could not refresh tray apps', error);
+  }
+}
+async function windowPreferences(appId: string) {
+  await call('apps.get', { appId });
+  const alwaysOnTop = await call('settings.get', { key: `window:${appId}:alwaysOnTop` });
+  return { alwaysOnTop: alwaysOnTop === true };
+}
+function applyWindowPreferences(win: BrowserWindow, alwaysOnTop: boolean) {
+  win.setAlwaysOnTop(alwaysOnTop, 'floating');
+  win.setVisibleOnAllWorkspaces(alwaysOnTop, { visibleOnFullScreen: alwaysOnTop });
+}
+async function openWindow(appId?: string) {
+  const mode = 'window';
   // Opening an app also resumes it, including when its window already exists.
   const instance = appId ? await call('apps.start', { appId }) : undefined;
-  const existing = [...windows.values()].find((w) => w.appId === appId && w.mode === mode);
+  const existing = [...windows.values()].find((w) => w.appId === appId);
   if (existing) {
+    if (existing.window.isMinimized()) existing.window.restore();
     existing.window.show();
     existing.window.focus();
     return existing.window.id;
   }
   const geometry = await call('settings.get', { key: `window:${appId || 'shell'}:${mode}` });
+  const preferences = appId ? await windowPreferences(appId) : { alwaysOnTop: false };
   const display = screen.getPrimaryDisplay().workArea;
-  const width = Math.min(geometry?.width || (mode === 'quick' ? 620 : 1280), display.width),
-    height = Math.min(geometry?.height || (mode === 'quick' ? 460 : 840), display.height);
+  const width = Math.min(geometry?.width || 1280, display.width),
+    height = Math.min(geometry?.height || 840, display.height);
   const visible =
     geometry &&
     screen
@@ -176,9 +237,11 @@ async function openWindow(appId?: string, mode = 'window') {
     minWidth: 560,
     minHeight: 420,
     title: instance?.name || 'Everything App',
-    titleBarStyle: appId ? 'default' : 'hiddenInset',
+    titleBarStyle: 'hiddenInset',
+    // Center the 14px macOS controls in the standalone renderer's 48px title bar.
+    ...(appId && process.platform === 'darwin' ? { trafficLightPosition: { x: 12, y: 17 } } : {}),
     backgroundColor: '#f5f5f3',
-    alwaysOnTop: mode === 'overlay',
+    alwaysOnTop: preferences.alwaysOnTop,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -187,12 +250,7 @@ async function openWindow(appId?: string, mode = 'window') {
       webviewTag: false,
     },
   });
-  if (mode === 'overlay') {
-    // Keep this floating window at the same screen position in every macOS Space,
-    // including Spaces occupied by a full-screen app.
-    win.setAlwaysOnTop(true, 'floating');
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  }
+  if (appId) applyWindowPreferences(win, preferences.alwaysOnTop);
   windows.set(win.id, { window: win, appId, mode });
   if (updateInstalling) win.setEnabled(false);
   let closing = false;
@@ -409,7 +467,25 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     params.error ? request.reject(Error(String(params.error))) : request.resolve();
     return true;
   }
-  if (method === 'windows.open') return openWindow(params.appId, params.mode || 'window');
+  // Legacy mode parameters also resolve to the app's single separate window.
+  if (method === 'windows.open') return openWindow(params.appId);
+  if (method === 'windows.getPreferences') {
+    const appId = z.string().min(1).max(200).parse(params.appId);
+    return windowPreferences(appId);
+  }
+  if (method === 'windows.setPreferences') {
+    const { appId, alwaysOnTop } = z
+      .object({ appId: z.string().min(1).max(200), alwaysOnTop: z.boolean() })
+      .parse(params);
+    await call('apps.get', { appId });
+    await call('settings.set', { key: `window:${appId}:alwaysOnTop`, value: alwaysOnTop });
+    for (const entry of windows.values())
+      if (entry.appId === appId && !entry.window.isDestroyed())
+        applyWindowPreferences(entry.window, alwaysOnTop);
+    const preferences = { alwaysOnTop };
+    broadcast({ type: 'windows.preferencesChanged', appId, preferences });
+    return preferences;
+  }
   if (method === 'windows.close') {
     sender.window.close();
     return true;
@@ -433,7 +509,7 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
   if (method === 'system.shortcut') {
     const accelerator = z.string().max(80).parse(params.accelerator);
     if (globalShortcut.isRegistered(accelerator)) throw Error('Сочетание уже занято');
-    const ok = globalShortcut.register(accelerator, () => void openWindow(params.appId, 'quick'));
+    const ok = globalShortcut.register(accelerator, () => void openWindow(params.appId));
     if (!ok) throw Error('Сочетание недоступно или занято другой программой');
     await call('settings.set', { key: `shortcut:${params.appId || 'shell'}`, value: accelerator });
     return true;
@@ -473,6 +549,7 @@ app
         }
       } else if (m.kind === 'event') {
         broadcast(m.event);
+        if (m.event.type === 'workspace.changed') void refreshTrayMenu();
         if (m.event.type === 'workspace.changed' && m.event.appId)
           void extensionViews?.refreshApp(m.event.appId);
       } else if (m.kind === 'host') {
@@ -583,19 +660,7 @@ app
     tray = new Tray(image);
     tray.setTitle('◉');
     tray.setToolTip('Everything App — фоновые приложения');
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: 'Открыть Everything App', click: () => void openWindow() },
-        {
-          label: 'Работающие приложения',
-          click: () => {
-            void openWindow().then(() => broadcast({ type: 'navigate', page: 'inbox' }));
-          },
-        },
-        { type: 'separator' },
-        { label: 'Выйти из платформы', click: () => app.quit() },
-      ]),
-    );
+    await refreshTrayMenu();
     powerMonitor.on('resume', () => {
       void call('runtime.signal', { event: 'resume' });
       broadcast({ type: 'system.resume' });
@@ -653,7 +718,7 @@ app
       if (key.startsWith('shortcut:') && typeof value === 'string')
         globalShortcut.register(
           value,
-          () => void openWindow(key.slice(9) === 'shell' ? undefined : key.slice(9), 'quick'),
+          () => void openWindow(key.slice(9) === 'shell' ? undefined : key.slice(9)),
         );
   })
   .catch((e) => {

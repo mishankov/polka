@@ -25,7 +25,7 @@
     "test:documents": "tsx scripts/document-workflows-smoke.ts",
     "test:extensions": "tsx scripts/extensions-smoke.ts",
     "test:packages": "tsx scripts/package-workflows-smoke.ts",
-    "test:workflows": "npm run test:documents && npm run test:extensions && npm run test:packages && npm run test:provider && npm run test:streaming && npm run test:window-close && npm run test:auto-start",
+    "test:workflows": "npm run test:documents && npm run test:extensions && npm run test:packages && npm run test:provider && npm run test:streaming && npm run test:window-close && npm run test:auto-start && npm run test:tray && npm run test:window-settings",
     "test:packaged:workflows": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" npm run test:workflows",
     "test:provider": "tsx scripts/provider-smoke.ts",
     "test:packaged:provider": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" tsx scripts/provider-smoke.ts",
@@ -34,6 +34,8 @@
     "test:window-close": "tsx scripts/window-close-smoke.ts",
     "test:packaged:window-close": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" tsx scripts/window-close-smoke.ts",
     "test:auto-start": "tsx scripts/auto-start-smoke.ts",
+    "test:tray": "tsx scripts/tray-apps-smoke.ts",
+    "test:window-settings": "tsx scripts/overlay-window-smoke.ts",
     "test:packaged:auto-start": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" tsx scripts/auto-start-smoke.ts"
   },
   "build": {

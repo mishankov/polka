@@ -17,6 +17,13 @@ async function main() {
   const shell = await app.firstWindow();
   const expectStandalone = async (page: Page) => {
     await expect(page.locator('.home-rail, .topbar, .agent-panel, .home-page')).toHaveCount(0);
+    await expect(page.locator('.standalone-titlebar')).toBeVisible();
+    assert.equal(
+      await page
+        .locator('.standalone-titlebar')
+        .evaluate((element) => getComputedStyle(element).getPropertyValue('-webkit-app-region')),
+      'drag',
+    );
     await expect(page.getByRole('button', { name: 'Приложение', exact: true })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Записи', exact: true })).toBeVisible();
     await page.keyboard.press('Meta+j');
@@ -31,6 +38,7 @@ async function main() {
         alwaysOnTop: win.isAlwaysOnTop(),
         allWorkspaces: win.isVisibleOnAllWorkspaces(),
         bounds: win.getBounds(),
+        contentBounds: win.getContentBounds(),
         appId: new URL(win.webContents.getURL()).searchParams.get('appId'),
       };
     }, id);
@@ -88,7 +96,13 @@ async function main() {
     await shell.getByText('Запись в панели', { exact: true }).waitFor();
     const opened = app.waitForEvent('window');
     await shell.getByRole('button', { name: 'Приложение', exact: true }).click();
-    await shell.getByRole('menuitem', { name: 'Панель поверх окон', exact: true }).click();
+    await expect(
+      shell.getByRole('menuitem', { name: 'Панель поверх окон', exact: true }),
+    ).toHaveCount(0);
+    await expect(shell.getByRole('menuitem', { name: 'Компактное окно', exact: true })).toHaveCount(
+      0,
+    );
+    await shell.getByRole('menuitem', { name: 'Открыть в отдельном окне', exact: true }).click();
     const overlay = await opened;
     await overlay.getByText('Запись в панели', { exact: true }).waitFor();
     await expectStandalone(overlay);
@@ -103,8 +117,28 @@ async function main() {
         BrowserWindow.getAllWindows().find((win) => win.id !== shellId)!.id,
       shellId,
     );
+    assert.equal((await flags(overlayId)).alwaysOnTop, false);
+    await overlay.getByRole('button', { name: 'Настройки окна', exact: true }).click();
+    const pin = overlay.getByRole('switch', { name: 'Поверх других окон', exact: true });
+    await expect(pin).toBeEnabled();
+    await pin.check();
+    await expect.poll(async () => (await flags(overlayId)).alwaysOnTop).toBe(true);
+    await mkdir('artifacts', { recursive: true });
+    await overlay.screenshot({ path: 'artifacts/window-settings.png' });
+    await overlay.keyboard.press('Escape');
+    assert.equal(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
+      2,
+    );
     const overlayFlags = await flags(overlayId);
     assert.equal(overlayFlags.appId, instance.id);
+    if (process.platform === 'darwin') {
+      assert.equal(
+        overlayFlags.contentBounds.height,
+        overlayFlags.bounds.height,
+        'App content extends into the native title bar area',
+      );
+    }
     assert.equal(overlayFlags.alwaysOnTop, true);
     assert.equal(overlayFlags.allWorkspaces, true);
 
@@ -155,7 +189,7 @@ async function main() {
     await expect
       .poll(() =>
         shell.evaluate(
-          (appId) => window.platform.call('settings.get', { key: `window:${appId}:overlay` }),
+          (appId) => window.platform.call('settings.get', { key: `window:${appId}:window` }),
           instance.id,
         ),
       )
@@ -164,7 +198,11 @@ async function main() {
       (appId) => window.platform.call('windows.open', { appId, mode: 'overlay' }),
       instance.id,
     );
-    assert.equal(reopenedId, overlayId, 'Opening the same panel must reuse its native window');
+    assert.equal(
+      reopenedId,
+      overlayId,
+      'Legacy overlay requests must reuse the ordinary app window',
+    );
     assert.deepEqual((await flags(overlayId)).bounds, movedBounds);
     assert.equal(
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
@@ -176,7 +214,7 @@ async function main() {
     await closed;
     const restoredPage = app.waitForEvent('window');
     const restoredId = await shell.evaluate(
-      (appId) => window.platform.call('windows.open', { appId, mode: 'overlay' }),
+      (appId) => window.platform.call('windows.open', { appId }),
       instance.id,
     );
     const restored = await restoredPage;
@@ -188,22 +226,44 @@ async function main() {
     assert.equal(restoredFlags.alwaysOnTop, true);
     assert.equal(restoredFlags.allWorkspaces, true);
     assert.deepEqual(restoredFlags.bounds, movedBounds);
-    for (const mode of ['window', 'quick']) {
-      const nextPage = app.waitForEvent('window');
+    for (const mode of ['window', 'quick', 'overlay']) {
       const id = await shell.evaluate(
         ({ appId, mode }) => window.platform.call('windows.open', { appId, mode }),
         { appId: instance.id, mode },
       );
-      const page = await nextPage;
-      await page.getByText('Запись в панели', { exact: true }).waitFor();
-      await expectStandalone(page);
+      assert.equal(id, restoredId, `${mode} must reuse the app's single window`);
       const state = await flags(id);
-      assert.equal(state.alwaysOnTop, false, `${mode} must keep ordinary stacking`);
-      assert.equal(state.allWorkspaces, false, `${mode} must stay on its own desktop`);
+      assert.equal(state.alwaysOnTop, true, `${mode} must respect app preferences`);
+      assert.equal(state.allWorkspaces, true, `${mode} must respect app preferences`);
       assert.equal(state.appId, instance.id);
     }
+    assert.equal(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
+      2,
+    );
     assert.equal((await flags(shellId)).alwaysOnTop, false);
     assert.equal((await flags(shellId)).allWorkspaces, false);
+    // The same setting is available in app properties and updates every existing app window.
+    await shell.getByRole('button', { name: 'Приложение', exact: true }).click();
+    await shell.getByRole('menuitem', { name: 'Свойства и доступ', exact: true }).click();
+    const appPin = shell.getByRole('switch', { name: 'Поверх других окон', exact: true });
+    await expect(appPin).toBeChecked();
+    await appPin.uncheck();
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().every(
+            (win) => !win.isAlwaysOnTop() && !win.isVisibleOnAllWorkspaces(),
+          ),
+        ),
+      )
+      .toBe(true);
+    await shell.keyboard.press('Escape');
+    await restored.getByRole('button', { name: 'Настройки окна', exact: true }).click();
+    await expect(
+      restored.getByRole('switch', { name: 'Поверх других окон', exact: true }),
+    ).not.toBeChecked();
+    await restored.keyboard.press('Escape');
     const extensionOpened = app.context().waitForEvent('page');
     await restored.getByRole('tab', { name: 'Рабочая область', exact: true }).click();
     const extension = await extensionOpened;
@@ -217,6 +277,7 @@ async function main() {
           const viewport = await restored.evaluate(() => ({
             width: innerWidth,
             height: innerHeight,
+            contentY: document.querySelector('.standalone-content')!.getBoundingClientRect().top,
           }));
           const views = await app.evaluate(
             ({ BrowserWindow }, id) =>
@@ -230,7 +291,8 @@ async function main() {
               visible &&
               bounds.x <= 1 &&
               bounds.width >= viewport.width - 2 &&
-              bounds.y < 70 &&
+              bounds.y >= viewport.contentY &&
+              bounds.y < viewport.contentY + 70 &&
               bounds.y + bounds.height >= viewport.height - 2,
           );
         },
@@ -257,6 +319,7 @@ async function main() {
           const viewport = await restored.evaluate(() => ({
             width: innerWidth,
             height: innerHeight,
+            contentY: document.querySelector('.standalone-content')!.getBoundingClientRect().top,
           }));
           const views = await app.evaluate(
             ({ BrowserWindow }, id) =>
@@ -269,9 +332,9 @@ async function main() {
             ({ bounds, visible }) =>
               visible &&
               bounds.x <= 1 &&
-              bounds.y <= 1 &&
+              Math.abs(bounds.y - viewport.contentY) <= 1 &&
               bounds.width >= viewport.width - 2 &&
-              bounds.height >= viewport.height - 2,
+              bounds.height >= viewport.height - viewport.contentY - 2,
           );
         },
         { message: 'A single custom screen fills the entire content area without platform tabs' },
@@ -300,17 +363,20 @@ async function main() {
         {
           passed: true,
           checks: [
-            'overlay opens from app menu',
+            'ordinary window opens from app menu; separate overlay command removed',
+            'saved per-app setting pins the existing window without creating another',
+            'setting persists across close/reopen; legacy compact and overlay requests reuse the same window',
+            'app properties and standalone settings agree; disabling unpins all app windows immediately',
             'native always-on-top and all-workspaces flags enabled',
             'correct app content',
-            'standalone windows omit shell navigation, headers, assistant and shell keyboard shortcuts',
+            'standalone windows integrate native controls with a themed draggable title bar and omit shell navigation, assistant and shell keyboard shortcuts',
             'record creation persists across reload and reopening',
             'restoreLastApp preference does not replace the standalone target app',
             'custom screen remains interactive and fills available native window area',
             'single custom screen hides platform tabs and fills entire content area',
             'existing window reused without resetting bounds',
             'bounds saved after simulated move/resize completion, restored with native flags after closing and reopening',
-            'shell, ordinary, and quick windows retain ordinary behavior',
+            'shell remains unpinned regardless of app preference',
           ],
           limitation:
             'Checks native Electron window flags and real bounds with simulated move/resize completion events; does not perform manual dragging or switching macOS Spaces or full-screen apps.',

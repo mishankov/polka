@@ -27,6 +27,7 @@ import { IconPlus, IconTrash } from '@tabler/icons-react';
 import type { AppDefinition, AppInstance } from '../../shared/types';
 import { api, AnyRecord, perform, report } from './api';
 import Connections from './Connections';
+import WindowPreferences from './WindowPreferences';
 export const emptyDefinition = (name: string): AppDefinition => ({
   schemaVersion: 1,
   name,
@@ -900,6 +901,8 @@ export function AppDetails({
             <Text size="xs" c="dimmed">
               Версия {app.version} · Исходная версия {app.sourceVersion}
             </Text>
+            <Divider />
+            {opened && <WindowPreferences appId={app.id} />}
             <Divider />
             <Group>
               <Button

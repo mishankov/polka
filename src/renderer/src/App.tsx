@@ -363,26 +363,9 @@ function Workspace() {
                       </Menu.Item>
                       <Menu.Item
                         leftSection={<IconExternalLink size={16} />}
-                        onClick={() =>
-                          perform(() => api('windows.open', { appId: app.id, mode: 'window' }))
-                        }
+                        onClick={() => perform(() => api('windows.open', { appId: app.id }))}
                       >
                         Открыть в отдельном окне
-                      </Menu.Item>
-                      <Menu.Item
-                        onClick={() =>
-                          perform(() => api('windows.open', { appId: app.id, mode: 'quick' }))
-                        }
-                      >
-                        Компактное окно
-                      </Menu.Item>
-                      <Menu.Item
-                        title="Поверх других приложений на всех рабочих столах"
-                        onClick={() =>
-                          perform(() => api('windows.open', { appId: app.id, mode: 'overlay' }))
-                        }
-                      >
-                        Панель поверх окон
                       </Menu.Item>
                     </Menu.Dropdown>
                   </Menu>

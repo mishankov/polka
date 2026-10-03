@@ -55,9 +55,14 @@ test('platform guide is available before app creation and included in definition
     const guide = await runtime.handle('runtime.platformCapabilities');
     const schema = await runtime.handle('runtime.definitionSchema');
     assert.deepEqual(schema.platformCapabilities, guide);
-    assert(guide.windows.modes.includes('overlay'));
+    assert.deepEqual(guide.windows.modes, ['window']);
     assert.equal(guide.windows.open.via, 'app-menu');
-    assert.equal(guide.windows.open.label, 'Панель поверх окон');
+    assert.equal(guide.windows.open.label, 'Открыть в отдельном окне');
+    assert.deepEqual(guide.windows.alwaysOnTop, {
+      via: 'app-settings',
+      label: 'Поверх других окон',
+      persistent: true,
+    });
     assert.equal(guide.windows.allWorkspaces, true);
     assert.equal(guide.windows.visibleOnFullScreen, true);
     assert.equal(guide.media.method, 'system.media');
