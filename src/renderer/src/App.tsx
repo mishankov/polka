@@ -24,6 +24,7 @@ import {
   IconBox,
   IconChevronDown,
   IconCode,
+  IconCommand,
   IconDownload,
   IconExternalLink,
   IconHome,
@@ -50,13 +51,17 @@ import {
 import Inbox from './Inbox';
 import { flushDocuments } from './documentFlush';
 import StandaloneApp from './StandaloneApp';
+import Launcher from './Launcher';
 export default function App() {
+  if (new URLSearchParams(location.search).get('mode') === 'launcher') return <Launcher />;
   const appId = new URLSearchParams(location.search).get('appId');
   return appId ? <StandaloneApp appId={appId} /> : <Workspace />;
 }
 function Workspace() {
   const [apps, setApps] = useState<AppInstance[]>([]);
-  const [page, setPage] = useState('home');
+  const [page, setPage] = useState(() =>
+    new URLSearchParams(location.search).get('page') === 'settings' ? 'settings' : 'home',
+  );
   const [appId, setAppId] = useState<string | null>(null);
   const [openingApp, setOpeningApp] = useState(false);
   const [openFailed, setOpenFailed] = useState(false);
@@ -122,7 +127,7 @@ function Workspace() {
       .then((s: any) => {
         setShowCharacter(s.showCharacter !== false);
         setCharacterSize(s.characterSize || 'normal');
-        if (s.restoreLastApp) {
+        if (s.restoreLastApp && new URLSearchParams(location.search).get('page') !== 'settings') {
           const last = localStorage.getItem('lastApp');
           if (last && openRequest.current === 0) void open({ id: last });
         }
@@ -147,6 +152,8 @@ function Workspace() {
         ++openRequest.current;
         setPage(e.page);
         setAppId(null);
+        setSearching(false);
+        setLibraryOpen(false);
       }
     });
   }, []);
@@ -220,6 +227,15 @@ function Workspace() {
               <IconSearch size={20} />
             </button>
           </Tooltip>
+          <Tooltip label="Быстрый запуск" position="right">
+            <button
+              className="rail-button"
+              aria-label="Быстрый запуск"
+              onClick={() => perform(() => api('launcher.show'))}
+            >
+              <IconCommand size={20} />
+            </button>
+          </Tooltip>
           <Tooltip label="Входящие и фоновые задачи" position="right">
             <button
               className={`rail-button ${page === 'inbox' ? 'active' : ''}`}
@@ -260,7 +276,7 @@ function Workspace() {
               ))}
           </nav>
         )}
-        <Tooltip label="Настройки" position="right">
+        <Tooltip label="Настройки · ⌘ ," position="right">
           <button
             className={`rail-button rail-settings ${page === 'settings' ? 'active' : ''}`}
             aria-current={page === 'settings' ? 'page' : undefined}

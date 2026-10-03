@@ -8,6 +8,8 @@ import './styles.css';
 import App from './App';
 import { ErrorBoundary } from './ErrorBoundary';
 import { workspaceTheme, workspaceVariables } from './theme';
+if (new URLSearchParams(location.search).get('mode') === 'launcher')
+  document.documentElement.dataset.windowMode = 'launcher';
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <MantineProvider

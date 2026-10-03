@@ -15,6 +15,7 @@ import {
   useMantineColorScheme,
 } from '@mantine/core';
 import Updates from './Updates';
+import LauncherSettings from './LauncherSettings';
 import { api, AnyRecord, perform, report } from './api';
 export default function Settings() {
   const { colorScheme, setColorScheme } = useMantineColorScheme();
@@ -162,6 +163,7 @@ export default function Settings() {
             </Text>
           </div>
           <Stack className="settings-section-content" gap="lg">
+            <LauncherSettings />
             <div>
               <Text size="sm" fw={500} mb={8}>
                 Оформление

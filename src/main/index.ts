@@ -27,10 +27,14 @@ import { autoUpdater } from 'electron-updater';
 import { UpdateService } from './updates';
 import { chooseDocuments, openDroppedDocuments } from './documentFiles';
 import { createExtensionViews } from './extension-views';
-import { bindAssistantShortcut } from './workspace-shortcuts';
+import { bindAssistantShortcut, bindSettingsShortcut } from './workspace-shortcuts';
 import { ConnectionCredentials } from './connections';
 import { externalWebUrl } from '../shared/externalLinks';
 import type { AppInstance } from '../shared/types';
+import { createLauncher } from './launcher';
+import { LauncherShortcut } from './launcher-shortcut';
+import { DEFAULT_LAUNCHER_SHORTCUT } from '../shared/launcher';
+import { InstalledApps, readApplicationIcons } from './installed-apps';
 const execFileAsync = promisify(execFile);
 if (process.env.EVERYTHING_PROFILE) app.setPath('userData', process.env.EVERYTHING_PROFILE);
 const windows = new Map<number, { window: BrowserWindow; appId?: string; mode: string }>(),
@@ -44,6 +48,34 @@ let worker: Worker,
   updateInstalling = false,
   pendingPackage: string | undefined;
 const root = app.getPath('userData');
+const installedApps = new InstalledApps({
+  getIcons: readApplicationIcons,
+  getIcon: async (path) => {
+    const icon = await app.getFileIcon(path, { size: 'normal' });
+    return icon.isEmpty() ? '' : icon.resize({ width: 32, height: 32 }).toDataURL();
+  },
+  openPath: (path) => shell.openPath(path),
+});
+const launcher = createLauncher(
+  (win) => {
+    windows.set(win.id, { window: win, mode: 'launcher' });
+    bindSettingsShortcut(win.webContents, showSettings);
+    const ownerId = win.webContents.id;
+    win.webContents.on('destroyed', () => extensionViews?.disposeOwner(ownerId));
+    win.webContents.on('did-start-navigation', (details) => {
+      if (details.isMainFrame && !details.isSameDocument) extensionViews?.disposeOwner(ownerId);
+    });
+    win.on('closed', () => windows.delete(win.id));
+  },
+  () => quitting,
+);
+const launcherShortcut = new LauncherShortcut(
+  globalShortcut,
+  () => {
+    void launcher.toggle()?.catch((error) => console.error('Could not open launcher', error));
+  },
+  (accelerator) => call('settings.set', { key: 'launcherShortcut', value: accelerator }),
+);
 const flushRequests = new Map<
   string,
   {
@@ -167,6 +199,7 @@ async function refreshTrayMenu() {
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: 'Открыть Everything App', click: () => void openWindow() },
+        { label: 'Запуск приложений', click: () => void launcher.show().catch(console.error) },
         {
           label: 'Работающие приложения',
           click: () => {
@@ -203,15 +236,22 @@ function applyWindowPreferences(win: BrowserWindow, alwaysOnTop: boolean) {
   win.setAlwaysOnTop(alwaysOnTop, 'floating');
   win.setVisibleOnAllWorkspaces(alwaysOnTop, { visibleOnFullScreen: alwaysOnTop });
 }
-async function openWindow(appId?: string) {
+function showSettings() {
+  launcher.hide();
+  void openWindow(undefined, 'settings').catch((error) =>
+    dialog.showErrorBox('Не удалось открыть настройки', String(error)),
+  );
+}
+async function openWindow(appId?: string, page?: 'settings') {
   const mode = 'window';
   // Opening an app also resumes it, including when its window already exists.
   const instance = appId ? await call('apps.start', { appId }) : undefined;
-  const existing = [...windows.values()].find((w) => w.appId === appId);
+  const existing = [...windows.values()].find((w) => w.appId === appId && w.mode === 'window');
   if (existing) {
     if (existing.window.isMinimized()) existing.window.restore();
     existing.window.show();
     existing.window.focus();
+    if (page) existing.window.webContents.send('platform:event', { type: 'navigate', page });
     return existing.window.id;
   }
   const geometry = await call('settings.get', { key: `window:${appId || 'shell'}:${mode}` });
@@ -252,6 +292,7 @@ async function openWindow(appId?: string) {
   });
   if (appId) applyWindowPreferences(win, preferences.alwaysOnTop);
   windows.set(win.id, { window: win, appId, mode });
+  bindSettingsShortcut(win.webContents, showSettings);
   if (!appId) bindAssistantShortcut(win.webContents, win.webContents);
   if (updateInstalling) win.setEnabled(false);
   let closing = false;
@@ -286,7 +327,7 @@ async function openWindow(appId?: string) {
       extensionViews?.disposeOwner(ownerContentsId);
   });
   win.on('closed', () => windows.delete(win.id));
-  const query: Record<string, string> = appId ? { appId } : {};
+  const query: Record<string, string> = appId ? { appId } : page ? { page } : {};
   if (process.env.ELECTRON_RENDERER_URL)
     await win.loadURL(`${process.env.ELECTRON_RENDERER_URL}?${new URLSearchParams(query)}`);
   else await win.loadFile(join(__dirname, '../renderer/index.html'), { query });
@@ -338,6 +379,67 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     throw Error('Недоверенный отправитель');
   rpcSchema.parse([method, params]);
   if (JSON.stringify(params).length > 48 * 1024 * 1024) throw Error('Запрос превышает лимит');
+  if (method === 'launcher.show') {
+    await launcher.show();
+    return true;
+  }
+  if (method === 'launcher.hide') {
+    launcher.hide();
+    return true;
+  }
+  if (method === 'launcher.apps') {
+    const apps: AppInstance[] = await call('apps.list');
+    return apps
+      .filter((instance) => instance.status !== 'archived')
+      .map(({ id, name, icon, description, favorite, status }) => ({
+        kind: 'everything',
+        id,
+        name,
+        icon,
+        description,
+        favorite,
+        status,
+      }));
+  }
+  if (method === 'launcher.macApps') return installedApps.list();
+  if (method === 'launcher.openMac') {
+    const id = z
+      .string()
+      .regex(/^mac:[a-f0-9]{32}$/)
+      .parse(params.id);
+    const result = await installedApps.open(id);
+    launcher.hide();
+    return result;
+  }
+  if (method === 'launcher.open') {
+    const appId = z.string().min(1).max(200).parse(params.appId);
+    const instance: AppInstance = await call('apps.get', { appId });
+    if (instance.status === 'archived')
+      throw Error('Приложение находится в архиве. Восстановите его в рабочем пространстве.');
+    const started = await call('apps.start', { appId });
+    launcher.setExpanded(true);
+    return started;
+  }
+  if (method === 'launcher.back') {
+    launcher.setExpanded(false);
+    return true;
+  }
+  if (method === 'launcher.getPreferences') return launcherShortcut.getPreferences();
+  if (method === 'launcher.setShortcut') {
+    const accelerator = z.string().max(80).parse(params.accelerator);
+    if (
+      accelerator &&
+      !/^(?:(?:CommandOrControl|Control|Alt|Shift)\+)+(?:[A-Z0-9]|Space|F(?:[1-9]|1[0-2]))$/.test(
+        accelerator,
+      )
+    )
+      throw Error('Выберите сочетание клавиш с Command, Control или Option.');
+    if (accelerator && !/(CommandOrControl|Control|Alt)\+/.test(accelerator))
+      throw Error('Добавьте Command, Control или Option.');
+    const preferences = await launcherShortcut.set(accelerator);
+    broadcast({ type: 'launcher.preferencesChanged', preferences });
+    return preferences;
+  }
   if (
     method.startsWith('state.') ||
     method.startsWith('secret.') ||
@@ -586,13 +688,27 @@ app
       call,
       preloadPath: join(__dirname, '../preload/extension.js'),
       onViewCreated: (contents, owner) => {
+        bindSettingsShortcut(contents, showSettings);
         const workspace = [...windows.values()].find(
-          (entry) => entry.window.webContents === owner && !entry.appId,
+          (entry) => entry.window.webContents === owner && entry.mode === 'window' && !entry.appId,
         );
         if (workspace) bindAssistantShortcut(contents, owner);
+        const panel = [...windows.values()].find(
+          (entry) => entry.window.webContents === owner && entry.mode === 'launcher',
+        );
+        if (panel)
+          contents.on('before-input-event', (event, input) => {
+            if (input.type === 'keyDown' && input.key === 'Escape' && !input.isComposing) {
+              event.preventDefault();
+              launcher.hide();
+            }
+          });
       },
     });
     ipcMain.handle('platform:call', rendererCall);
+    void installedApps
+      .list()
+      .catch((error) => console.error('Could not list installed apps', error));
     ipcMain.handle('docs:drop', async (event, params, paths) => {
       const sender = [...windows.values()].find((w) => w.window.webContents === event.sender);
       if (!sender || event.senderFrame !== event.sender.mainFrame)
@@ -609,7 +725,15 @@ app
           label: 'Everything App',
           submenu: [
             { role: 'about' },
+            {
+              id: 'settings',
+              label: 'Настройки…',
+              accelerator: 'CommandOrControl+,',
+              click: showSettings,
+            },
+            { type: 'separator' },
             { label: 'Открыть рабочее пространство', click: () => void openWindow() },
+            { label: 'Запуск приложений', click: () => void launcher.show().catch(console.error) },
             { type: 'separator' },
             { role: 'hide' },
             { role: 'quit', label: 'Выйти из платформы' },
@@ -725,6 +849,11 @@ app
           value,
           () => void openWindow(key.slice(9) === 'shell' ? undefined : key.slice(9)),
         );
+    launcherShortcut.initialize(
+      typeof settings?.launcherShortcut === 'string'
+        ? settings.launcherShortcut
+        : DEFAULT_LAUNCHER_SHORTCUT,
+    );
   })
   .catch((e) => {
     console.error('Startup failed', e);

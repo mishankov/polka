@@ -1165,3 +1165,127 @@ kbd {
 .cm-editor .cm-cursor {
   border-left-color: var(--ink);
 }
+
+html[data-window-mode='launcher'] body {
+  background: transparent;
+}
+.launcher {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--workspace-bg) 65%, transparent);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+.launcher-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.launcher-search > .mantine-TextInput-root {
+  flex: 1;
+}
+.launcher-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+.launcher-result {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 0;
+  border-radius: 9px;
+  padding: 12px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+.launcher-result.selected {
+  background: var(--soft);
+}
+.launcher-result:disabled {
+  cursor: wait;
+}
+.launcher-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-size: 24px;
+}
+.launcher-result-text {
+  flex: 1;
+  min-width: 0;
+}
+.launcher-icon img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+.launcher-result-text strong,
+.launcher-result-text > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.launcher-result-text strong {
+  font-weight: 550;
+}
+.launcher-result-text > span,
+.launcher-result-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.launcher-result-text > span {
+  margin-top: 3px;
+}
+.launcher-message {
+  padding: 32px 20px;
+  text-align: center;
+}
+.launcher-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+.launcher-app-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.launcher-app-header > .mantine-Text-root {
+  flex: 1;
+  min-width: 0;
+}
+.launcher-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.launcher-content .runtime-page {
+  height: 100%;
+  padding: 16px;
+  overflow: auto;
+}
+.launcher-content .runtime-custom {
+  padding: 0;
+  overflow: hidden;
+}
+.launcher-content .runtime-custom .runtime-navigation {
+  padding: 0 16px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--line);
+}
