@@ -16,6 +16,7 @@ import {
 } from '@mantine/core';
 import Updates from './Updates';
 import LauncherSettings from './LauncherSettings';
+import ClipboardSettings from './ClipboardSettings';
 import { api, AnyRecord, perform, report } from './api';
 export default function Settings() {
   const { colorScheme, setColorScheme } = useMantineColorScheme();
@@ -164,6 +165,7 @@ export default function Settings() {
           </div>
           <Stack className="settings-section-content" gap="lg">
             <LauncherSettings />
+            <ClipboardSettings />
             <div>
               <Text size="sm" fw={500} mb={8}>
                 Оформление

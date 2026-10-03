@@ -12,10 +12,10 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "native:build": "swiftc -O native/MediaProbe.swift -o build/media-probe -framework CoreAudio -framework CoreMediaIO -framework AVFoundation",
+    "native:build": "swiftc -O native/MediaProbe.swift -o build/media-probe -framework CoreAudio -framework CoreMediaIO -framework AVFoundation && swiftc -O native/ClipboardProbe.swift -o build/clipboard-probe -framework AppKit",
     "package": "npm run build && npm run native:build && electron-builder --mac dmg zip --arm64",
     "package:dir": "npm run build && npm run native:build && electron-builder --mac dir --arm64",
-    "verify": "npm run typecheck && npm run build && npm test && npm run test:desktop && npm run test:workflows",
+    "verify": "npm run typecheck && npm run build && npm run native:build && npm test && npm run test:desktop && npm run test:workflows",
     "test:desktop": "tsx scripts/desktop-smoke.ts",
     "test:packaged": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" tsx scripts/desktop-smoke.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"tests/**/*.ts\" \"scripts/**/*.ts\" electron.vite.config.ts",
@@ -25,7 +25,7 @@
     "test:documents": "tsx scripts/document-workflows-smoke.ts",
     "test:extensions": "tsx scripts/extensions-smoke.ts",
     "test:packages": "tsx scripts/package-workflows-smoke.ts",
-    "test:workflows": "npm run test:documents && npm run test:formats && npm run test:extensions && npm run test:packages && npm run test:provider && npm run test:streaming && npm run test:window-close && npm run test:auto-start && npm run test:tray && npm run test:window-settings && npm run test:launcher && npm run test:settings-shortcut",
+    "test:workflows": "npm run test:documents && npm run test:formats && npm run test:extensions && npm run test:packages && npm run test:provider && npm run test:streaming && npm run test:window-close && npm run test:auto-start && npm run test:tray && npm run test:window-settings && npm run test:launcher && npm run test:settings-shortcut && npm run test:clipboard && npm run test:clipboard:images && npm run test:clipboard:animation",
     "test:packaged:workflows": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" npm run test:workflows",
     "test:provider": "tsx scripts/provider-smoke.ts",
     "test:packaged:provider": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" tsx scripts/provider-smoke.ts",
@@ -42,7 +42,10 @@
     "test:packaged:launcher": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" tsx scripts/launcher-smoke.ts",
     "test:packaged:auto-start": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" tsx scripts/auto-start-smoke.ts",
     "build:extensions": "tsx scripts/build-extension-runtime.ts",
-    "test:formats": "tsx scripts/formats-smoke.ts"
+    "test:formats": "tsx scripts/formats-smoke.ts",
+    "test:clipboard": "tsx scripts/clipboard-smoke.ts",
+    "test:clipboard:images": "tsx scripts/clipboard-screenshot-smoke.ts",
+    "test:clipboard:animation": "tsx scripts/clipboard-animation-smoke.ts"
   },
   "build": {
     "appId": "app.everything.desktop",
@@ -58,6 +61,10 @@
       {
         "from": "build/media-probe",
         "to": "media-probe"
+      },
+      {
+        "from": "build/clipboard-probe",
+        "to": "clipboard-probe"
       }
     ],
     "asarUnpack": [
