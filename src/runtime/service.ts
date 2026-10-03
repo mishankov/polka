@@ -15,6 +15,7 @@ import {
 } from './providers';
 import { catalog, searchCapabilities, SYSTEM_PROMPT } from './catalog';
 import { platformCapabilities } from './platformCapabilities';
+import { uiGuidance } from './uiGuidance';
 export interface AgentRun {
   id: string;
   conversationId: string;
@@ -387,6 +388,7 @@ export class RuntimeService {
   private definitionSchema() {
     return {
       platformCapabilities,
+      uiGuidance,
       definition: z.toJSONSchema(definitionSchema, { unrepresentable: 'any' }),
       transforms,
       actions: {

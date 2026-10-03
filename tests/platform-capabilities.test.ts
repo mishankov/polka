@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { catalog, searchCapabilities } from '../src/runtime/catalog';
 import { RuntimeService } from '../src/runtime/service';
+import { UI_UX_PROMPT } from '../src/runtime/uiGuidance';
+import { validateDefinition } from '../src/core/schema';
+import { compileExtension } from '../src/extensions/host';
 
 function fixture(fetcher?: typeof fetch) {
   const state = new Map<string, any>();
@@ -91,6 +94,11 @@ test('workspace assistant can discover native capabilities without creating an a
   let guide: any;
   const { runtime, calls } = fixture(async (_url, init) => {
     const body = JSON.parse(String(init?.body));
+    assert(
+      body.messages
+        .find((message: any) => message.role === 'system')
+        .content.includes(UI_UX_PROMPT),
+    );
     assert(body.tools.some((tool: any) => tool.function.name === 'platform_capabilities'));
     if (round > 0) {
       const result = JSON.parse(body.messages.at(-1).content);
@@ -102,6 +110,10 @@ test('workspace assistant can discover native capabilities without creating an a
         assert.equal(guide.windows.open.via, 'app-menu');
       } else {
         assert.deepEqual(result.platformCapabilities, guide);
+        assert.equal(result.uiGuidance.examples.length, 2);
+        assert(
+          result.uiGuidance.examples.every((example: any) => example.definition.screens.length),
+        );
       }
     }
     const tool = requested[round++];
@@ -140,6 +152,23 @@ test('workspace assistant can discover native capabilities without creating an a
     assert.equal(round, 4);
     assert(done.steps.every((step: any) => step.status === 'completed'));
     assert(calls.every((method) => method.startsWith('state.')));
+  } finally {
+    await runtime.shutdown();
+  }
+});
+
+test('UI examples are valid complete definitions and compile with the shipped extension SDK', async () => {
+  const { runtime } = fixture();
+  try {
+    const schema = await runtime.handle('runtime.definitionSchema');
+    // The runtime bounds serialized tool results; examples must survive the same JSON path.
+    assert(JSON.stringify(schema).length < 64000, 'Definition guidance would be truncated');
+    for (const example of schema.uiGuidance.examples) {
+      const definition = validateDefinition(example.definition);
+      for (const extension of definition.extensions) {
+        await compileExtension(extension.source, extension.kind, extension.dependencies);
+      }
+    }
   } finally {
     await runtime.shutdown();
   }

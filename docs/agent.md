@@ -26,6 +26,14 @@ Run protocol and policy tests with `npx tsx --test tests/runtime.test.ts`.
 
 Custom screens must set `config.extensionId` to an existing component extension; extension actions must reference a handler extension. Creation, definition updates and package import reject missing, unknown or wrong-kind references before persisting changes. `definition_schema` includes a complete screen/extension binding example and the SDK record contract: `records.list` returns `{records, total}`, fields live under `record.values`, and `records.upsert` accepts `{entityId, id?, values}`. Compilation and structural validation do not establish that arbitrary generated UI works; exercise its user workflow before claiming it is ready.
 
+## UI/UX guidance for generated apps
+
+`src/runtime/uiGuidance.ts` supplies bundled Russian UX instructions to the embedded agent's system prompt on each run, including continued conversations. They cover the user's task, screen choice, clear controls, empty/loading/error/success states, preserving input, keyboard access, narrow windows, and the existing theme. These instructions ship with the app and do not depend on a developer's local skills. They guide generation; they do not add permissions or enforcement rules.
+
+The `uiGuidance` field of `definition_schema` carries the longer examples only when requested: a built-in task board and a complete custom quick-entry shopping list. The latter demonstrates validation, submit guarding, saved-input recovery, separate load/save errors, retry, focus return, and pagination using the real SDK. Examples are optional patterns to adapt, not mandatory templates or permission to seed a user's app with sample data. Tests validate their definitions, compile their extensions, and check that guidance reaches the provider without exceeding the tool-result limit.
+
+The embedded agent has no screenshot or UI-interaction tool. It must distinguish schema/code checks from visual or interaction testing. To evaluate generation quality with a configured provider, use the scenarios in [UI generation evaluation](ui-generation-evaluation.md); passing protocol fixtures alone does not prove that a model follows these instructions.
+
 Protocol references checked during implementation: [OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat), [Anthropic streaming](https://platform.claude.com/docs/en/build-with-claude/streaming), and [Anthropic model listing](https://platform.claude.com/docs/en/api/models/list). The Anthropic base URL includes `/v1`; API version header is `2023-06-01`. Compatible endpoints may support a narrower subset and must pass the real connection probe.
 # Provider compatibility correction (0.1.1)
 
