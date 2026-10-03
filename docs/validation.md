@@ -1,23 +1,23 @@
 # Протокол и матрица готовности
 
-Дата: **2 октября 2026**. Цель: macOS **27.0.1**, arm64. Фактическая среда: MacBook Air M4, 10 ядер, 32 ГБ, macOS **27.0 (26A428)**, Node **24.18.0**, Electron **44.5.1**, React **19.3.0**, Mantine **9.6.3**, electron-vite **5.0.0**, Vite **7.3.6**. Остальные версии закреплены в package-lock.json.
+Дата: **3 октября 2026**. Цель: macOS **27.0.1**, arm64. Фактическая среда: MacBook Air M4, 10 ядер, 32 ГБ, macOS **27.0 (26A428)**, Node **24.18.0**, Electron **44.5.1**, React **19.3.0**, Mantine **9.6.3**, electron-vite **5.0.0**, Vite **7.3.6**. Остальные версии закреплены в package-lock.json.
 
 Исходное задание целиком не закрыто. Владелец выделил документы, расширения, импорт/экспорт и инструменты выпуска в текущий объём; остальные продуктовые направления записаны в [backlog](backlog.md). Проверку живых провайдеров и моделей владелец выполняет самостоятельно.
 
 ## Автоматические проверки
 
-- `npm run typecheck` и `npm run build`: успешно; собраны основной процесс, core/package/transform workers, оба preload, интерфейс и поставляемый runtime расширений.
-- `npm test`: **107 тестов прошли, 0 пропущено**. Используются временные SQLite-профили, ZIP, реальные worker-процессы и протокольные моки провайдеров.
+- `npm run typecheck` и `npm run build`: успешно; собраны основной процесс, core/package/format workers, оба preload, интерфейс и поставляемый runtime расширений.
+- `npm test`: **102 теста прошли, 0 пропущено**. Используются временные SQLite-профили, ZIP, реальные worker-процессы и протокольные моки провайдеров.
 - Mock-provider journey создаёт приложение реальным tool loop, добавляет пользовательскую запись, изменяет схему и экраны, сохраняя данные и идентификаторы. OpenAI-compatible и Anthropic SSE проверены fixtures, без живых ключей.
-- Desktop smoke проверяет CRUD, настройки без провайдера, компиляцию/рендер расширения, CodeMirror, преобразования, пиксели canvas, ограничения IPC и сохранение последней правки при quit/relaunch.
-- Document smoke проверяет выбор папки через native dialog fixture, drop настоящего File через preload, вкладки, выделение, текстовый и PNG clipboard, пакетный preview/apply, типизированную PNG-цепочку с применением черновика и общими вкладками, пиксели crop/rotate/undo.
+- Desktop smoke проверяет CRUD, настройки без провайдера, компиляцию/рендер расширения, CodeMirror, пиксели canvas, ограничения IPC и сохранение последней правки при quit/relaunch.
+- Document smoke проверяет выбор папки через native dialog fixture, drop настоящего File через preload, вкладки, общие вкладки текстовых и растровых документов, пиксели crop/rotate/undo.
 - Extension smoke проверяет реальные Mantine/EntityForm/RecordTable, CRUD, отсутствие Node/platform, ограничения appId и state, отдельные OS renderer PID, темы, перекрытие модальными окнами, перезагрузку оболочки, активацию новой версии UI с сохранением записей, остановку и автоматическое завершение бесконечного цикла с сохранением работоспособности оболочки.
 - Package smoke проверяет отсутствие личных записей в шаблоне, отдельные demo fixtures по явному выбору, preview/install/report, переход к правам и отмену экспорта 16 МиБ без повреждения существующего назначения.
 - Updater проверен детерминированным адаптером: явная проверка/загрузка/установка, progress, повтор после ошибки, обязательное сохранение документов перед перезапуском. Неудачный flush не запускает установку. Локальные неподписанные сборки не обращаются к update feed.
 - Release configuration тест требует репозиторий владельца, Developer ID и notarization credentials; публикация настроена как draft после проверки артефактов.
 - Ротация connection credentials проверена конкурентным запросом к прежнему origin, миграцией старого ключа, отказом записи metadata и запретом ссылок на чужие secrets. Версия ключа неизменяема; metadata переключается после её записи.
 
-Команды: `npm run verify` выполняет typecheck, build, unit/integration и семь desktop сценариев (включая provider mock, поток ответов и закрытие окон с проверкой ошибок главного процесса). `npm run test:packaged` и `npm run test:packaged:workflows` повторяют desktop сценарии с готовым `.app` и временными профилями. Машинные отчёты и screenshots находятся в игнорируемом `artifacts/`.
+Команды: `npm run verify` выполняет typecheck, build, unit/integration и desktop-сценарии (включая provider mock, поток ответов и закрытие окон с проверкой ошибок главного процесса). `npm run test:packaged` и `npm run test:packaged:workflows` повторяют desktop сценарии с готовым `.app` и временными профилями. Машинные отчёты и screenshots находятся в игнорируемом `artifacts/`.
 
 Сборка 0.1.0: typecheck и 75 тестов прошли; packaged desktop, documents, extensions и packages smoke прошли последовательно с новым `.app`. Проверены также общие вкладки для результата изображения, native PNG clipboard, перезагрузка оболочки, активация нового UI и отсутствие ложной ошибки при отмене экспорта. `hdiutil verify` подтвердил целостность итогового DMG. Подпись/notarization этим не подтверждаются.
 
@@ -26,12 +26,12 @@
 | Критерий | Реализовано / проверено | Граница |
 |---|---|---|
 | Первое открытие и изменения через AI | Настройки, SSE/tool loops, создание и изменение приложения с сохранением личных записей | Живые аккаунты/модели проверяет владелец |
-| Работа без модели | SQLite CRUD, документы, растровый редактор, преобразования, расширения | Проверены локальные desktop сценарии |
+| Работа без модели | SQLite CRUD, документы, растровый редактор, расширения | Проверены локальные desktop сценарии |
 | Изоляция экземпляров | Fresh IDs при импорте, scoped SDK, отказ чужим записям/файлам | Тесты core, worker и UI |
 | Персональные изменения | prepare/activate, defaults, stale-revision отказ, трёхстороннее обновление | Интерактивные конфликты и перенос программируемых частей — backlog |
 | Тема | Общие light/dark токены, Mantine и поставляемый extension runtime | Полного визуального/a11y регресса нет |
 | Межприложенческие связи | Явные read links и отзыв | Публикация действий/событий — backlog |
-| Документы | Файлы/папки/drop, черновики и история, atomic save, external conflict, цепочки и batch apply | Подробности и границы — [document-workflows.md](document-workflows.md) |
+| Документы | Файлы/папки/drop, черновики и история, atomic save, external conflict | Подробности и границы — [document-workflows.md](document-workflows.md) |
 | Фоновые функции | Отдельный worker, очередь, interval/schedule/event/clipboard, отмена при остановке/отзыве | Новые workflow/native функции — backlog |
 | Сон и перезапуск | Персистентная очередь, interrupted без слепого повтора, DST/missed-run tests | Реальный sleep/wake ещё не проверен |
 | Миграции и конкурентные изменения | Транзакции, проверка схемы, версии и revision, atomic batch | Автотесты пройдены |
@@ -50,9 +50,9 @@
 
 Один из контрольных прогонов `tests/core-performance.test.ts`: 10 000 записей; запись 1155.2 мс, query 37.3 мс, export 96.9 мс, import preview 75.5 мс, commit 137.4 мс; пакет 1 113 979 байт, peak RSS 371.3 МиБ. Это Node-процесс с test runner, не память Electron или задержки UI; timing не используется как хрупкое assertion.
 
-ZIP: 64 МиБ compressed / 128 МиБ inflated, 1000 entries; файл 32 МиБ. Выбор документов: до 256 файлов / 64 МиБ, без symlink traversal. Preview преобразований: до двух workers, 32 МиБ aggregate serialized input/output, 64 steps, 16 МиБ на шаг, timeout 2 минуты и heap 256 МиБ. Растр: 16 мегапикселей / 8192 на сторону. QuickJS handler: 32 МиБ / 3 секунды. Очередь: два jobs одновременно и 100 ожидающих. Подробные ограничения — документы подсистем.
+ZIP: 64 МиБ compressed / 128 МиБ inflated, 1000 entries; файл 32 МиБ. Выбор документов: до 256 файлов / 64 МиБ, без symlink traversal. Растр: 16 мегапикселей / 8192 на сторону. QuickJS handler: 32 МиБ / 3 секунды. Очередь: два jobs одновременно и 100 ожидающих. Подробные ограничения — документы подсистем.
 
-Numeric crop не имеет draggable marquee. Цепочки поддерживают text/bytes/data/image; image nodes обрабатывают статический PNG с обычной развёрткой и глубиной до 8 бит. Другие поддерживаемые браузером изображения можно сначала сохранить как PNG в редакторе. Batch apply меняет черновики; запись внешних файлов остаётся явной. Формат изображения не может молча замениться при сохранении под несовместимым расширением. При принудительном уничтожении процесса последняя правка до autosave 450 мс может потеряться; обычный выход ожидает flush.
+Numeric crop не имеет draggable marquee. Редактирование меняет черновики; запись внешних файлов остаётся явной. Формат изображения не может молча замениться при сохранении под несовместимым расширением. При принудительном уничтожении процесса последняя правка до autosave 450 мс может потеряться; обычный выход ожидает flush.
 
 ## Поставка и внешняя приёмка
 
@@ -157,3 +157,18 @@ Typecheck, formatting, development and packaged provider/streaming smoke passed 
 Removed the fixed 600px workspace custom-screen height. Workspace and standalone custom screens now share a flexible viewport below tabs and declared actions. The extension document supplies a full-height html/body/root chain without forced padding, supporting both percentage and viewport-height app layouts. Existing Paint and Emoji definitions were inspected read-only; neither imposes the 600px limit. User data and definitions were not changed.
 
 Typecheck, formatting, development and packaged compact-chrome/height smoke passed. Seven measured states cover tall/short windows, assistant open/closed, percentage/viewport layouts, tabs/actions, internal scrolling with a pinned footer, and natural document scrolling. The native viewport matches host bounds: 862px tall and 439px short, with only the existing 24px workspace bottom padding. The actual native screen screenshot was inspected. Packaged overlay-window smoke also passed, preserving app-only windows, bounds, and native flags. Unsigned DMG/ZIP 0.1.15 built; hdiutil verified DMG integrity.
+
+## Removal of built-in local transformations (3 October 2026)
+
+Removed the converter screen and document panel, operation registry, pipelines, preview worker, SDK/agent endpoints, transform action support, and unused XML/PNG dependencies. Text and raster editors, document drafts/history, and general jobs remain. Removed action types are rejected during definition validation; unsupported stored screens show an explanatory message. Stored user data and definitions are not rewritten.
+
+Typecheck, build, formatting, all 98 unit/integration tests, desktop smoke, and every workflow script passed. Regression coverage checks that removed APIs/definitions are rejected and scoped document editing still works. The package smoke initially failed on an outdated stopped-after-opening assertion; it now verifies that import leaves the app stopped and explicit opening starts it, matching existing app behavior. The corrected package smoke passed. README screenshots were regenerated and the document editor screenshot was visually inspected. No packaged release was built for this change.
+
+
+## Форматы и редактор кода (3 октября 2026)
+
+Возвращены операции JSON, XML, YAML, Base64 и hex через scoped SDK, действия и экран converter. Парсинг выполняется в отдельном worker с ограничениями времени, памяти, размера ввода/вывода и раскрытия YAML-ссылок. DTD и внешние XML-сущности запрещены. Конвейеры, пакетное применение к документам и преобразования изображений остаются удалёнными.
+
+CodeEditor экспортируется из @everything/ui и используется в конвертере и текстовых документах. Проверены редактируемый YAML в sandbox пользовательского приложения, подсветка JSON/YAML, read-only результат, сохранение ввода при ошибке и создание документа из результата. Команда dev предварительно собирает runtime расширений.
+
+Typecheck, форматирование, build, все 102 unit/integration-теста, formats, documents, extensions и desktop smoke прошли. Проверены некорректные форматы, Unicode, бинарные данные, отмена worker и выполнение transform-действия. Скриншоты конвертера и пользовательского CodeEditor просмотрены. Дополнительно запущен npm run dev и повторён formats smoke через его renderer server: успешно. Готовая packaged-сборка в этом изменении не проверялась.

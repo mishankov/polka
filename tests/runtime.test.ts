@@ -26,7 +26,7 @@ function coreMock() {
         status: 'running',
         definition: {
           actions: [
-            { id: 'convert', name: 'Convert', type: 'transform' },
+            { id: 'query', name: 'Query', type: 'records.list' },
             { id: 'notify', name: 'Notify', type: 'notification' },
           ],
           permissions: [],
@@ -196,13 +196,13 @@ test('queue persists completion and idempotency suppresses duplicate side effect
   await execution.init();
   const first = await execution.enqueue({
     appId: 'one',
-    actionId: 'convert',
+    actionId: 'query',
     idempotencyKey: 'same',
   });
   await eventually(() => first.status === 'completed');
   const second = await execution.enqueue({
     appId: 'one',
-    actionId: 'convert',
+    actionId: 'query',
     idempotencyKey: 'same',
   });
   assert.equal(second.id, first.id);
@@ -267,7 +267,7 @@ test('running cancellation signals the common action executor', async () => {
     }),
   );
   await execution.init();
-  const job = await execution.enqueue({ appId: 'one', actionId: 'convert' });
+  const job = await execution.enqueue({ appId: 'one', actionId: 'query' });
   await eventually(() => job.status === 'running');
   await new Promise((r) => setTimeout(r, 5));
   await execution.cancel(job.id);
@@ -309,7 +309,7 @@ test('permission revocation disables clipboard watcher before clipboard read', a
     appId: 'one',
     name: 'watch',
     trigger: 'clipboard',
-    actionId: 'convert',
+    actionId: 'query',
     enabled: true,
   });
   core.permissions.splice(0);
@@ -432,7 +432,7 @@ test('definition automation sync installs paused rules, preserves local settings
       id: 'daily',
       name: 'Daily',
       trigger: 'interval',
-      actionId: 'convert',
+      actionId: 'query',
       intervalMs: 60000,
       enabled: true,
     },
@@ -460,7 +460,7 @@ test('missed interval policy skips late work and limits catch-up', async () => {
     appId: 'one',
     name: 'skip',
     trigger: 'interval',
-    actionId: 'convert',
+    actionId: 'query',
     enabled: true,
     intervalMs: 1000,
     config: { missed: 'skip' },
@@ -469,7 +469,7 @@ test('missed interval policy skips late work and limits catch-up', async () => {
     appId: 'one',
     name: 'catchup',
     trigger: 'interval',
-    actionId: 'convert',
+    actionId: 'query',
     enabled: true,
     intervalMs: 1000,
     config: { missed: 'catchup', catchupLimit: 2 },
@@ -492,7 +492,7 @@ test('automation conditions filter event input before dispatching action', async
     appId: 'one',
     name: 'conditional',
     trigger: 'event',
-    actionId: 'convert',
+    actionId: 'query',
     enabled: true,
     config: {
       event: 'media',

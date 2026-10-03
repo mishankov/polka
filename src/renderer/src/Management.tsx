@@ -333,7 +333,7 @@ export function DefinitionEditor({
                     { value: 'chart', label: 'График' },
                     { value: 'text', label: 'Текстовый редактор' },
                     { value: 'image', label: 'Растровый редактор' },
-                    { value: 'converter', label: 'Преобразования' },
+                    { value: 'converter', label: 'JSON, XML, YAML, Base64 и hex' },
                     { value: 'dashboard', label: 'Обзор' },
                   ]}
                   onChange={(v) => {

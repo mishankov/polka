@@ -4,7 +4,7 @@ Updated 2 October 2026 from the owner's review of the requirements audit. This f
 
 ## Current implementation scope
 
-- Documents/editors: folders, dropped files, batch previews, transformation chains, richer raster operations.
+- Documents/editors: folders, dropped files, richer raster operations.
 - Extensions/integrations: shared themed UI, curated bundled dependencies, isolated recoverable UI execution, trusted capability adapters.
 - Import/export: deliberate demonstration data, reconnection report, progress and cancellation.
 - Distribution: complete update UI and lifecycle, reproducible signed-release automation and verification.

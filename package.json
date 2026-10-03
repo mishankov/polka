@@ -7,7 +7,7 @@
   "license": "MIT",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "npm run build:extensions && electron-vite dev",
     "build": "electron-vite build && tsx scripts/build-extension-runtime.ts",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
@@ -25,7 +25,7 @@
     "test:documents": "tsx scripts/document-workflows-smoke.ts",
     "test:extensions": "tsx scripts/extensions-smoke.ts",
     "test:packages": "tsx scripts/package-workflows-smoke.ts",
-    "test:workflows": "npm run test:documents && npm run test:extensions && npm run test:packages && npm run test:provider && npm run test:streaming && npm run test:window-close && npm run test:auto-start && npm run test:tray && npm run test:window-settings",
+    "test:workflows": "npm run test:documents && npm run test:formats && npm run test:extensions && npm run test:packages && npm run test:provider && npm run test:streaming && npm run test:window-close && npm run test:auto-start && npm run test:tray && npm run test:window-settings",
     "test:packaged:workflows": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" npm run test:workflows",
     "test:provider": "tsx scripts/provider-smoke.ts",
     "test:packaged:provider": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" tsx scripts/provider-smoke.ts",
@@ -36,7 +36,9 @@
     "test:auto-start": "tsx scripts/auto-start-smoke.ts",
     "test:tray": "tsx scripts/tray-apps-smoke.ts",
     "test:window-settings": "tsx scripts/overlay-window-smoke.ts",
-    "test:packaged:auto-start": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" tsx scripts/auto-start-smoke.ts"
+    "test:packaged:auto-start": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" tsx scripts/auto-start-smoke.ts",
+    "build:extensions": "tsx scripts/build-extension-runtime.ts",
+    "test:formats": "tsx scripts/formats-smoke.ts"
   },
   "build": {
     "appId": "app.everything.desktop",
@@ -86,6 +88,8 @@
   },
   "dependencies": {
     "@codemirror/lang-json": "6.0.2",
+    "@codemirror/lang-xml": "6.1.0",
+    "@codemirror/lang-yaml": "6.1.3",
     "@mantine/core": "9.6.3",
     "@mantine/hooks": "9.6.3",
     "@mantine/notifications": "9.6.3",
@@ -96,19 +100,18 @@
     "fast-xml-parser": "5.11.2",
     "fflate": "0.8.3",
     "iconv-lite": "0.7.3",
-    "pngjs": "7.0.0",
     "quickjs-emscripten": "0.32.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-markdown": "10.1.0",
     "recharts": "3.10.1",
     "remark-gfm": "4.0.1",
+    "yaml": "2.9.1",
     "zod": "4.6.5"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "@types/node": "26.6.4",
-    "@types/pngjs": "6.0.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "5.2.0",

@@ -67,7 +67,14 @@ export const definitionSchema = z
           .object({
             id,
             name: z.string().min(1).max(200),
-            type: z.string().min(1).max(100),
+            type: z
+              .string()
+              .min(1)
+              .max(100)
+              .refine(
+                (type) => type !== 'pipeline',
+                'Конвейеры не поддерживаются. Используйте обработчик приложения.',
+              ),
             config: z.record(z.string(), z.unknown()).optional(),
             permission: z.string().optional(),
           })

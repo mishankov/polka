@@ -2,10 +2,10 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { PackageTasks } from '../core/package-tasks';
-import { TransformJobService } from '../services/transformJobs';
+import { transforms } from '../services/transforms';
+import { FormatRunner } from '../services/formatRunner';
 import { CoreService } from '../core/service';
 import { DocumentService } from '../services/documents';
-import { transforms, runTransform, runPipeline } from '../services/transforms';
 import { compileExtension, runHandler, buildComponent } from '../extensions/host';
 import { RuntimeService } from '../runtime/service';
 import { createBuiltinAdapters } from '../extensions/adapters';
@@ -30,9 +30,7 @@ const emit = (type: string, payload: any = {}) =>
     },
   });
 const packageTasks = new PackageTasks(core, join(__dirname, 'package-worker.js'), emit);
-const transformJobs = new TransformJobService(join(__dirname, 'transformWorker.js'), (m, p) =>
-  dispatch(m, p),
-);
+const formats = new FormatRunner(join(__dirname, 'transformWorker.js'));
 const adapters = createBuiltinAdapters({
   ensurePermission,
   readConnection: (appId, connectionId, origin) =>
@@ -49,6 +47,8 @@ async function scoped(appId: string, method: string, params: any = {}, signal?: 
   signal?.throwIfAborted();
   if (params.appId && params.appId !== appId) throw Error('Доступ к другому экземпляру запрещён');
   await core.handle('apps.get', { appId });
+  if (method === 'transforms.list') return transforms;
+  if (method === 'transforms.run') return formats.run(params.operation, params.input, signal);
   if (method === 'adapters.list') return adapters.registry.catalog();
   if (method === 'actions.run') return dispatch('actions.run', { ...params, appId });
   if (method === 'jobs.list') return runtime.handle('jobs.list', { appId });
@@ -68,8 +68,6 @@ async function scoped(appId: string, method: string, params: any = {}, signal?: 
     if (params.appId && params.appId !== appId) throw Error('Доступ к другому экземпляру запрещён');
     return dispatch(method, { ...params, appId });
   }
-  if (method === 'transforms.run')
-    return runTransform(params.operation, params.input, params.options);
   if (method === 'clipboard.read' || method === 'clipboard.write') {
     await ensurePermission(appId, method);
     return host(method, { text: params.text });
@@ -109,8 +107,7 @@ async function executeAction(
   const cfg = action.config || {};
   let result;
   if (action.type === 'transform')
-    result = runTransform(cfg.operation, input ?? cfg.input, cfg.options);
-  else if (action.type === 'pipeline') result = runPipeline(cfg.steps, input, signal);
+    result = await formats.run(cfg.operation, input ?? cfg.input, signal);
   else if (action.type === 'extension') {
     const ext = await extension(appId, cfg.extensionId);
     result = await runHandler(
@@ -181,14 +178,12 @@ async function dispatch(method: string, p: any = {}, documentLock = false): Prom
   )
     return runtime.handle(method, p);
   if (method.startsWith('docs.')) return docs.handle(method, p);
-  if (method.startsWith('transforms.jobs.')) return transformJobs.handle(method, p);
   if (method === 'packages.taskCancel') return packageTasks.cancel(p.taskId);
   if (method === 'packages.taskStatus') return packageTasks.status(p.taskId);
   if (method === 'packages.export') return packageTasks.export(p, p.taskId);
-  if (method === 'adapters.list') return adapters.registry.catalog();
   if (method === 'transforms.list') return transforms;
-  if (method === 'transforms.run') return runTransform(p.operation, p.input, p.options);
-  if (method === 'transforms.pipeline') return runPipeline(p.steps, p.input);
+  if (method === 'transforms.run') return formats.run(p.operation, p.input);
+  if (method === 'adapters.list') return adapters.registry.catalog();
   if (method === 'actions.run') return runtime.handle('jobs.enqueue', p);
   if (method === 'extensions.build') {
     const ext = await extension(p.appId, p.extensionId);
@@ -267,8 +262,8 @@ port.on('message', async (message: any) => {
     return;
   }
   if (message.kind === 'shutdown') {
+    formats.close();
     await packageTasks.shutdown();
-    await transformJobs.close();
     await runtime.shutdown();
     core.close();
     process.exit(0);

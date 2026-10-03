@@ -143,6 +143,101 @@ async function fixture(
 }
 
 test(
+  'built worker supports format operations while rejecting removed pipelines and batch APIs',
+  options,
+  () =>
+    fixture(async ({ call, hostCalls }) => {
+      const app = await call('apps.create', { definition: definition() });
+      await call('apps.updateMeta', { appId: app.id, status: 'running' });
+      const doc = await call('docs.create', { appId: app.id, content: 'original' });
+      for (const method of [
+        'transforms.pipeline',
+        'transforms.jobs.start',
+        'transforms.jobs.status',
+        'transforms.jobs.cancel',
+        'transforms.jobs.release',
+        'documents.clipboardRead',
+        'documents.clipboardWrite',
+        'docs.applyBatch',
+      ]) {
+        const params = {
+          appId: app.id,
+          operation: 'base64.encode',
+          input: 'original',
+          changes: [{ id: doc.id, revision: doc.revision, content: 'changed' }],
+        };
+        await assert.rejects(call(method, params));
+        await assert.rejects(
+          call('extensions.call', {
+            appId: app.id,
+            extensionId: 'handler',
+            method,
+            params,
+          }),
+          /недоступна/,
+        );
+      }
+      for (const type of ['pipeline']) {
+        const legacy = definition();
+        legacy.actions = [{ id: 'legacy', name: 'Legacy', type }];
+        await assert.rejects(
+          call('apps.create', { definition: legacy }),
+          /Конвейеры не поддерживаются/,
+        );
+        await assert.rejects(
+          call('definitions.prepare', { appId: app.id, definition: legacy }),
+          /Конвейеры не поддерживаются/,
+        );
+      }
+      const legacyScreen = {
+        ...definition(),
+        screens: [{ id: 'legacy', name: 'Legacy', type: 'converter' }],
+      };
+      await call('apps.create', { definition: legacyScreen });
+      assert.equal(
+        (await call('transforms.run', { operation: 'yaml.json', input: 'name: test' })).output,
+        '{\n  \"name\": \"test\"\n}',
+      );
+      const result = await call('extensions.call', {
+        appId: app.id,
+        extensionId: 'handler',
+        method: 'transforms.run',
+        params: { operation: 'hex.decode', input: '6869' },
+      });
+      assert.equal(result.output, 'hi');
+      const actionDefinition = definition();
+      actionDefinition.actions.push({
+        id: 'format',
+        name: 'Format',
+        type: 'transform',
+        config: { operation: 'json.format', input: '{}' },
+      });
+      const actionApp = await call('apps.create', { definition: actionDefinition });
+      await call('apps.start', { appId: actionApp.id });
+      const job = await call('actions.run', { appId: actionApp.id, actionId: 'format' });
+      await until(
+        async () =>
+          (await call('jobs.list', { appId: actionApp.id })).find(
+            (entry: any) => entry.id === job.id,
+          )?.status === 'completed',
+      );
+      assert.equal((await call('docs.get', { appId: app.id, id: doc.id })).content, 'original');
+      const edited = await call('extensions.call', {
+        appId: app.id,
+        extensionId: 'handler',
+        method: 'docs.draft',
+        params: { id: doc.id, revision: doc.revision, content: 'app-authored edit' },
+      });
+      assert.equal(edited.content, 'app-authored edit');
+      assert.equal(
+        (await call('capabilities.list')).some((c: any) => c.rpc === 'transforms.run'),
+        true,
+      );
+      assert.equal(hostCalls.length, 0);
+    }),
+);
+
+test(
   'built worker creates/stops instances and executes an extension against only its own records',
   options,
   () =>

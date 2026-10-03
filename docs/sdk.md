@@ -8,7 +8,7 @@
 {"id":"items","name":"Список","type":"table","entityId":"items"}
 ```
 
-Доступны table, form, board, calendar, chart, text, image, converter, dashboard и custom. `theme` задаёт mode, primaryColor, density и radius. Обработчики, преобразования и автоматически выполняемые действия используют один executor; экран не должен самостоятельно менять БД.
+Доступны table, form, board, calendar, chart, text, image, converter, dashboard и custom. `theme` задаёт mode, primaryColor, density и radius. Обработчики и автоматически выполняемые действия используют один executor; экран не должен самостоятельно менять БД.
 
 ## Обработчик
 
@@ -20,7 +20,7 @@ export default function(input: {title: string}) {
 }
 ```
 
-Компиляция обрабатывает TS; итоговые данные всё равно проверяет runtime. Возвращаемые operations исполняются последовательно. `input` должен быть JSON; Promise, доступ к часам хоста, Node-модули и fetch внутри QuickJS не поддерживаются. Доступны scoped `records.list/upsert/delete`, `links.query`, `attachments.list/read`, `docs.list/get/create/draft/revert`, `transforms.run`, `clipboard.read/write`, `notifications.show`, `system.media`, `adapters.list`, `network.fetch/request`, `actions.run`, `jobs.list/cancel`. Обработчик не может вызвать settings, state, permissions.grant, secrets, произвольный файловый путь или изменение соседнего appId. Runtime повторно проверяет разрешения в доверенном коде.
+Компиляция обрабатывает TS; итоговые данные всё равно проверяет runtime. Возвращаемые operations исполняются последовательно. `input` должен быть JSON; Promise, доступ к часам хоста, Node-модули и fetch внутри QuickJS не поддерживаются. Доступны scoped `records.list/upsert/delete`, `links.query`, `attachments.list/read`, `docs.list/get/create/draft/revert`, `transforms.list/run`, `clipboard.read/write`, `notifications.show`, `system.media`, `adapters.list`, `network.fetch/request`, `actions.run`, `jobs.list/cancel`. Обработчик не может вызвать settings, state, permissions.grant, secrets, произвольный файловый путь или изменение соседнего appId. Runtime повторно проверяет разрешения в доверенном коде.
 
 ## React-компонент
 
@@ -39,7 +39,7 @@ export default function Screen({sdk}) {
 
 Встроенный каталог содержит `react`/`react/jsx-runtime` 19.3.0, `react-dom/client` 19.3.0, `@mantine/core` 9.6.3, `@mantine/hooks` 9.6.3, `recharts` 3.10.1, `zod` 4.6.5 и `@everything/ui` 1.0.0. Точные версии dependencies проверяются до установки; диапазоны и неизвестные библиотеки отклоняются. Всё входит в сборку платформы, без CDN и npm install у получателя.
 
-`@everything/ui` экспортирует `EntityForm`, `RecordTable`, `RelatedRecordSelect`, `Card`, `ActionButton`, `JobProgress`, `HistoryList`, `ErrorView`, `Board`, `CalendarView`, `useSDK`. Формы/таблицы/действия используют общий scoped SDK; схемы сущностей передаются props. Для компоновки используйте Mantine, для графиков — Recharts, для документов — стандартные text/image экраны. Общая уютная тема, радиусы, плотность и активный светлый/тёмный режим передаются автоматически, включая изменения во время работы. [Примеры, ограничения выборки и библиотек](extensions.md).
+`@everything/ui` экспортирует `CodeEditor`, `EntityForm`, `RecordTable`, `RelatedRecordSelect`, `Card`, `ActionButton`, `JobProgress`, `HistoryList`, `ErrorView`, `Board`, `CalendarView`, `useSDK`. Формы/таблицы/действия используют общий scoped SDK; схемы сущностей передаются props. Для компоновки используйте Mantine, для графиков — Recharts, для документов — стандартные text/image экраны. Общая уютная тема, радиусы, плотность и активный светлый/тёмный режим передаются автоматически, включая изменения во время работы. [Примеры, ограничения выборки и библиотек](extensions.md).
 
 ## Разрешения
 
@@ -48,3 +48,18 @@ export default function Screen({sdk}) {
 ## Добавление платформенной операции
 
 Добавьте runtime-проверку аргументов, запись в capability catalog, единый executor и тесты границы доступа. Разрешённые привилегии проверяются в worker/main, а не только в UI. `AdapterRegistry` (`src/extensions/adapters.ts`) содержит машинные описания и проверяемые реализации trusted adapters; `adapters.list`/каталог агента описывают схемы, эффекты, права, повтор, отмену и лимиты. Новая регистрация требует кода доверенной поставки. Новый нативный адаптер обновляется только вместе с доверенной поставкой платформы; пакет `.everyapp` не принимает бинарники.
+
+## Форматы и редактор кода
+
+`transforms.list` возвращает операции JSON/XML/YAML/Base64/hex и их типы. `transforms.run({operation, input})` возвращает `{output, warnings}` без изменения документов. Например: `await sdk.call('transforms.run', {operation: 'yaml.json', input: 'name: Example'})`. Действие `{id: 'format', name: 'Форматировать', type: 'transform', config: {operation: 'json.format', input: '{}'}}` запускается через обычную очередь. Конвейеры и операции с изображениями не поддерживаются. [Лимиты и семантика](document-workflows.md).
+
+```tsx
+import {useState} from 'react';
+import {CodeEditor} from '@everything/ui';
+export default function Screen() {
+  const [value, setValue] = useState('{}');
+  return <CodeEditor value={value} onChange={setValue} language="json" label="JSON запроса" />;
+}
+```
+
+`CodeEditor`: `value`, `onChange`, `language` (`text|json|xml|yaml|base64|hex`), `label`, `readOnly`, `height` (по умолчанию `320px`), `minHeight`. Поддерживает нумерацию строк, сворачивание блоков, undo/redo и тему приложения. Подсветка есть для JSON/XML/YAML; Base64 и hex используют обычный текстовый режим. Это редактор ввода: он не исполняет код и не проверяет формат автоматически. Для проверки используйте `json.validate`, `xml.validate` или `yaml.validate`. Прямой импорт произвольных модулей CodeMirror не нужен; компонент входит в `@everything/ui`.

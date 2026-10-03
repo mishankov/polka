@@ -11,17 +11,16 @@
 - https://www.electronjs.org/docs/latest/tutorial/security — sandbox, context isolation, проверка IPC sender и запрет navigation.
 - https://nodejs.org/api/sqlite.html — встроенный драйвер SQLite, без нативного ABI-модуля. Синхронный API используется в worker thread.
 - https://github.com/justjake/quickjs-emscripten — QuickJS/WASM, ограничение памяти и прерывание исполнения.
-- https://github.com/NaturalIntelligence/fast-xml-parser — XML parser/builder; DTD и ENTITY отвергаются до парсинга.
 - https://codemirror.net/ — CodeMirror 6 для текстового редактора, MIT.
 - https://mantine.dev/getting-started/ — Mantine 9, MIT, темы на CSS-переменных.
 
-Electron, React, Mantine, esbuild, fast-xml-parser, iconv-lite и fflate — MIT; QuickJS — MIT, обёртка quickjs-emscripten — MIT; SQLite — public domain. Точные лицензии и транзитивный состав смотрите в поставляемых node_modules и `npm ls --all`. Собственный canvas отвечает за растровые жесты и undo: кодирование редактора выполняет браузерный Canvas API; PNG-цепочки в worker используют закреплённый pngjs (MIT), собственного PNG-кодека нет. Это ограниченный растровый редактор, не аналог профессионального редактора.
+Electron, React, Mantine, esbuild, fast-xml-parser, iconv-lite и fflate — MIT; QuickJS — MIT, обёртка quickjs-emscripten — MIT; SQLite — public domain; yaml — ISC. Точные лицензии и транзитивный состав смотрите в поставляемых node_modules и `npm ls --all`. Собственный canvas отвечает за растровые жесты и undo: кодирование редактора выполняет браузерный Canvas API. Это ограниченный растровый редактор, не аналог профессионального редактора.
 
 ## Границы процессов
 
 `main/index.ts` — доверенная оболочка Electron: окна, меню, выбранные пользователем пути, safeStorage, системные операции. `preload` предоставляет только call/onEvent. UI не импортирует Node и не получает общих файловых API. IPC проверяет зарегистрированный WebContents и главный frame; запросы из iframe отклоняются. Методы state.*, secrets, прямой импорт/экспорт по путям закрыты для renderer.
 
-`main/worker.ts` — отдельный Node worker: SQLite, данные, документы, агент, очередь, сборка esbuild и QuickJS. Архивы обрабатываются в отдельных package workers с progress/cancel; преобразования — в отдельных transform workers с принудительной отменой. Подготовка export snapshot и чтение вложений пока синхронны в core worker и могут задержать другие его запросы. Лимиты 64 МиБ пакета и 128 МиБ распаковки ограничивают нагрузку, но это не полная изоляция производительности. Произвольный код приложения никогда не запускается как Node-модуль.
+`main/worker.ts` — отдельный Node worker: SQLite, данные, документы, агент, очередь, сборка esbuild и QuickJS. Архивы обрабатываются в отдельных package workers с progress/cancel; JSON/XML/YAML/Base64/hex — в ограниченных по времени и памяти format workers. Подготовка export snapshot и чтение вложений пока синхронны в core worker и могут задержать другие его запросы. Лимиты 64 МиБ пакета и 128 МиБ распаковки ограничивают нагрузку, но это не полная изоляция производительности. Произвольный код приложения никогда не запускается как Node-модуль.
 
 `core` — транзакционное состояние. Одна SQLite БД с обязательным appId, внешними ключами, WAL и контролем ссылок упрощает атомарное переключение определения и данных, snapshots, независимый экспорт. Безопасность обеспечивается scoped API и проверками ядра, а не секретностью идентификаторов. `runtime` хранит очередь и разговоры, использует тот же action executor, что кнопки. `services/documents` хранит черновики отдельно от версий определений. Внешние пути скрыты из публичной модели документа. Крупные вложения — отдельные управляемые файлы.
 
@@ -47,7 +46,7 @@ safeStorage на macOS использует системную связку кл
 
 1. Проверить среду, SQLite, нативные сигналы, QuickJS и локальную сборку.
 2. Общие типы; независимые экземпляры; транзакционные версии и перенос пакетов.
-3. React workspace; компоненты, документы, преобразования, темы.
+3. React workspace; компоненты, документы, темы.
 4. Провайдеры, инструментальный агент, права, очередь и автоматизации.
 5. Интеграция Electron, окна, восстановление, packaged smoke и тесты.
 

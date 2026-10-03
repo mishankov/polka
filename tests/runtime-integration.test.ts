@@ -29,17 +29,17 @@ test('real SQLite and runtime retain job results and independently import paused
     definition.permissions = ['background'];
     definition.actions = [
       {
-        id: 'format',
-        name: 'Форматирование',
-        type: 'transform',
-        config: { operation: 'json.format', input: '{}' },
+        id: 'query',
+        name: 'Запрос записей',
+        type: 'records.list',
+        config: { entityId: 'items' },
       },
     ];
     definition.automations = [
       {
         id: 'timer',
         name: 'По расписанию',
-        actionId: 'format',
+        actionId: 'query',
         trigger: 'interval',
         intervalMs: 60000,
         enabled: true,
@@ -54,7 +54,7 @@ test('real SQLite and runtime retain job results and independently import paused
     await runtime.handle('automations.setEnabled', { id: originalRules[0].id, enabled: true });
     const job = await runtime.handle('jobs.enqueue', {
       appId: app.id,
-      actionId: 'format',
+      actionId: 'query',
       idempotencyKey: 'once',
     });
     assert.equal((await completed(runtime, job.id)).result, 'configured default');
@@ -80,7 +80,7 @@ test('real SQLite and runtime retain job results and independently import paused
       (
         await runtime.handle('jobs.enqueue', {
           appId: app.id,
-          actionId: 'format',
+          actionId: 'query',
           idempotencyKey: 'once',
         })
       ).id,
@@ -106,7 +106,7 @@ test('dispatch-backed RuntimeService initializes without recursive lock and sync
   try {
     assert.deepEqual(await runtime.handle('jobs.list'), []);
     const d = emptyDefinition('Проверка');
-    d.actions = [{ id: 'x', name: 'x', type: 'transform' }];
+    d.actions = [{ id: 'x', name: 'x', type: 'records.list' }];
     d.automations = [{ id: 'a', name: 'a', trigger: 'interval', actionId: 'x' }];
     const app = await dispatch('apps.create', { definition: d });
     assert.equal((await runtime.handle('automations.list', { appId: app.id })).length, 1);

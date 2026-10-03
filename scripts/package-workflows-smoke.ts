@@ -128,10 +128,21 @@ async function main() {
     await page.screenshot({ path: 'artifacts/package-import-access.png' });
     await page.keyboard.press('Escape');
     await access.waitFor({ state: 'hidden' });
+    assert.equal(
+      await page.evaluate(async (id) => {
+        const apps = await window.platform.call<any[]>('apps.list');
+        return apps.find((app) => app.id !== id)!.status;
+      }, source.id),
+      'stopped',
+    );
     await page.getByRole('button', { name: 'Открыть приложение', exact: true }).click();
     await page
       .getByRole('dialog', { name: 'Приложение установлено', exact: true })
       .waitFor({ state: 'hidden' });
+    await page.waitForFunction(async (id) => {
+      const apps = await window.platform.call<any[]>('apps.list');
+      return apps.find((app) => app.id !== id)?.status === 'running';
+    }, source.id);
     const imported = await page.evaluate(async (id) => {
       const apps = await window.platform.call<any[]>('apps.list');
       const app = apps.find((app) => app.id !== id)!;
@@ -143,7 +154,7 @@ async function main() {
     }, source.id);
     assert.equal(imported.rows.records.length, 1);
     assert.equal(imported.rows.records[0].values.name, 'Синтетический пример');
-    assert.equal(imported.app.status, 'stopped');
+    assert.equal(imported.app.status, 'running');
 
     // Exercise the visible cancellation control with actual incompressible attachment bytes.
     await page.keyboard.press('Escape');

@@ -9,8 +9,8 @@ export default defineConfig({
         input: {
           index: resolve('src/main/index.ts'),
           worker: resolve('src/main/worker.ts'),
-          'package-worker': resolve('src/core/package-worker.ts'),
           transformWorker: resolve('src/main/transformWorker.ts'),
+          'package-worker': resolve('src/core/package-worker.ts'),
         },
       },
     },

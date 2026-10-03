@@ -1,209 +1,209 @@
 import { XMLParser, XMLBuilder, XMLValidator } from 'fast-xml-parser';
-import iconv from 'iconv-lite';
-import { isPngImage, transformImage } from './imageTransforms';
-import { decodeBase64 as base64 } from './base64';
+import { parseDocument, stringify } from 'yaml';
+export const MAX_TRANSFORM_INPUT = 1024 * 1024;
+const MAX_OUTPUT = 2 * 1024 * 1024;
+const conversionWarning =
+  'XML: атрибуты имеют префикс @_, текст — #text. При переводе в JSON порядок, комментарии и смешанный текст могут измениться.';
 export const transforms = [
-  ['base64.encode', 'Текст → Base64', 'text', 'text'],
-  ['base64.decode', 'Base64 → текст', 'text', 'text'],
-  ['hex.encode', 'Текст → hex', 'text', 'text'],
-  ['hex.decode', 'Hex → текст', 'text', 'text'],
-  ['bytes.hex', 'Байты → hex', 'bytes', 'text'],
-  ['hex.bytes', 'Hex → байты', 'text', 'bytes'],
-  ['json.parse', 'Разобрать JSON', 'text', 'data'],
-  ['json.stringify', 'Данные → JSON', 'data', 'text'],
-  ['xml.parse', 'Разобрать XML', 'text', 'data'],
-  ['bytes.base64', 'Байты → Base64', 'bytes', 'text'],
-  ['base64.bytes', 'Base64 → байты', 'text', 'bytes'],
-  ['url.encode', 'URL: кодировать', 'text', 'text'],
-  ['url.decode', 'URL: декодировать', 'text', 'text'],
-  ['json.format', 'Форматировать JSON', 'text', 'text'],
-  ['json.validate', 'Проверить JSON', 'text', 'data'],
-  ['xml.format', 'Форматировать XML', 'text', 'text'],
-  ['xml.validate', 'Проверить XML', 'text', 'data'],
-  ['xml.json', 'XML → JSON', 'text', 'text'],
-  ['json.xml', 'JSON → XML', 'text', 'text'],
-  ['text.encoding', 'Преобразовать кодировку', 'bytes', 'bytes'],
-  ['text.lines', 'Изменить окончания строк', 'text', 'text'],
-  ['image.decodePng', 'Байты PNG → изображение', 'bytes', 'image'],
-  ['image.encodePng', 'Изображение → байты PNG', 'image', 'bytes'],
-  ['image.crop', 'Изображение: обрезать', 'image', 'image'],
-  ['image.resize', 'Изображение: изменить размер', 'image', 'image'],
-  ['image.rotate', 'Изображение: повернуть', 'image', 'image'],
-  ['image.flip', 'Изображение: отразить', 'image', 'image'],
-].map(([id, name, input, output]) => ({
+  ['json.format', 'Форматировать JSON', 'text', 'text', 'json', 'json'],
+  ['json.validate', 'Проверить JSON', 'text', 'data', 'json', 'json'],
+  ['json.parse', 'JSON → данные', 'text', 'data', 'json', 'json'],
+  ['json.stringify', 'Данные → JSON', 'data', 'text', 'json', 'json'],
+  ['xml.format', 'Форматировать XML', 'text', 'text', 'xml', 'xml'],
+  ['xml.validate', 'Проверить XML', 'text', 'data', 'xml', 'json'],
+  ['xml.parse', 'XML → данные', 'text', 'data', 'xml', 'json'],
+  ['xml.json', 'XML → JSON', 'text', 'text', 'xml', 'json'],
+  ['json.xml', 'JSON → XML', 'text', 'text', 'json', 'xml'],
+  ['yaml.format', 'Форматировать YAML', 'text', 'text', 'yaml', 'yaml'],
+  ['yaml.validate', 'Проверить YAML', 'text', 'data', 'yaml', 'json'],
+  ['yaml.parse', 'YAML → данные', 'text', 'data', 'yaml', 'json'],
+  ['yaml.stringify', 'Данные → YAML', 'data', 'text', 'json', 'yaml'],
+  ['yaml.json', 'YAML → JSON', 'text', 'text', 'yaml', 'json'],
+  ['json.yaml', 'JSON → YAML', 'text', 'text', 'json', 'yaml'],
+  ['base64.encode', 'Текст → Base64', 'text', 'text', 'text', 'base64'],
+  ['base64.decode', 'Base64 → текст', 'text', 'text', 'base64', 'text'],
+  ['bytes.base64', 'Байты → Base64', 'bytes', 'text', 'json', 'base64'],
+  ['base64.bytes', 'Base64 → байты', 'text', 'bytes', 'base64', 'json'],
+  ['hex.encode', 'Текст → hex', 'text', 'text', 'text', 'hex'],
+  ['hex.decode', 'Hex → текст', 'text', 'text', 'hex', 'text'],
+  ['bytes.hex', 'Байты → hex', 'bytes', 'text', 'json', 'hex'],
+  ['hex.bytes', 'Hex → байты', 'text', 'bytes', 'hex', 'json'],
+].map(([id, name, input, output, inputLanguage, outputLanguage]) => ({
   id,
   name,
   input,
   output,
-  ...(id.startsWith('image.')
-    ? {
-        warning:
-          'Только статический PNG до 8 бит, без чересстрочной развёртки: до 8192 пикселей по стороне, 16 мегапикселей и 12 МБ. Выход — RGBA 8 бит; метаданные и цветовые профили не сохраняются. Изменение размера использует ближайший пиксель.',
-      }
-    : {}),
-  ...(id === 'xml.json' || id === 'json.xml'
-    ? {
-        warning:
-          'Атрибуты: @_, текст: #text. Повторяющиеся элементы становятся массивами; комментарии, смешанный текст и порядок могут измениться. Обратимость не гарантируется.',
-      }
-    : {}),
+  inputLanguage,
+  outputLanguage,
+  warning: ['xml.parse', 'xml.json', 'json.xml'].includes(id)
+    ? conversionWarning
+    : id === 'yaml.json'
+      ? 'Комментарии, стиль YAML и связи между якорями не переносятся в JSON.'
+      : undefined,
 }));
-
-function xml(s: string) {
-  if (/<!\s*(DOCTYPE|ENTITY)/i.test(s)) throw Error('DTD и внешние сущности XML запрещены');
-  const ok = XMLValidator.validate(s);
-  if (ok !== true) throw Error(`XML: строка ${ok.err.line}: ${ok.err.msg}`);
+function jsonData(
+  value: unknown,
+  ancestors = new Set<unknown>(),
+  budget = { nodes: 0 },
+  depth = 0,
+): void {
+  if (++budget.nodes > 100000 || depth > 100) throw Error('Слишком сложная структура данных');
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
+  if (typeof value === 'number' && Number.isFinite(value)) return;
+  if (typeof value !== 'object' || !value || ancestors.has(value))
+    throw Error('Нужны данные JSON без циклических ссылок и нечисловых значений NaN/Infinity');
+  ancestors.add(value);
+  for (const child of Object.values(value)) jsonData(child, ancestors, budget, depth + 1);
+  ancestors.delete(value);
+}
+function xml(text: string, preserveOrder = false) {
+  if (/<!\s*(DOCTYPE|ENTITY)/i.test(text)) throw Error('DTD и внешние сущности XML запрещены');
+  const valid = XMLValidator.validate(text);
+  if (valid !== true) throw Error(`XML: строка ${valid.err.line}: ${valid.err.msg}`);
   return new XMLParser({
     ignoreAttributes: false,
-    processEntities: false,
-    preserveOrder: false,
-  }).parse(s);
+    preserveOrder,
+    processEntities: true,
+    parseTagValue: false,
+    parseAttributeValue: false,
+    trimValues: false,
+    commentPropName: '#comment',
+  }).parse(text);
 }
-export function runTransform(operation: string, input: unknown, options: Record<string, any> = {}) {
-  if (JSON.stringify(input)?.length > 16 * 1024 * 1024)
-    throw Error('Максимальный размер преобразования — 16 МБ');
-  const definition = transforms.find((t) => t.id === operation);
-  if (!definition) throw Error('Преобразование не зарегистрировано');
-  if (definition.input === 'text' && typeof input !== 'string') throw Error('Ожидается текст');
+function yaml(text: string) {
+  const doc = parseDocument(text, {
+    version: '1.2',
+    schema: 'core',
+    stringKeys: true,
+    uniqueKeys: true,
+  });
+  if (doc.errors.length || doc.warnings.length)
+    throw Error(`YAML: ${(doc.errors[0] || doc.warnings[0]).message}`);
+  const data = doc.toJS({ maxAliasCount: 100 });
+  jsonData(data);
+  return { doc, data };
+}
+function decode(text: string, encoding: 'hex' | 'base64') {
+  if (encoding === 'hex') {
+    if (text.length % 2 || /[^0-9a-fA-F]/.test(text))
+      throw Error('Hex должен содержать пары цифр 0–9, A–F');
+  } else {
+    const padding = text.endsWith('==') ? 2 : text.endsWith('=') ? 1 : 0;
+    if (text.length % 4 || /[^A-Za-z0-9+/]/.test(text.slice(0, text.length - padding)))
+      throw Error('Некорректный Base64');
+  }
+  return Buffer.from(text, encoding);
+}
+export function runTransform(operation: string, input: unknown) {
+  const spec = transforms.find((t) => t.id === operation);
+  if (!spec) throw Error('Неизвестная операция формата');
+  jsonData(input);
+  if (Buffer.byteLength(JSON.stringify(input)) > MAX_TRANSFORM_INPUT)
+    throw Error('Ввод превышает 1 МиБ');
+  if (spec.input === 'text' && typeof input !== 'string') throw Error('Ожидается текст');
   if (
-    definition.input === 'bytes' &&
-    (!Array.isArray(input) || input.some((x) => !Number.isInteger(x) || x < 0 || x > 255))
+    spec.input === 'bytes' &&
+    (!Array.isArray(input) || input.some((v) => !Number.isInteger(v) || v < 0 || v > 255))
   )
-    throw Error('Ожидается массив байтов');
-  if (definition.input === 'image' && !isPngImage(input)) throw Error('Ожидается изображение PNG');
-  const s = typeof input === 'string' ? input : '';
+    throw Error('Ожидается массив байтов от 0 до 255');
+  const text = typeof input === 'string' ? input : '';
   let output: unknown;
   switch (operation) {
-    case 'base64.encode':
-      output = Buffer.from(s, 'utf8').toString('base64');
-      break;
-    case 'base64.decode':
-      output = new TextDecoder('utf-8', { fatal: true }).decode(base64(s));
-      break;
-    case 'bytes.base64':
-      if (!Array.isArray(input) || input.some((x) => !Number.isInteger(x) || x < 0 || x > 255))
-        throw Error('Ожидается массив байтов');
-      output = Buffer.from(input).toString('base64');
-      break;
-    case 'base64.bytes':
-      output = [...base64(s)];
-      break;
-    case 'hex.encode':
-      output = Buffer.from(s).toString('hex');
-      break;
-    case 'bytes.hex':
-      output = Buffer.from(input as number[]).toString('hex');
-      break;
-    case 'hex.bytes':
-      if (!/^(?:[0-9a-fA-F]{2})*$/.test(s)) throw Error('Hex должен содержать пары цифр');
-      output = [...Buffer.from(s, 'hex')];
-      break;
     case 'json.parse':
-      output = JSON.parse(s);
+      output = JSON.parse(text);
+      break;
+    case 'json.format':
+      output = JSON.stringify(JSON.parse(text), null, 2);
+      break;
+    case 'json.validate':
+      JSON.parse(text);
+      output = { valid: true };
       break;
     case 'json.stringify':
       output = JSON.stringify(input, null, 2);
       break;
-    case 'xml.parse':
-      output = xml(s);
-      break;
-    case 'hex.decode':
-      if (!/^(?:[0-9a-fA-F]{2})*$/.test(s)) throw Error('Hex должен содержать пары цифр');
-      output = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(s, 'hex'));
-      break;
-    case 'url.encode':
-      output = encodeURIComponent(s);
-      break;
-    case 'url.decode':
-      output = decodeURIComponent(s);
-      break;
-    case 'json.format':
-      output = JSON.stringify(JSON.parse(s), null, 2);
-      break;
-    case 'json.validate':
-      JSON.parse(s);
-      output = { valid: true };
-      break;
     case 'xml.validate':
-      xml(s);
+      xml(text);
       output = { valid: true };
+      break;
+    case 'xml.parse':
+      output = xml(text);
+      break;
+    case 'xml.json':
+      output = JSON.stringify(xml(text), null, 2);
       break;
     case 'xml.format':
       output = new XMLBuilder({
-        format: true,
         ignoreAttributes: false,
-        processEntities: false,
-      }).build(xml(s));
+        preserveOrder: true,
+        commentPropName: '#comment',
+        format: true,
+      }).build(xml(text, true));
       break;
-    case 'xml.json':
-      output = JSON.stringify(xml(s), null, 2);
-      break;
-    case 'json.xml':
+    case 'json.xml': {
+      const data = JSON.parse(text);
+      if (!data || Array.isArray(data) || typeof data !== 'object')
+        throw Error('Для XML нужен объект JSON с корневым элементом');
       output = new XMLBuilder({
-        format: true,
         ignoreAttributes: false,
-        processEntities: false,
-      }).build(JSON.parse(s));
-      break;
-    case 'text.lines':
-      output = s.replace(/\r\n|\r|\n/g, options.lineEnding === 'CRLF' ? '\r\n' : '\n');
-      break;
-    case 'text.encoding': {
-      const from = options.from || 'utf8',
-        to = options.to || 'utf8';
-      if (!iconv.encodingExists(from) || !iconv.encodingExists(to))
-        throw Error('Неизвестная кодировка');
-      const bytes = Array.isArray(input) ? Buffer.from(input) : base64(s);
-      output = [...iconv.encode(iconv.decode(bytes, from), to)];
+        commentPropName: '#comment',
+        format: false,
+      }).build(data);
+      xml(String(output));
       break;
     }
-    default:
-      if (operation.startsWith('image.')) {
-        output = transformImage(operation, input, options);
-        break;
+    case 'yaml.parse':
+      output = yaml(text).data;
+      break;
+    case 'yaml.validate':
+      yaml(text);
+      output = { valid: true };
+      break;
+    case 'yaml.format':
+      output = yaml(text).doc.toString();
+      break;
+    case 'yaml.stringify':
+      output = stringify(input);
+      break;
+    case 'yaml.json':
+      output = JSON.stringify(yaml(text).data, null, 2);
+      break;
+    case 'json.yaml':
+      output = stringify(JSON.parse(text));
+      break;
+    case 'base64.encode':
+      output = Buffer.from(text, 'utf8').toString('base64');
+      break;
+    case 'hex.encode':
+      output = Buffer.from(text, 'utf8').toString('hex');
+      break;
+    case 'bytes.base64':
+      output = Buffer.from(input as number[]).toString('base64');
+      break;
+    case 'bytes.hex':
+      output = Buffer.from(input as number[]).toString('hex');
+      break;
+    case 'base64.bytes':
+      output = [...decode(text, 'base64')];
+      break;
+    case 'hex.bytes':
+      output = [...decode(text, 'hex')];
+      break;
+    case 'base64.decode':
+    case 'hex.decode':
+      try {
+        output = new TextDecoder('utf-8', { fatal: true }).decode(
+          decode(text, operation === 'hex.decode' ? 'hex' : 'base64'),
+        );
+      } catch (error) {
+        if (error instanceof TypeError)
+          throw Error('Байты не являются текстом UTF-8. Выберите декодирование в байты.');
+        throw error;
       }
-      throw Error('Преобразование не зарегистрировано');
+      break;
   }
-  return {
-    output,
-    warnings: transforms.find((t) => t.id === operation)?.warning
-      ? [transforms.find((t) => t.id === operation)!.warning]
-      : [],
-  };
-}
-export function runPipeline(
-  steps: { operation: string; options?: Record<string, any> }[],
-  input: unknown,
-  signal?: AbortSignal,
-) {
-  let value = input;
-  const warnings: string[] = [];
-  if (steps.length > 64) throw Error('Не более 64 шагов');
-  validatePipeline(steps);
-  for (const step of steps) {
-    signal?.throwIfAborted();
-    const result = runTransform(step.operation, value, step.options);
-    value = result.output;
-    warnings.push(...(result.warnings as string[]));
-  }
-  return { output: value, warnings };
-}
-
-export interface TransformStep {
-  operation: string;
-  options?: Record<string, any>;
-}
-export function validatePipeline(steps: TransformStep[]) {
-  if (!Array.isArray(steps) || !steps.length || steps.length > 64)
-    throw Error('Выберите от 1 до 64 шагов');
-  let previous: string | undefined;
-  for (const [index, step] of steps.entries()) {
-    const operation = transforms.find((t) => t.id === step.operation);
-    if (!operation) throw Error(`Шаг ${index + 1}: преобразование не зарегистрировано`);
-    if (previous && previous !== operation.input)
-      throw Error(
-        `Шаг ${index + 1}: ожидается ${operation.input}, предыдущий шаг возвращает ${previous}`,
-      );
-    previous = operation.output;
-  }
+  jsonData(output);
+  if (Buffer.byteLength(JSON.stringify(output)) > MAX_OUTPUT)
+    throw Error('Результат превышает 2 МиБ');
+  return { output, warnings: spec.warning ? [spec.warning] : [] };
 }

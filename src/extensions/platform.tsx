@@ -14,6 +14,7 @@ import {
   TextInput,
   Checkbox,
 } from '@mantine/core';
+export { CodeEditor, type CodeEditorProps, type CodeLanguage } from '../components/CodeEditor';
 import type { EntityDefinition, DataRecord } from '../shared/types';
 export interface ExtensionSDK {
   call<T = any>(method: string, params?: unknown): Promise<T>;

@@ -17,7 +17,7 @@ export default function Screen() {
 }
 ```
 
-`RecordTable` поддерживает локальный поиск в выборке до 500 записей, кнопку выбора и `refresh` для повторного запроса после сохранения. `EntityForm` вызывает тот же `records.upsert`, что и стандартные экраны. Дополнительно доступны `RelatedRecordSelect`, `Card`, `ActionButton`, `JobProgress`, `HistoryList`, `ErrorView`, `Board`, `CalendarView`. `CalendarView` — список записей по датам; месячную сетку можно построить из Mantine. Графики доступны из Recharts, компоновка — из Mantine. SDK ограничен текущим экземпляром; таблица не получает доступ к чужим записям.
+`RecordTable` поддерживает локальный поиск в выборке до 500 записей, кнопку выбора и `refresh` для повторного запроса после сохранения. `EntityForm` вызывает тот же `records.upsert`, что и стандартные экраны. Дополнительно доступны `CodeEditor`, `RelatedRecordSelect`, `Card`, `ActionButton`, `JobProgress`, `HistoryList`, `ErrorView`, `Board`, `CalendarView`. `CalendarView` — список записей по датам; месячную сетку можно построить из Mantine. Графики доступны из Recharts, компоновка — из Mantine. SDK ограничен текущим экземпляром; таблица не получает доступ к чужим записям.
 
 ## Зафиксированные зависимости
 
@@ -33,7 +33,7 @@ export default function Screen() {
 
 React/JSX и общая библиотека всегда входят в поставку. В dependencies указываются точные версии, без диапазонов. Пакет с неизвестной/несовместимой версией отклоняется до активации. Другие пути импортов, файлы, node/electron и CDN запрещены. Темы, радиусы и плотность передаются из настроек; внутри экрана не требуется собственный MantineProvider.
 
-`npm run build` сначала собирает приложение, затем `scripts/build-extension-runtime.ts` собирает библиотеки в `out/extensions`. Получателю не нужны исходники, npm install или интернет. Для нового trusted library разработчик платформы изменяет allowlist и runtime-entry, фиксирует версию package-lock и выпускает новую платформу. Обычный импорт `.everyapp` не расширяет этот каталог.
+`npm run dev` перед запуском собирает runtime расширений, включая CodeEditor. `npm run build` сначала собирает приложение, затем `scripts/build-extension-runtime.ts` собирает библиотеки в `out/extensions`. Получателю не нужны исходники, npm install или интернет. Для нового trusted library разработчик платформы изменяет allowlist и runtime-entry, фиксирует версию package-lock и выпускает новую платформу. Обычный импорт `.everyapp` не расширяет этот каталог.
 
 ## Разрешённые интеграции
 

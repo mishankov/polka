@@ -51,42 +51,6 @@ export class DocumentService {
     const d = docs.find((d) => d.id === p.id && d.appId === p.appId);
     if (method === 'docs.list')
       return docs.filter((d) => d.appId === p.appId).map((d) => this.public(d));
-    if (method === 'docs.applyBatch') {
-      if (!Array.isArray(p.changes) || !p.changes.length || p.changes.length > 256)
-        throw Error('Выберите от 1 до 256 документов');
-      const ids = new Set<string>();
-      const changes = p.changes.map((change: any) => {
-        const doc = docs.find((x) => x.id === change.id && x.appId === p.appId);
-        if (!doc || ids.has(doc.id)) throw Error('Документ не найден или выбран дважды');
-        ids.add(doc.id);
-        if (doc.revision !== change.revision)
-          throw Error(
-            `${doc.name}: документ изменился после предпросмотра. Повторите преобразование.`,
-          );
-        if (typeof change.content !== 'string' || change.content.length > 44 * 1024 * 1024)
-          throw Error('Результат превышает лимит документа');
-        if (!['text', 'binary', 'image'].includes(change.kind || doc.kind))
-          throw Error('Неизвестный тип документа');
-        if (
-          (change.kind || doc.kind) === 'image' &&
-          !change.content.startsWith('data:image/png;base64,')
-        )
-          throw Error('Результат изображения должен быть PNG');
-        return { doc, change };
-      });
-      for (const { doc, change } of changes) {
-        doc.history = [...(doc.history || []), snapshot(doc)].slice(-10);
-        doc.future = [];
-        doc.content = change.content;
-        doc.kind = change.kind || doc.kind;
-        if (doc.kind === 'text') doc.lineEnding = doc.content.includes('\r\n') ? 'CRLF' : 'LF';
-        doc.dirty = true;
-        doc.revision++;
-        doc.updatedAt = new Date().toISOString();
-      }
-      await this.write(docs);
-      return changes.map(({ doc }: { doc: Document }) => this.public(doc));
-    }
     if (method === 'docs.create' || method === 'docs.openPath') {
       await this.store.handle('apps.get', { appId: p.appId });
       let content = p.content || '',

@@ -30,7 +30,6 @@ async function main() {
           screens: [
             { id: 'text', name: 'Текст', type: 'text' },
             { id: 'image', name: 'Изображение', type: 'image' },
-            { id: 'convert', name: 'Преобразования', type: 'converter' },
           ],
           actions: [],
           automations: [],
@@ -50,18 +49,6 @@ async function main() {
     await page.getByRole('tab', { name: 'one.txt', exact: true }).waitFor();
     await page.getByRole('tab', { name: 'two.txt', exact: true }).waitFor();
     assert.equal(await page.locator('.cm-content').innerText(), 'alpha');
-    // Selection -> preview -> draft, without saving to disk.
-    await page.locator('.cm-content').focus();
-    await page.keyboard.press('Meta+a');
-    await page.getByRole('button', { name: 'Преобразовать…', exact: true }).click();
-    const modal = page.getByRole('dialog');
-    await modal.getByRole('button', { name: 'Преобразовать', exact: true }).click();
-    await modal.getByText('YWxwaGE=', { exact: true }).waitFor();
-    await modal.getByRole('button', { name: 'Применить в черновик', exact: true }).click();
-    await modal.getByRole('button', { name: 'Результат применён', exact: true }).waitFor();
-    await page.screenshot({ path: 'artifacts/document-selection-preview.png' });
-    await page.keyboard.press('Escape');
-    assert.equal(await page.locator('.cm-content').innerText(), 'YWxwaGE=');
     // Real browser File objects from an input preserve the native drop path in preload.
     await writeFile(join(folder, 'drop.txt'), 'dropped');
     await page.evaluate(() => {
@@ -78,45 +65,6 @@ async function main() {
       return result;
     }, instance.id);
     assert.equal(dropResult.documents[0].name, 'drop.txt');
-    // Clipboard is explicitly user initiated, then a two-step reversible chain.
-    await page.getByRole('tab', { name: 'Преобразования', exact: true }).click();
-    await page.evaluate(() =>
-      window.platform.call('documents.clipboardWrite', { text: 'cozy clipboard' }),
-    );
-    await page.getByRole('combobox', { name: 'Источник', exact: true }).click();
-    await page.getByRole('option', { name: 'Буфер обмена', exact: true }).click();
-    await page.getByRole('button', { name: 'Добавить шаг', exact: true }).click();
-    await page.getByRole('combobox', { name: 'Шаг 2', exact: true }).click();
-    await page.getByRole('option', { name: 'Base64 → текст', exact: true }).click();
-    await page.getByRole('button', { name: 'Преобразовать', exact: true }).click();
-    await page.getByRole('button', { name: 'Сохранить новым документом', exact: true }).waitFor();
-    assert.equal(await page.locator('.cm-content').last().innerText(), 'cozy clipboard');
-    await page.getByRole('button', { name: 'Сохранить новым документом', exact: true }).click();
-    await page.getByRole('button', { name: 'Результат применён', exact: true }).waitFor();
-    await page.screenshot({ path: 'artifacts/document-chain-preview.png' });
-    // A selected file set uses the same typed chain and commits all drafts together.
-    await page.getByRole('combobox', { name: 'Источник', exact: true }).click();
-    await page.getByRole('option', { name: 'Набор открытых файлов', exact: true }).click();
-    const choices = page.getByRole('combobox', { name: 'Документы', exact: true });
-    await choices.focus();
-    await page.keyboard.press('ArrowDown');
-    await page.getByRole('option', { name: 'one.txt', exact: true }).click();
-    await choices.focus();
-    await page.keyboard.press('ArrowDown');
-    await page.getByRole('option', { name: 'two.txt', exact: true }).click();
-    await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: 'Удалить шаг 2', exact: true }).click();
-    await page.getByRole('button', { name: 'Преобразовать', exact: true }).click();
-    await page.getByRole('button', { name: 'Применить в черновик', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Применить в черновик', exact: true }).click();
-    await page.getByRole('button', { name: 'Результат применён', exact: true }).waitFor();
-    const transformed = await page.evaluate(
-      (id) => window.platform.call('docs.list', { appId: id }),
-      instance.id,
-    );
-    assert.equal(transformed.find((d: any) => d.name === 'two.txt').content, 'YmV0YQ==');
-    await page.screenshot({ path: 'artifacts/document-batch-preview.png' });
-
     // Verify actual raster pixels survive rotation, crop and undo.
     await page.getByRole('tab', { name: 'Изображение', exact: true }).click();
     await page.getByRole('button', { name: 'Новый', exact: true }).click();
@@ -159,53 +107,13 @@ async function main() {
     );
     assert(pixels);
     await page.screenshot({ path: 'artifacts/document-raster-tools.png' });
-    // The same typed transformation registry handles image documents, previews and clipboard.
-    await page.getByRole('button', { name: 'Преобразовать…', exact: true }).click();
-    const imagePanel = page.getByRole('dialog');
-    await imagePanel.getByRole('button', { name: 'Добавить шаг', exact: true }).click();
-    await imagePanel.getByRole('combobox', { name: 'Шаг 2', exact: true }).click();
-    await page.getByRole('option', { name: 'Изображение: изменить размер', exact: true }).click();
-    await imagePanel
-      .getByRole('textbox', { name: 'Параметры (JSON)', exact: true })
-      .last()
-      .fill('{"width":40,"height":50}');
-    await imagePanel.getByRole('button', { name: 'Преобразовать', exact: true }).click();
-    const imagePreview = imagePanel.getByRole('img', {
-      name: 'Предпросмотр результата изображения',
-      exact: true,
-    });
-    await imagePreview.waitFor();
-    await page.waitForFunction(() => {
-      const image = document.querySelector(
-        'img[alt="Предпросмотр результата изображения"]',
-      ) as HTMLImageElement;
-      return image?.complete && image.naturalWidth === 40 && image.naturalHeight === 50;
-    });
-    await imagePanel.getByRole('button', { name: 'Копировать результат', exact: true }).click();
-    await page.waitForFunction(async () => {
-      try {
-        const value = await window.platform.call('documents.clipboardRead', { kind: 'image' });
-        return value.width === 40 && value.height === 50;
-      } catch {
-        return false;
-      }
-    });
-    await imagePanel.getByRole('button', { name: 'Применить в черновик', exact: true }).click();
-    await imagePanel.getByRole('button', { name: 'Результат применён', exact: true }).waitFor();
-    await page.screenshot({ path: 'artifacts/document-image-chain-preview.png' });
-    await page.keyboard.press('Escape');
-    await page.waitForFunction(() => {
-      const c = document.querySelector('canvas') as HTMLCanvasElement;
-      return c?.width === 40 && c.height === 50;
-    });
-
-    // Image-chain results remain reachable from a text screen through shared document tabs.
+    // Edited images remain reachable from a text screen through shared document tabs.
     await page.getByRole('tab', { name: 'Текст', exact: true }).click();
     await page.getByRole('tab', { name: /Новый рисунок\.png/ }).click();
     await page.getByLabel('Холст растрового редактора').waitFor();
     await page.waitForFunction(() => {
       const c = document.querySelector('canvas') as HTMLCanvasElement;
-      return c?.width === 40 && c.height === 50;
+      return c?.width === 100 && c.height === 80;
     });
     assert.deepEqual(errors, []);
     await writeFile(
@@ -216,11 +124,7 @@ async function main() {
           checks: [
             'folder chooser with nested scanner',
             'multi-document tabs',
-            'selection chain preview and apply',
             'native dropped File import',
-            'clipboard chain',
-            'selected file set preview and atomic draft apply',
-            'image typed chain visual preview, native image clipboard, and draft apply',
             'image results stay reachable in shared text-screen document tabs',
             'raster rotate crop undo preserves pixels',
           ],

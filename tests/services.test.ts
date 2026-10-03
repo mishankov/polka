@@ -3,35 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runTransform, runPipeline } from '../src/services/transforms';
 import { compileExtension, runHandler, buildComponent } from '../src/extensions/host';
 import { DocumentService } from '../src/services/documents';
-test('Transforms round trip Unicode and distinguish binary', () => {
-  const input = 'Привет 🌍';
-  assert.equal(
-    runTransform('base64.decode', runTransform('base64.encode', input).output).output,
-    input,
-  );
-  assert.equal(runTransform('hex.decode', runTransform('hex.encode', input).output).output, input);
-  assert.deepEqual(runTransform('base64.bytes', '/wA=').output, [255, 0]);
-  assert.throws(() => runTransform('base64.decode', '/wA='));
-  assert.throws(() => runTransform('base64.decode', '%%%'));
-  assert.throws(() => runTransform('hex.decode', '0g'));
-  assert.equal(
-    runPipeline([{ operation: 'url.encode' }, { operation: 'url.decode' }], input).output,
-    input,
-  );
-});
-test('XML parser rejects entities and malformed input', () => {
-  assert.throws(() =>
-    runTransform('xml.json', '<!DOCTYPE x [<!ENTITY a SYSTEM "file:///etc/passwd">]><x>&a;</x>'),
-  );
-  assert.throws(() => runTransform('xml.format', '<a></b>'));
-  assert.equal(
-    JSON.parse(runTransform('xml.json', '<x n="2">ok</x>').output as string).x['@_n'],
-    '2',
-  );
-});
 test('Extension boundary: no Node, filesystem, process, network or host objects', async () => {
   const code = await compileExtension(
     'export default input => ({value:input, node:typeof process, nodeRequire:typeof require, fetch:typeof fetch})',

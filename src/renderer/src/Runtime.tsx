@@ -49,7 +49,8 @@ import type {
   ScreenDefinition,
 } from '../../shared/types';
 import { api, AnyRecord, perform, report, useStorageValue } from './api';
-import Documents, { Converter } from './Documents';
+import Documents from './Documents';
+import FormatConverter from './FormatConverter';
 import { CustomExtension } from './CustomExtension';
 function display(value: unknown) {
   if (value === null || value === undefined) return '—';
@@ -601,7 +602,7 @@ export default function Runtime({
             kind={screen.type === 'image' ? 'image' : 'text'}
           />
         ) : screen.type === 'converter' ? (
-          <Converter appId={app.id} config={screen.config} />
+          <FormatConverter key={app.id + screen.id} appId={app.id} config={screen.config} />
         ) : screen.type === 'custom' && app.status !== 'running' ? (
           <Stack gap="sm" align="flex-start" p="md">
             <Text c="dimmed">Приложение остановлено</Text>
@@ -625,8 +626,13 @@ export default function Runtime({
               <EntitySummary key={e.id} appId={app.id} entity={e} />
             ))}
           </div>
-        ) : (
+        ) : ['table', 'form', 'board', 'calendar', 'chart'].includes(screen.type) ? (
           <EntityView key={app.id + screen.id} app={app} screen={screen} />
+        ) : (
+          <Text c="dimmed" p="md">
+            Этот вид экрана больше не поддерживается. Измените экраны приложения в рабочем
+            пространстве.
+          </Text>
         )}
       </div>
     </MantineProvider>

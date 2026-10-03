@@ -77,12 +77,6 @@ async function main() {
             { id: 'table', name: 'Все задачи', type: 'table', entityId: 'tasks' },
             { id: 'calendar', name: 'Календарь', type: 'calendar', entityId: 'tasks' },
             { id: 'notes', name: 'Заметки', type: 'text' },
-            {
-              id: 'converter',
-              name: 'Преобразования',
-              type: 'converter',
-              config: { operation: 'json.format' },
-            },
           ],
           actions: [],
           automations: [],
@@ -131,14 +125,8 @@ async function main() {
     await page.locator('.cm-content').getByText('# План мастерской', { exact: true }).waitFor();
     await capture('documents');
 
-    await page.getByRole('tab', { name: 'Преобразования', exact: true }).click();
-    await page.locator('.cm-content').first().fill('{"project":"Полка","width":800,"ready":false}');
-    await page.getByRole('button', { name: 'Преобразовать', exact: true }).click();
-    await page.getByRole('button', { name: 'Сохранить новым документом', exact: true }).waitFor();
-    assert.match(await page.locator('.cm-content').last().innerText(), /\n\s+"width"/);
-    await capture('transformations');
     assert.deepEqual(errors, []);
-    console.log('Saved four README screenshots using sample data in a temporary profile.');
+    console.log('Saved three README screenshots using sample data in a temporary profile.');
   } finally {
     await app.close();
     await rm(profile, { recursive: true, force: true });

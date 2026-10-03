@@ -36,7 +36,6 @@ async function main() {
         { id: 'items', name: 'Записи', type: 'table', entityId: 'items' },
         { id: 'text', name: 'Текст', type: 'text' },
         { id: 'image', name: 'Изображение', type: 'image' },
-        { id: 'convert', name: 'Преобразования', type: 'converter' },
         { id: 'custom', name: 'Расширение', type: 'custom', config: { extensionId: 'hello' } },
       ],
       actions: [],
@@ -94,10 +93,6 @@ async function main() {
     await page.getByRole('tab', { name: 'Текст', exact: true }).click();
     await page.getByRole('button', { name: 'Новый', exact: true }).click();
     await page.locator('.cm-content').fill('Настоящий текстовый черновик');
-    await page.getByRole('tab', { name: 'Преобразования', exact: true }).click();
-    await page.locator('.cm-content').first().fill('Тест');
-    await page.getByRole('button', { name: 'Преобразовать', exact: true }).click();
-    await page.getByText('0KLQtdGB0YI=', { exact: true }).waitFor();
     await page.getByRole('tab', { name: 'Изображение', exact: true }).click();
     await page.getByRole('button', { name: 'Новый', exact: true }).click();
     const canvas = page.getByLabel('Холст растрового редактора');
@@ -171,7 +166,6 @@ async function main() {
             'provider settings render without credentials',
             'extension builds and renders in isolated native view',
             'text draft editor',
-            'local Base64 converter',
             'raster pixels change',
             'document draft persists across actual app restart, including last edit before quit',
             'internal state IPC denied',

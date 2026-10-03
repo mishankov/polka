@@ -55,6 +55,10 @@ test('platform guide is available before app creation and included in definition
     const guide = await runtime.handle('runtime.platformCapabilities');
     const schema = await runtime.handle('runtime.definitionSchema');
     assert.deepEqual(schema.platformCapabilities, guide);
+    assert(schema.transforms.some((operation: any) => operation.id === 'yaml.json'));
+    assert(schema.sdk.components.includes('CodeEditor'));
+    assert.equal(schema.actions.transform.operation, 'json.format');
+    assert.equal('pipeline' in schema.actions, false);
     assert.deepEqual(guide.windows.modes, ['window']);
     assert.equal(guide.windows.open.via, 'app-menu');
     assert.equal(guide.windows.open.label, 'Открыть в отдельном окне');

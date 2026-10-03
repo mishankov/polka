@@ -14,7 +14,6 @@ import {
   Text,
   TextInput,
   Tooltip,
-  useMantineColorScheme,
 } from '@mantine/core';
 import {
   IconArrowBackUp,
@@ -25,12 +24,10 @@ import {
   IconX,
   IconZoomReset,
 } from '@tabler/icons-react';
-import CodeMirror from '@uiw/react-codemirror';
-import { json } from '@codemirror/lang-json';
+import { CodeEditor, documentLanguage } from '../../components/CodeEditor';
 import { api, AnyRecord, perform, report } from './api';
 import { registerDocumentFlush } from './documentFlush';
 import { setSelection } from './selectionContext';
-import TransformPanel from './TransformPanel';
 import {
   applyRasterOperation,
   validateRasterOperation,
@@ -332,19 +329,12 @@ export default function Documents({ appId, kind = 'text' }: { appId: string; kin
   const [conflict, setConflict] = useState('');
   const [batchErrors, setBatchErrors] = useState('');
   const [opening, setOpening] = useState(false);
-  const [transformOpen, setTransformOpen] = useState(false);
-  const [selectionRange, setSelectionRange] = useState<{ from: number; to: number } | null>(null);
-  const [selectionPreview, setSelectionPreview] = useState<{
-    text: string;
-    apply: (value: string) => Promise<void>;
-  }>();
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const contentRef = useRef('');
   const revisionRef = useRef(0);
   const lastDraft = useRef('');
   const currentDocument = useRef<string | undefined>(undefined);
   const pending = useRef<Promise<any>>(Promise.resolve());
-  const { colorScheme } = useMantineColorScheme();
   const refresh = () =>
     api('docs.list', { appId })
       .then((d: any[]) => {
@@ -359,7 +349,6 @@ export default function Documents({ appId, kind = 'text' }: { appId: string; kin
     });
   }, [appId]);
   useEffect(() => {
-    setSelectionRange(null);
     if (!active) {
       currentDocument.current = undefined;
       setDoc(undefined);
@@ -652,34 +641,6 @@ export default function Documents({ appId, kind = 'text' }: { appId: string; kin
                 />
               </>
             )}
-            {
-              <Button
-                variant="default"
-                onClick={async () => {
-                  await draft();
-                  const range = selectionRange;
-                  const original = contentRef.current;
-                  setSelectionPreview(
-                    range && range.to > range.from
-                      ? {
-                          text: original.slice(range.from, range.to),
-                          apply: async (value) => {
-                            if (contentRef.current !== original)
-                              throw Error(
-                                'Документ изменился после предпросмотра. Повторите преобразование.',
-                              );
-                            edit(original.slice(0, range.from) + value + original.slice(range.to));
-                            await draft();
-                          },
-                        }
-                      : undefined,
-                  );
-                  setTransformOpen(true);
-                }}
-              >
-                Преобразовать…
-              </Button>
-            }
             <Button
               variant="subtle"
               size="xs"
@@ -711,39 +672,21 @@ export default function Documents({ appId, kind = 'text' }: { appId: string; kin
               Закрыть документ
             </Button>
           </Group>
-          <Modal
-            opened={transformOpen}
-            onClose={() => setTransformOpen(false)}
-            title="Преобразование документов"
-            size="xl"
-            keepMounted={false}
-          >
-            {transformOpen && (
-              <TransformPanel
-                appId={appId}
-                documentId={doc.id}
-                config={doc.kind === 'image' ? { operation: 'image.rotate' } : undefined}
-                selection={selectionPreview}
-                flush={draft}
-                onApplied={reloadDocument}
-              />
-            )}
-          </Modal>
           {doc.kind === 'image' ? (
             <RasterEditor key={doc.id} value={content} onChange={edit} />
           ) : doc.kind === 'binary' ? (
             <Alert title="Двоичный файл">
-              Этот документ можно сохранить или передать преобразованию. Текстовое редактирование
-              недоступно.
+              Этот документ можно сохранить. Текстовое редактирование недоступно.
             </Alert>
           ) : (
-            <CodeMirror
+            <CodeEditor
+              label="Текст документа"
+              language={documentLanguage(doc.name)}
               value={content}
               onChange={edit}
               onUpdate={(update) => {
                 if (update.selectionSet) {
                   const range = update.state.selection.main;
-                  setSelectionRange(range.empty ? null : { from: range.from, to: range.to });
                   setSelection(
                     range.empty
                       ? null
@@ -760,9 +703,6 @@ export default function Documents({ appId, kind = 'text' }: { appId: string; kin
               }}
               height="calc(100vh - 350px)"
               minHeight="300px"
-              theme={colorScheme === 'dark' ? 'dark' : 'light'}
-              extensions={doc.name?.endsWith('.json') ? [json()] : []}
-              basicSetup={{ lineNumbers: true, foldGutter: true, highlightActiveLine: true }}
             />
           )}
         </>
@@ -780,7 +720,4 @@ export default function Documents({ appId, kind = 'text' }: { appId: string; kin
       )}
     </Stack>
   );
-}
-export function Converter({ appId, config }: { appId: string; config?: AnyRecord }) {
-  return <TransformPanel appId={appId} config={config} />;
 }

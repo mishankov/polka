@@ -28,7 +28,6 @@ import { UpdateService } from './updates';
 import { chooseDocuments, openDroppedDocuments } from './documentFiles';
 import { createExtensionViews } from './extension-views';
 import { ConnectionCredentials } from './connections';
-import { readDocumentClipboard, writeDocumentClipboard } from './documentClipboard';
 import { externalWebUrl } from '../shared/externalLinks';
 import type { AppInstance } from '../shared/types';
 const execFileAsync = promisify(execFile);
@@ -353,8 +352,6 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     return { opened: true };
   }
   if (method === 'docs.openMany') return chooseDocuments(sender.window, call, params);
-  if (method === 'documents.clipboardRead') return readDocumentClipboard(params);
-  if (method === 'documents.clipboardWrite') return writeDocumentClipboard(params);
   if (method.startsWith('connections.')) {
     const instance = await call('apps.get', { appId: params.appId });
     const declared = instance.definition.connections || [];

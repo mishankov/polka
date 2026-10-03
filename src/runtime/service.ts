@@ -1,6 +1,6 @@
+import { transforms } from '../services/transforms';
 import { z } from 'zod';
 import { definitionSchema } from '../core/schema';
-import { transforms } from '../services/transforms';
 import { extensionDependencies } from '../extensions/dependencies';
 import { builtinAdapterCatalog } from '../extensions/adapters';
 import { randomUUID } from 'node:crypto';
@@ -390,8 +390,7 @@ export class RuntimeService {
       definition: z.toJSONSchema(definitionSchema, { unrepresentable: 'any' }),
       transforms,
       actions: {
-        transform: { operation: 'json.format', options: {} },
-        pipeline: { steps: [{ operation: 'json.format' }] },
+        transform: { operation: 'json.format', input: '{}' },
         extension: { extensionId: 'handlerId' },
         'records.upsert': { entityId: 'items', values: {} },
         'records.list': { entityId: 'items' },
@@ -450,6 +449,7 @@ export class RuntimeService {
         limits: { handlerMemoryMiB: 32, handlerTimeMs: 3000, handlerOperations: 32 },
         dependencies: extensionDependencies,
         components: [
+          'CodeEditor',
           'EntityForm',
           'RecordTable',
           'RelatedRecordSelect',
@@ -464,6 +464,7 @@ export class RuntimeService {
         ],
         libraries:
           'Импортируйте компоненты платформы из @everything/ui; Mantine из @mantine/core, хуки из @mantine/hooks, графики из recharts, схемы из zod. React/JSX встроены. Нужны точные версии зависимостей. Установка пакетов, Node.js, внешний код и прямая сеть недоступны.',
+        codeEditorExample: `import {useState} from 'react'; import {CodeEditor} from '@everything/ui'; export default function Screen(){const [value,setValue]=useState('{}');return <CodeEditor value={value} onChange={setValue} language="json" label="JSON"/>;}`,
         componentExample: `import { RecordTable } from '@everything/ui'; export default function Screen() { return <RecordTable entity={{id:'items',name:'Записи',fields:[{id:'title',name:'Название',type:'text'}]}} />; }`,
         adapters: builtinAdapterCatalog,
       },
