@@ -27,6 +27,7 @@ import { autoUpdater } from 'electron-updater';
 import { UpdateService } from './updates';
 import { chooseDocuments, openDroppedDocuments } from './documentFiles';
 import { createExtensionViews } from './extension-views';
+import { bindAssistantShortcut } from './workspace-shortcuts';
 import { ConnectionCredentials } from './connections';
 import { externalWebUrl } from '../shared/externalLinks';
 import type { AppInstance } from '../shared/types';
@@ -251,6 +252,7 @@ async function openWindow(appId?: string) {
   });
   if (appId) applyWindowPreferences(win, preferences.alwaysOnTop);
   windows.set(win.id, { window: win, appId, mode });
+  if (!appId) bindAssistantShortcut(win.webContents, win.webContents);
   if (updateInstalling) win.setEnabled(false);
   let closing = false;
   win.on('close', (event) => {
@@ -583,6 +585,12 @@ app
     extensionViews = createExtensionViews({
       call,
       preloadPath: join(__dirname, '../preload/extension.js'),
+      onViewCreated: (contents, owner) => {
+        const workspace = [...windows.values()].find(
+          (entry) => entry.window.webContents === owner && !entry.appId,
+        );
+        if (workspace) bindAssistantShortcut(contents, owner);
+      },
     });
     ipcMain.handle('platform:call', rendererCall);
     ipcMain.handle('docs:drop', async (event, params, paths) => {

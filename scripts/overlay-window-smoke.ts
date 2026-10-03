@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pressAssistantShortcut } from './native-shortcuts';
 
 async function main() {
   const profile = await mkdtemp(join(tmpdir(), 'everything-overlay-'));
@@ -26,7 +27,7 @@ async function main() {
     );
     await expect(page.getByRole('button', { name: 'Приложение', exact: true })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Записи', exact: true })).toBeVisible();
-    await page.keyboard.press('Meta+j');
+    await pressAssistantShortcut(app, page);
     await page.keyboard.press('Meta+k');
     await expect(page.locator('.agent-panel, [role="dialog"]')).toHaveCount(0);
   };
@@ -268,6 +269,10 @@ async function main() {
     await restored.getByRole('tab', { name: 'Рабочая область', exact: true }).click();
     const extension = await extensionOpened;
     await extension.getByRole('heading', { name: 'Моя рабочая область', exact: true }).waitFor();
+    await extension.getByRole('button', { name: 'Нажатий: 0' }).focus();
+    await pressAssistantShortcut(app, extension);
+    await expect(restored.locator('.agent-panel')).toHaveCount(0);
+    await expect(shell.locator('.agent-panel')).toHaveCount(0);
     await expect(restored.getByRole('button', { name: 'Меню экрана', exact: true })).toHaveCount(0);
     await extension.getByRole('button', { name: 'Нажатий: 0', exact: true }).click();
     await expect(extension.getByRole('button', { name: 'Нажатий: 1', exact: true })).toBeVisible();

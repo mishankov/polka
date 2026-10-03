@@ -36,9 +36,11 @@ type Slot = {
 export function createExtensionViews({
   call,
   preloadPath,
+  onViewCreated,
 }: {
   call: (method: string, params?: any) => Promise<any>;
   preloadPath: string;
+  onViewCreated: (contents: WebContents, owner: WebContents) => void;
 }) {
   const slots = new Map<string, Slot>(),
     senders = new Map<number, Slot>();
@@ -224,6 +226,7 @@ export function createExtensionViews({
         slot.contentsId = view.webContents.id;
         slot.heartbeat = Date.now();
         senders.set(view.webContents.id, slot);
+        onViewCreated(view.webContents, sender);
         view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
         view.webContents.on('will-navigate', (e) => e.preventDefault());
         view.webContents.on('will-redirect', (e) => e.preventDefault());

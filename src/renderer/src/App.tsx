@@ -140,6 +140,7 @@ function Workspace() {
       }
       if (e.type === 'workspace.changed') refresh();
       if (e.type === 'agent.updated') setAgentState(e.status || 'idle');
+      if (e.type === 'workspace.toggleAssistant') setAgent((value) => !value);
       if (e.type === 'platform.error') setError(e.message);
       if (e.type === 'package.opened') setPreview(e.preview);
       if (e.type === 'navigate') {
@@ -155,10 +156,6 @@ function Workspace() {
         e.preventDefault();
         setSearching(true);
         setTimeout(() => searchInput.current?.focus(), 30);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
-        e.preventDefault();
-        setAgent((v) => !v);
       }
       if (e.key === 'Escape') setSearching(false);
     };

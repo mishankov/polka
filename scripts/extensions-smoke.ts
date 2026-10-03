@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pressAssistantShortcut } from './native-shortcuts';
 async function main() {
   const profile = await mkdtemp(join(tmpdir(), 'everything-extension-'));
   const app = await electron.launch({
@@ -16,6 +17,11 @@ async function main() {
   shell.on('pageerror', (error) => errors.push(error.message));
   try {
     await shell.waitForSelector('.home-page');
+    await pressAssistantShortcut(app, shell);
+    await expect(shell.locator('.agent-panel')).toBeVisible();
+    await shell.locator('.agent-panel textarea').focus();
+    await pressAssistantShortcut(app, shell);
+    await expect(shell.locator('.agent-panel')).toHaveCount(0);
     await shell.evaluate(() => {
       (window as any).extensionEvents = [];
       window.platform.onEvent((event) => {
@@ -101,7 +107,9 @@ async function main() {
           .filter((view) => view.webContents)
           .map((view) => ({ visible: view.getVisible(), bounds: view.getBounds() })),
       );
-    await shell.getByRole('button', { name: 'Помощник', exact: true }).click();
+    // Keyboard events in an isolated custom screen do not bubble to the workspace DOM.
+    await view.getByRole('textbox', { name: 'Название', exact: true }).focus();
+    await pressAssistantShortcut(app, view);
     await shell.locator('.agent-panel').waitFor();
     const panel = await shell.locator('.agent-panel').boundingBox();
     assert(panel);
@@ -118,7 +126,8 @@ async function main() {
       )
       .toBe(true);
     await view.getByRole('cell', { name: 'SDK record', exact: true }).waitFor();
-    await shell.getByRole('button', { name: 'Закрыть помощника' }).click();
+    await view.getByRole('textbox', { name: 'Название', exact: true }).focus();
+    await pressAssistantShortcut(app, view);
     await shell.locator('.agent-panel').waitFor({ state: 'hidden' });
     await expect.poll(async () => (await nativeViews()).every((view) => view.visible)).toBe(true);
     const [{ bounds }] = await nativeViews();
@@ -213,6 +222,7 @@ async function main() {
             'blocked state and cross-app calls',
             'separate process',
             'assistant beside custom screen stays visible',
+            'Cmd+J toggles from workspace, assistant input, and isolated custom screen',
             'overlapping overlay hides screen; non-overlapping overlay keeps it visible',
             'theme propagation',
             'busy-loop recovery',
