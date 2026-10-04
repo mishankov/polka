@@ -18,7 +18,7 @@ export default function Updates() {
           Обновления
         </Title>
         <Text size="sm" c="dimmed">
-          {state ? `Everything App ${state.currentVersion}` : 'Загрузка версии…'}
+          {state ? `Полка ${state.currentVersion}` : 'Загрузка версии…'}
         </Text>
       </div>
       <Stack className="settings-section-content" gap="sm">

@@ -73,7 +73,7 @@ export default function ShelfSettings({ initialTab }: { initialTab: 'general' | 
                 Всегда под рукой
               </Title>
               <Text c="dimmed" size="sm">
-                Откройте полку через значок Everything App в строке меню. Приложение работает без
+                Откройте полку через значок Полки в строке меню. Приложение работает без
                 значка в Dock. Закрытие полки оставляет быстрый запуск и историю буфера доступными.
               </Text>
               <Switch
@@ -104,7 +104,7 @@ export default function ShelfSettings({ initialTab }: { initialTab: 'general' | 
             <Stack gap="lg">
               <div>
                 <Title order={2} size="lg">
-                  Everything App
+                  Полка
                 </Title>
                 <Text c="dimmed" size="sm" mt="xs">
                   Приложения и история буфера обмена — на одной полке.
