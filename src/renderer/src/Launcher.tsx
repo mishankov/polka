@@ -19,7 +19,9 @@ export default function Launcher({
 }: {
   entry: { revision: number; destination: 'apps' | 'clipboard' };
 }) {
-  const [builtin, setBuiltin] = useState(false);
+  // Apply the entry destination in this render. Mirroring it in an effect briefly
+  // remounts clipboard history when a closed shelf reopens on the app list.
+  const builtin = entry.destination === 'clipboard';
   const navigation = useRef(0);
   const [apps, setApps] = useState<LauncherApp[]>([]);
   const [macApps, setMacApps] = useState<MacLauncherApp[]>([]);
@@ -105,7 +107,6 @@ export default function Launcher({
     navigation.current++;
     activeApp.current = undefined;
     setCurrent(undefined);
-    setBuiltin(entry.destination === 'clipboard');
     setQuery('');
     setSelected(undefined);
     setError('');

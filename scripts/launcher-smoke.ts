@@ -147,6 +147,39 @@ async function main() {
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
       2,
     );
+    await clipboardSearch.press('Escape');
+    await expect.poll(visible).toBe(false);
+    // Observe insertions, not just the settled DOM: a stale clipboard screen can
+    // mount and disappear before a normal visibility assertion sees the flash.
+    await panel.evaluate(() => {
+      (window as any).__clipboardRemounts = 0;
+      (window as any).__reopenObserver = new MutationObserver((records) => {
+        for (const record of records)
+          for (const node of record.addedNodes)
+            if (
+              node instanceof Element &&
+              (node.matches('.clipboard-app') || node.querySelector('.clipboard-app'))
+            )
+              (window as any).__clipboardRemounts++;
+      });
+      (window as any).__reopenObserver.observe(document.querySelector('.clipboard-shelf'), {
+        subtree: true,
+        childList: true,
+      });
+    });
+    await shell.evaluate(() => window.platform.call('launcher.show'));
+    await expect(search).toBeFocused();
+    assert.equal(
+      await panel.evaluate(() => {
+        (window as any).__reopenObserver.disconnect();
+        return (window as any).__clipboardRemounts;
+      }),
+      0,
+      'Reopening on the app list never remounts the previous clipboard screen',
+    );
+    await search.fill('clipboard');
+    await search.press('Enter');
+    await expect(clipboardSearch).toBeFocused();
     await clipboardSearch.fill('abc');
     await clipboardSearch.press('Backspace');
     await expect(clipboardSearch).toHaveValue('ab');
