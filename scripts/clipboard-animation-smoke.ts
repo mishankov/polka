@@ -85,21 +85,13 @@ async function main() {
     );
     const layout = await root.evaluate((element) => {
       const css = getComputedStyle(element);
-      const header = element.querySelector('.clipboard-header')!;
       return {
         background: css.backgroundColor,
         border: css.borderTopWidth,
         topLeft: css.borderTopLeftRadius,
         topRight: css.borderTopRightRadius,
         inset: css.getPropertyValue('--notch-inset'),
-        headerTop: header.querySelector('h1')!.getBoundingClientRect().top,
-        titleRight: header.querySelector('h1')!.getBoundingClientRect().right,
-        actionsLeft: header.querySelector('.clipboard-header-actions')!.getBoundingClientRect()
-          .left,
-        actionsTop: header.querySelector('.clipboard-header-actions')!.getBoundingClientRect().top,
-        notchLeft: (element.clientWidth - parseFloat(css.getPropertyValue('--notch-width'))) / 2,
-        notchRight: (element.clientWidth + parseFloat(css.getPropertyValue('--notch-width'))) / 2,
-        searchTop: element.querySelector('.clipboard-search')!.getBoundingClientRect().top,
+        searchTop: element.querySelector('input')!.getBoundingClientRect().top,
         animation: css.animationName,
         duration: css.animationDuration,
       };
@@ -109,10 +101,6 @@ async function main() {
     assert.equal(layout.topLeft, '0px');
     assert.equal(layout.topRight, '0px');
     if (parseFloat(layout.inset) > 0) {
-      assert(layout.headerTop < parseFloat(layout.inset), 'Title sits beside the notch');
-      assert(layout.actionsTop < parseFloat(layout.inset), 'Controls sit beside the notch');
-      assert(layout.titleRight < layout.notchLeft, 'Title stays clear of the camera');
-      assert(layout.actionsLeft > layout.notchRight, 'Controls stay clear of the camera');
       assert(layout.searchTop >= parseFloat(layout.inset), 'Search stays below the camera');
     }
     assert.equal(layout.animation, 'clipboard-reveal');

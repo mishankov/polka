@@ -248,14 +248,6 @@ export default function Launcher({
         </>
       ) : (
         <>
-          <header className="clipboard-header">
-            <h1>Everything App</h1>
-            <div className="clipboard-header-actions">
-              <ActionIcon aria-label="Закрыть полку" variant="subtle" onClick={hide}>
-                <IconX size={18} />
-              </ActionIcon>
-            </div>
-          </header>
           <div className="launcher-search clipboard-search">
             <TextInput
               ref={input}

@@ -1176,11 +1176,11 @@ kbd {
   background: transparent;
   color: #f5f5f5;
 }
-.launcher-search {
+.launcher-search.clipboard-search {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 14px 8px;
+  padding: max(8px, var(--notch-inset)) 14px 8px;
   border-bottom: 1px solid #222;
 }
 .launcher-search > .mantine-TextInput-root {
