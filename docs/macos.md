@@ -47,7 +47,9 @@ Swift CLI `native/MediaProbe.swift` с Foundation/CoreAudio/CoreMediaIO/AVFounda
 
 ## Подпись, notarization, обновления
 
-`npm run package` создаёт arm64 DMG + ZIP. Без сертификатов сборка локальная/непроверенный релиз, даже если Electron Builder применяет ad-hoc подпись. Production: предоставьте `CSC_LINK`/`CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` или поддерживаемый electron-builder App Store Connect API key. Секреты передаются через секретное хранилище CI, не `.env` в Git. `hardenedRuntime` включён, entitlement разрешает JIT.
+`npm run package` создаёт arm64 DMG + ZIP без Developer ID и notarization. Локальная упаковка явно использует ad-hoc подпись (`identity: "-"`), необходимую для выполнения нативного ARM-кода на Apple silicon; полностью удалять подписи нельзя. `hardenedRuntime` отключён, entitlement разрешает JIT. Подпись готового bundle проверяется командой `codesign --verify --deep --strict "release/mac-arm64/Everything App.app"`. После переноса Gatekeeper может потребовать разрешение на запуск: ad-hoc подпись не делает сборку доверенным выпуском.
+
+Production: команда `npm run release` выбирает сертификат Developer ID, включает `hardenedRuntime` и notarization. Предоставьте `CSC_LINK`/`CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` или поддерживаемый electron-builder App Store Connect API key. Секреты передаются через секретное хранилище CI, не `.env` в Git.
 
 Задайте RELEASE_REPOSITORY=owner/repository и защищённые credentials CI для команды release. Нельзя выпускать релиз в чужой репозиторий/подписывать чужим сертификатом. Перед выпуском `codesign --verify --deep --strict`, `spctl --assess --type execute`, `xcrun stapler validate` и перенос на чистый Mac. Автообновления electron-updater только для установленной подписанной платформы; скачивание не происходит автоматически. Release/update rollback на другой установленной версии здесь не проверен.
 

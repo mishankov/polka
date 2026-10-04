@@ -30,7 +30,13 @@ export function releaseConfig(pkg, env) {
   return {
     ...pkg.build,
     forceCodeSigning: true,
-    mac: { ...pkg.build.mac, notarize: true, artifactName: '${name}-${version}-${arch}.${ext}' },
+    mac: {
+      ...pkg.build.mac,
+      identity: undefined,
+      hardenedRuntime: true,
+      notarize: true,
+      artifactName: '${name}-${version}-${arch}.${ext}',
+    },
     extraMetadata: { release: { repository, signed: true } },
     publish: [{ provider: 'github', owner, repo, releaseType: 'draft' }],
   };

@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 // @ts-expect-error Pure build-time JavaScript shared with the release command.
 import { releaseConfig } from '../scripts/release-config.mjs';
 test('release builds require explicit owner, signing and notarization, with draft publishing', () => {
-  const pkg = { build: { mac: { target: ['dmg', 'zip'] } } };
+  const pkg = {
+    build: {
+      mac: { target: ['dmg', 'zip'], identity: '-', hardenedRuntime: false, notarize: false },
+    },
+  };
   assert.throws(() => releaseConfig(pkg, {}), /RELEASE_REPOSITORY/);
   assert.throws(() => releaseConfig(pkg, { RELEASE_REPOSITORY: 'owner/app' }), /certificate/);
   const env = {
@@ -17,6 +21,8 @@ test('release builds require explicit owner, signing and notarization, with draf
   const cfg = releaseConfig(pkg, env);
   assert(cfg.forceCodeSigning);
   assert(cfg.mac.notarize);
+  assert.equal(cfg.mac.identity, undefined);
+  assert(cfg.mac.hardenedRuntime);
   assert.equal(cfg.mac.artifactName, '${name}-${version}-${arch}.${ext}');
   assert.equal(cfg.publish[0].releaseType, 'draft');
   assert.equal(cfg.extraMetadata.release.repository, 'owner/app');
