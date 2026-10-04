@@ -1,8 +1,10 @@
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 
 async function main() {
   const profile = await mkdtemp(join(tmpdir(), 'everything-paste-'));
@@ -54,6 +56,20 @@ async function main() {
       )
       .toBe(1);
     const fixture = join(profile, 'target.cjs');
+    const focusProbeSource = join(profile, 'menu-owner.swift');
+    const focusProbe = join(profile, 'menu-owner');
+    await writeFile(
+      focusProbeSource,
+      'import AppKit\nprint(NSWorkspace.shared.menuBarOwningApplication?.processIdentifier ?? 0)\n',
+    );
+    await promisify(execFile)('swiftc', [
+      focusProbeSource,
+      '-o',
+      focusProbe,
+      '-framework',
+      'AppKit',
+    ]);
+    const menuOwner = async () => Number((await promisify(execFile)(focusProbe)).stdout.trim());
     await writeFile(
       fixture,
       `const {app,BrowserWindow,Menu}=require('electron');
@@ -91,6 +107,7 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
         }
       });
       await expect(input).toBeFocused();
+      await expect.poll(menuOwner).toBe(target.process().pid);
       await expect
         .poll(async () => {
           const { nodes } = await accessibility.send('Accessibility.getFullAXTree');
@@ -103,7 +120,18 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
           );
         })
         .toBe(true);
-      await shell.evaluate(() => window.platform.call('launcher.show'));
+      if (scenario === 'retained') {
+        // First opening via hover must take keys without taking the menu bar.
+        await app.evaluate(({ screen }) => {
+          (globalThis as any).__realCursor = screen.getCursorScreenPoint;
+          const { bounds } = screen.getPrimaryDisplay();
+          (globalThis as any).__qaCursor = { x: bounds.x + bounds.width / 2, y: bounds.y + 1 };
+          screen.getCursorScreenPoint = () => (globalThis as any).__qaCursor;
+        });
+        await shell.evaluate(() =>
+          window.platform.call('clipboardHistory.preferences', { hoverEnabled: true }),
+        );
+      } else await shell.evaluate(() => window.platform.call('launcher.show'));
       await expect.poll(() => app.windows().some((w) => w.url().includes('mode=shelf'))).toBe(true);
       shelf = app.windows().find((w) => w.url().includes('mode=shelf'))!;
       await expect
@@ -117,6 +145,15 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
         .toBe(true);
       const search = shelf.getByRole('combobox', { name: 'Найти приложение' });
       await expect(search).toBeFocused();
+      if (scenario === 'retained')
+        await app.evaluate(() => {
+          (globalThis as any).__qaCursor.y += 100;
+        });
+      assert.equal(
+        await menuOwner(),
+        target.process().pid,
+        'Previous app retains the menu bar while the shelf has keyboard focus',
+      );
       if (scenario !== 'retained') {
         // Reproduce editors dropping/rebuilding their responder while the shelf owns focus.
         await inputWindow.evaluate((scenario) => {
@@ -131,6 +168,11 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
       await search.press('Enter');
       const clipboardSearch = shelf.getByRole('combobox', { name: 'Найти в истории' });
       await expect(clipboardSearch).toBeFocused();
+      assert.equal(
+        await menuOwner(),
+        target.process().pid,
+        'Navigating inside the shelf preserves the active app',
+      );
       const state = await shelf.evaluate(() => window.platform.call('clipboardHistory.state'));
       if (state.pasteAccess === 'required')
         await expect(shelf.getByText('Разрешить…', { exact: true })).toBeVisible();
@@ -154,6 +196,14 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
           ),
         )
         .toBe(false);
+      if (scenario === 'retained') {
+        await shell.evaluate(() =>
+          window.platform.call('clipboardHistory.preferences', { hoverEnabled: false }),
+        );
+        await app.evaluate(({ screen }) => {
+          screen.getCursorScreenPoint = (globalThis as any).__realCursor;
+        });
+      }
       const content = () =>
         input.evaluate((field) =>
           field instanceof HTMLTextAreaElement ? field.value : field.textContent,

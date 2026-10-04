@@ -249,9 +249,8 @@ export function createShelf(
     hasPresented = true;
     window.setIgnoreMouseEvents(false);
     window.setBounds(geometry.panel);
-    // Both entry points are immediately keyboard-operable. Keep the native panel
-    // and its Space behavior; only the shelf receives focus, not the workspace.
-    if (process.platform === 'darwin') app.focus({ steal: true });
+    // A macOS panel takes keyboard focus without activating its owning app.
+    // Keep the previous app's menu bar while making both entry points type-ready.
     window.show();
     window.focus();
     window.webContents.send('platform:event', {
