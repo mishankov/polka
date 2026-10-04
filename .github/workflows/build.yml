@@ -42,7 +42,11 @@ jobs:
         run: npm run verify
 
       - name: Package arm64 DMG and ZIP
-        run: npm run package -- --publish never
+        env:
+          # electron-builder skips even ad-hoc signing for pull requests by default.
+          # Force the certificate-free identity below; no release secrets are used.
+          CSC_FOR_PULL_REQUEST: 'true'
+        run: npm run package -- --publish never -c.mac.identity=-
 
       - name: Verify packaged app signature and disk image
         run: |
