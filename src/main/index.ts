@@ -36,6 +36,9 @@ import { LauncherShortcut } from './launcher-shortcut';
 import { BUILTIN_APPS, DEFAULT_LAUNCHER_SHORTCUT } from '../shared/launcher';
 import { InstalledApps, readApplicationIcons } from './installed-apps';
 import { protectTerminalOutput } from './terminal-output';
+import polkaTrayPath from './assets/polkaTemplate.png?asset';
+import polkaTray2xPath from './assets/polkaTemplate@2x.png?asset';
+import polkaTray3xPath from './assets/polkaTemplate@3x.png?asset';
 import {
   CUSTOM_APPS_ENABLED,
   FROZEN_FEATURE_MESSAGE,
@@ -860,13 +863,12 @@ app
         },
       ]),
     );
-    const image = nativeImage.createFromDataURL(
-      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAFUlEQVQ4T2NkYGD4z0ABYBw1YBgNAwDqDwEfGKzJMgAAAABJRU5ErkJggg==',
-    );
+    const image = nativeImage.createFromPath(polkaTrayPath);
+    image.addRepresentation({ scaleFactor: 2, buffer: await fs.readFile(polkaTray2xPath) });
+    image.addRepresentation({ scaleFactor: 3, buffer: await fs.readFile(polkaTray3xPath) });
     image.setTemplateImage(true);
     tray = new Tray(image);
-    tray.setTitle('◉');
-    tray.setToolTip('Everything App — полка');
+    tray.setToolTip('Polka — полка');
     await refreshTrayMenu();
     powerMonitor.on('resume', () => {
       shelf.resume();

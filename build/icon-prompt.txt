@@ -1,0 +1,15 @@
+Polka app icon — generated with the built-in image_gen tool.
+Production PNG: build/icon.png (1024 × 1024, alpha preserved).
+Menu bar assets: src/main/assets/polkaTemplate*.png; regenerate with
+swift scripts/generate-icon.swift. The glyph uses the same three-part mark.
+
+Original generation prompt:
+Use case: logo-brand
+Asset type: production macOS application icon for Polka (Russian for shelf), 1024x1024 square PNG.
+Primary request: A beautifully restrained, memorable Mac utility icon. A warm ivory rounded-square macOS tile contains one simple dark graphite horizontal shelf with softly rounded ends. Resting just above the shelf are exactly two substantial objects: on the left a taller upright warm terracotta rounded rectangular block, on the right a shorter warm graphite rounded square block. Front-facing, geometrically clean, deliberately minimal. Clear negative space between objects and a narrow separation from shelf so the three-part symbol also works as a tiny monochrome glyph. Shelf spans about 60% of tile width, objects together about 45%. The asymmetric heights give it a friendly rhythm.
+Style/medium: polished restrained dimensional macOS icon, matte ceramic forms, very subtle bevels and ambient shadows, mostly flat frontal geometry, crisp silhouette at 32px. Warm white ivory tile, charcoal shelf and right block, muted burnt orange left block. Quiet useful desktop companion.
+Composition: ONE centered icon only; rounded square tile occupies about 88% canvas width with generous rounded corners, transparent space outside tile. Whole icon fits without clipping. No perspective tilt.
+Constraints: no lettering, no text, no dots, no gradients of rainbow color, no extra objects, no books with page details, no furniture legs, no mockup scene, no contact sheet. Actual transparent background beyond tile. Production asset, not a presentation.
+
+Cleanup prompt:
+Use case: precise-object-edit. Production macOS icon cleanup. Preserve this Polka icon design exactly: ivory tile, two terracotta/graphite blocks, dark shelf, proportions, colors, front view. Fix ONLY the outer tile edge and transparency: remove all scattered flecks, stray pixels, ragged white fringes and artifacts outside the tile. Make the tile perimeter an immaculate smooth continuous rounded square, with clean antialiased alpha. Everything outside the tile must be fully transparent. Uniform balanced transparent margins on all four sides. No other changes. Square output.

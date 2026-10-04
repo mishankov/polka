@@ -1,12 +1,34 @@
 import AppKit
-let size=1024
-let image=NSImage(size:NSSize(width:size,height:size))
-image.lockFocus()
-NSColor(calibratedRed:0.08,green:0.21,blue:0.17,alpha:1).setFill()
-NSBezierPath(roundedRect:NSRect(x:32,y:32,width:960,height:960),xRadius:225,yRadius:225).fill()
-let text="e" as NSString
-let attrs:[NSAttributedString.Key:Any]=[.font:NSFont(name:"Georgia-BoldItalic",size:830) ?? NSFont.boldSystemFont(ofSize:830),.foregroundColor:NSColor(calibratedRed:0.83,green:0.90,blue:0.62,alpha:1)]
-text.draw(at:NSPoint(x:265,y:34),withAttributes:attrs)
-image.unlockFocus()
-let bitmap=NSBitmapImageRep(data:image.tiffRepresentation!)!
-try bitmap.representation(using:.png,properties:[:])!.write(to:URL(fileURLWithPath:"build/icon.png"))
+
+// Run: swift scripts/generate-icon.swift
+// The app icon is image-generated; this script only builds the menu bar glyph.
+let output = URL(fileURLWithPath: "src/main/assets", isDirectory: true)
+try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+
+for scale in 1...3 {
+    let pixels = 18 * scale
+    let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+        isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+    )!
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+    let transform = NSAffineTransform()
+    transform.scale(by: CGFloat(scale))
+    transform.concat()
+    NSColor.black.setFill()
+    // Two objects and one shelf, separated enough to survive at 1x.
+    NSBezierPath(roundedRect: NSRect(x: 3, y: 6, width: 5, height: 9),
+                 xRadius: 1.25, yRadius: 1.25).fill()
+    NSBezierPath(roundedRect: NSRect(x: 10, y: 6, width: 5, height: 5),
+                 xRadius: 1.25, yRadius: 1.25).fill()
+    NSBezierPath(roundedRect: NSRect(x: 1, y: 2, width: 16, height: 2),
+                 xRadius: 1, yRadius: 1).fill()
+    NSGraphicsContext.restoreGraphicsState()
+    bitmap.size = NSSize(width: 18, height: 18)
+    let suffix = scale == 1 ? "" : "@\(scale)x"
+    let name = "polkaTemplate\(suffix).png"
+    try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name))
+    print("Wrote \(name) (\(pixels)×\(pixels))")
+}
