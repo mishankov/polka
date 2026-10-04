@@ -15,6 +15,8 @@ export function shelfMethodAllowed(method: string) {
       'launcher.openMac',
       'launcher.getPreferences',
       'launcher.setShortcut',
+      'mediaIndicator.getState',
+      'mediaIndicator.setEnabled',
       'settings.get',
       'settings.set',
       'system.status',

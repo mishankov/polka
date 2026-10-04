@@ -9,6 +9,8 @@ import { pressSettingsShortcut, pressAssistantShortcut } from './native-shortcut
 async function main() {
   const profile = await mkdtemp(join(tmpdir(), 'everything-shelf-'));
   const core = new CoreService(profile);
+  // This workflow tests the shelf in isolation; media transitions have their own smoke test.
+  await core.handle('settings.set', { key: 'mediaIndicatorEnabled', value: false });
   const definition = {
     schemaVersion: 1,
     name: 'Dormant app',
@@ -97,6 +99,19 @@ async function main() {
       'true',
     );
     await page.getByRole('tab', { name: 'Полка и сочетания', exact: true }).click();
+    const mediaSwitch = page.getByRole('switch', {
+      name: 'Показывать активность камеры и микрофона',
+      exact: true,
+    });
+    await expect(mediaSwitch).not.toBeChecked();
+    await mediaSwitch.click();
+    await expect(mediaSwitch).toBeChecked();
+    assert.equal(
+      (await page.evaluate(() => window.platform.call('mediaIndicator.getState'))).enabled,
+      true,
+    );
+    await mediaSwitch.click();
+    await expect(mediaSwitch).not.toBeChecked();
     const shortcut = page.getByRole('textbox', { name: 'Сочетание для запуска', exact: true });
     await shortcut.click();
     await page.keyboard.press('Escape');
@@ -146,6 +161,7 @@ async function main() {
     assert.deepEqual(errors, []);
     await app.close();
     const after = new CoreService(profile);
+    assert.equal(await after.handle('settings.get', { key: 'mediaIndicatorEnabled' }), false);
     assert.deepEqual(await after.handle('apps.get', { appId: saved.id }), saved);
     assert.deepEqual(await after.handle('state.get', { key: 'runtime.jobs' }), jobs);
     assert.deepEqual(await after.handle('state.get', { key: 'runtime.runs' }), runs);

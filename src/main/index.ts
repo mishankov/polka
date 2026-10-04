@@ -32,6 +32,7 @@ import { ConnectionCredentials } from './connections';
 import { externalWebUrl } from '../shared/externalLinks';
 import type { AppInstance } from '../shared/types';
 import { createShelf } from './shelf';
+import { createMediaIndicator } from './media-indicator';
 import { LauncherShortcut } from './launcher-shortcut';
 import { BUILTIN_APPS, DEFAULT_LAUNCHER_SHORTCUT } from '../shared/launcher';
 import { InstalledApps, readApplicationIcons } from './installed-apps';
@@ -58,6 +59,16 @@ let worker: Worker,
   updateInstalling = false,
   pendingPackage: string | undefined;
 const root = app.getPath('userData');
+const mediaIndicator = createMediaIndicator({
+  preload: join(__dirname, '../preload/media-indicator.js'),
+  page: join(__dirname, '../renderer/media-indicator.html'),
+  devURL: process.env.ELECTRON_RENDERER_URL
+    ? `${process.env.ELECTRON_RENDERER_URL}/media-indicator.html`
+    : undefined,
+  read: () => host('system.media', {}),
+  saveEnabled: (enabled) => call('settings.set', { key: 'mediaIndicatorEnabled', value: enabled }),
+  changed: (state) => broadcast({ type: 'mediaIndicator.changed', state }),
+});
 const installedApps = new InstalledApps({
   getIcons: readApplicationIcons,
   getIcon: async (path) => {
@@ -81,6 +92,7 @@ const shelf = createShelf(
   () => broadcast({ type: 'clipboardHistory.changed' }),
   () => quitting,
   flushWindow,
+  (notches) => mediaIndicator.setNotches(notches),
 );
 const launcherShortcut = new LauncherShortcut(
   globalShortcut,
@@ -170,7 +182,7 @@ async function host(method: string, p: any): Promise<any> {
           ? join(process.resourcesPath, 'media-probe')
           : join(app.getAppPath(), 'build/media-probe'),
         [],
-        { timeout: 5000, maxBuffer: 128 * 1024 },
+        { timeout: 2000, maxBuffer: 128 * 1024 },
       );
       return JSON.parse(stdout);
     } catch {
@@ -427,6 +439,11 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
   if (JSON.stringify(params).length > 48 * 1024 * 1024) throw Error('Запрос превышает лимит');
   if (method === 'clipboardHistory.select' && sender.mode !== 'shelf')
     throw Error('Вставка доступна только из истории на полке');
+  if (method === 'mediaIndicator.getState') return mediaIndicator.state();
+  if (method === 'mediaIndicator.setEnabled')
+    return mediaIndicator.setEnabled(z.boolean().parse(params.enabled));
+  if (method === 'settings.set' && params.key === 'mediaIndicatorEnabled')
+    return mediaIndicator.setEnabled(z.boolean().parse(params.value));
   if (method.startsWith('clipboardHistory.') || method.startsWith('shelf.'))
     return shelf.handle(method, params);
   if (method === 'launcher.show') {
@@ -872,16 +889,24 @@ app
     await refreshTrayMenu();
     powerMonitor.on('resume', () => {
       shelf.resume();
+      mediaIndicator.resume();
       if (CUSTOM_APPS_ENABLED) void call('runtime.signal', { event: 'resume' });
       broadcast({ type: 'system.resume' });
     });
     powerMonitor.on('suspend', () => {
       shelf.suspend();
+      mediaIndicator.suspend();
       if (CUSTOM_APPS_ENABLED) void call('runtime.signal', { event: 'suspend' });
       broadcast({ type: 'system.suspend' });
     });
-    powerMonitor.on('lock-screen', () => shelf.suspend('lock'));
-    powerMonitor.on('unlock-screen', () => shelf.resume('lock'));
+    powerMonitor.on('lock-screen', () => {
+      shelf.suspend('lock');
+      mediaIndicator.suspend('lock');
+    });
+    powerMonitor.on('unlock-screen', () => {
+      shelf.resume('lock');
+      mediaIndicator.resume('lock');
+    });
     screen.on('display-removed', () => {
       const area = screen.getPrimaryDisplay().workArea;
       for (const { window } of windows.values()) {
@@ -941,6 +966,7 @@ app
     await shelf.start();
     if (!process.argv.includes('--hidden') && !app.getLoginItemSettings().wasOpenedAtLogin)
       await openWindow();
+    mediaIndicator.start(settings?.mediaIndicatorEnabled !== false);
   })
   .catch((e) => {
     console.error('Startup failed', e);
@@ -959,6 +985,7 @@ nativeUpdater.on('before-quit-for-update', () => {
   quitting = true;
   globalShortcut.unregisterAll();
   void shelf.stop();
+  mediaIndicator.stop();
   // Keep core alive during download/staging; persisted jobs recover if exit wins this flush.
   try {
     worker?.postMessage({ kind: 'shutdown' });
@@ -979,6 +1006,7 @@ app.on('before-quit', (event) => {
     .then(async () => {
       globalShortcut.unregisterAll();
       await shelf.stop();
+      mediaIndicator.stop();
       const stopped = new Promise<void>((resolve) => worker.once('exit', () => resolve()));
       worker.postMessage({ kind: 'shutdown' });
       await stopped;

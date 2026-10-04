@@ -32,6 +32,7 @@ export function createShelf(
   notify: () => void,
   isQuitting: () => boolean,
   beforeNavigate: (win: BrowserWindow) => Promise<void>,
+  screensChanged: (notches: Notch[]) => void = () => {},
 ) {
   let window: BrowserWindow | undefined;
   let loading: Promise<void> | undefined;
@@ -482,6 +483,7 @@ export function createShelf(
                 )
                 .parse(message.displays);
               receivedScreenGeometry = true;
+              screensChanged(notches);
               if (requested) {
                 // The first snapshot may arrive after the user opens the shelf.
                 // Apply its geometry without treating startup as a monitor change.

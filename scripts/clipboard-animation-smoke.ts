@@ -43,6 +43,7 @@ async function main() {
       dockVisible: app.dock?.isVisible(),
       windows: BrowserWindow.getAllWindows().map((win) => ({
         shelf: win.webContents.getURL().includes('mode=shelf'),
+        indicator: win.webContents.getURL().includes('media-indicator.html'),
         visible: win.isVisible(),
         focused: win.isFocused(),
         allSpaces: win.isVisibleOnAllWorkspaces(),
@@ -58,7 +59,7 @@ async function main() {
       'First hover focuses the shelf for immediate keyboard navigation',
     );
     assert(
-      activation.windows.filter((win) => !win.shelf).every((win) => !win.visible),
+      activation.windows.filter((win) => !win.shelf && !win.indicator).every((win) => !win.visible),
       'First hover does not reveal the workspace',
     );
     assert(activation.windows.find((win) => win.shelf)?.allSpaces);

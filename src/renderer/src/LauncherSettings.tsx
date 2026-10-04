@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Group, Stack, Switch, Text, TextInput } from '@mantine/core';
 import type { ClipboardState } from '../../shared/clipboard';
 import { api, errorMessage } from './api';
+import MediaIndicatorSettings from './MediaIndicatorSettings';
 import { shortcutLabel, type LauncherPreferences } from '../../shared/launcher';
 
 export default function LauncherSettings() {
@@ -59,6 +60,7 @@ export default function LauncherSettings() {
             .finally(() => setSaving(false));
         }}
       />
+      <MediaIndicatorSettings />
       <TextInput
         label="Сочетание для запуска"
         readOnly

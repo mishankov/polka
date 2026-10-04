@@ -22,9 +22,20 @@ export default defineConfig({
         input: {
           index: resolve('src/preload/index.ts'),
           extension: resolve('src/preload/extension.ts'),
+          'media-indicator': resolve('src/preload/media-indicator.ts'),
         },
       },
     },
   },
-  renderer: { plugins: [react()] },
+  renderer: {
+    plugins: [react()],
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/renderer/index.html'),
+          'media-indicator': resolve('src/renderer/media-indicator.html'),
+        },
+      },
+    },
+  },
 });

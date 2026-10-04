@@ -85,7 +85,13 @@ async function main() {
     await mainSearch.press('Enter');
     await expect(shell.locator('.launcher-calculation')).toContainText('Скопировано');
     assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), '3750');
-    assert(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()));
+    assert(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((win) => win.webContents.getURL().includes('mode=shelf'))!
+          .isVisible(),
+      ),
+    );
     await expect(mainSearch).toBeFocused();
     await mainSearch.fill('1 / 0');
     await expect(shell.getByText('На ноль делить нельзя')).toBeVisible();
@@ -108,7 +114,13 @@ async function main() {
     await expect(shelfClips.nth(1)).toHaveAttribute('aria-selected', 'true');
     await mainSearch.press('Shift+Enter');
     await expect
-      .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()))
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .find((win) => win.webContents.getURL().includes('mode=shelf'))!
+            .isVisible(),
+        ),
+      )
       .toBe(false);
     assert.equal(
       await app.evaluate(({ clipboard }) => clipboard.readText()),
