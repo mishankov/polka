@@ -33,6 +33,10 @@ async function main() {
         ),
       )
       .toBe(true);
+    // Keep the real pointer from opening the shelf before the test's hover phase.
+    await shell.evaluate(() =>
+      window.platform.call('clipboardHistory.preferences', { hoverEnabled: false }),
+    );
     // Back up all formats in memory and restore on exit; never print the user's clipboard.
     savedClipboard = await app.evaluate(async ({ clipboard }) => {
       return Promise.all(
@@ -67,7 +71,8 @@ async function main() {
     await expect.poll(async () => (await clips()).length).toBe(1);
     await copy('Второй пример: https://example.com/reference');
     await expect.poll(async () => (await clips()).length).toBe(2);
-    const opening = app.waitForEvent('window');
+    const existingPanel = app.windows().find((page) => page.url().includes('mode=clipboard'));
+    const opening = existingPanel ? Promise.resolve(existingPanel) : app.waitForEvent('window');
     await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
     let panel = await opening;
     const panelId = await app.evaluate(
@@ -104,11 +109,16 @@ async function main() {
     await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
     await expect(panel.getByRole('option')).toHaveCount(2);
     await expect(panel.getByRole('option').first()).toContainText('Первый пример');
-    await panel.getByRole('button', { name: 'Приостановить запись' }).click();
+    await expect(panel.getByRole('button', { name: 'Приостановить запись' })).toHaveCount(0);
+    await shell.evaluate(() =>
+      window.platform.call('clipboardHistory.preferences', { paused: true }),
+    );
     await copy('Paused clipboard QA');
     await new Promise((resolve) => setTimeout(resolve, 650));
     assert.equal((await clips()).length, 2);
-    await panel.getByRole('button', { name: 'Продолжить запись' }).click();
+    await shell.evaluate(() =>
+      window.platform.call('clipboardHistory.preferences', { paused: false }),
+    );
     await app.evaluate(async ({ clipboard, ClipboardItem }) => {
       await clipboard.write([
         new ClipboardItem({
@@ -214,15 +224,19 @@ async function main() {
     await app.evaluate(() => {
       (globalThis as any).__qaCursor.y += 100;
     });
+    await shell.evaluate(() =>
+      window.platform.call('clipboardHistory.preferences', { hoverEnabled: true }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 180));
     await app.evaluate(() => {
       (globalThis as any).__qaCursor.y -= 100;
     });
     await expect.poll(visible).toBe(true);
-    assert.equal(
-      await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)!.isFocused(), panelId),
-      true,
-    );
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)!.isFocused(), panelId),
+      )
+      .toBe(true);
     await expect(search).toBeFocused();
     await app.evaluate(({ BrowserWindow }, id) => {
       const bounds = BrowserWindow.fromId(id)!.getBounds();

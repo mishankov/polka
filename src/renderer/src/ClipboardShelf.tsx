@@ -6,8 +6,6 @@ import {
   IconPin,
   IconPinnedOff,
   IconTrash,
-  IconPlayerPause,
-  IconPlayerPlay,
   IconDots,
   IconEye,
   IconArrowLeft,
@@ -225,23 +223,6 @@ export default function ClipboardShelf() {
           {state?.preferences.paused && <span>Запись на паузе</span>}
         </div>
         <div className="clipboard-header-actions">
-          <Tooltip label={state?.preferences.paused ? 'Продолжить запись' : 'Приостановить запись'}>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="sm"
-              data-active={state?.preferences.paused || undefined}
-              disabled={!state || busy}
-              aria-label={state?.preferences.paused ? 'Продолжить запись' : 'Приостановить запись'}
-              onClick={() => void run('preferences', { paused: !state?.preferences.paused })}
-            >
-              {state?.preferences.paused ? (
-                <IconPlayerPlay size={18} />
-              ) : (
-                <IconPlayerPause size={18} />
-              )}
-            </ActionIcon>
-          </Tooltip>
           <Menu opened={menuOpen} onChange={setMenuOpen} withinPortal={false} position="bottom-end">
             <Menu.Target>
               <ActionIcon variant="subtle" color="gray" size="sm" aria-label="Действия с историей">
@@ -367,7 +348,7 @@ export default function ClipboardShelf() {
                 {query
                   ? 'Попробуйте другое слово.'
                   : state.preferences.paused
-                    ? 'Продолжите запись, чтобы сохранять новые копии.'
+                    ? 'Включите сохранение буфера обмена в настройках приложения.'
                     : 'Скопируйте текст или изображение в любой программе. Выберите запись, чтобы скопировать её снова.'}
               </p>
             </div>
