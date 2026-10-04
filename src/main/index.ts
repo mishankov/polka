@@ -35,11 +35,13 @@ import { createShelf } from './shelf';
 import { LauncherShortcut } from './launcher-shortcut';
 import { BUILTIN_APPS, DEFAULT_LAUNCHER_SHORTCUT } from '../shared/launcher';
 import { InstalledApps, readApplicationIcons } from './installed-apps';
+import { protectTerminalOutput } from './terminal-output';
 import {
   CUSTOM_APPS_ENABLED,
   FROZEN_FEATURE_MESSAGE,
   shelfMethodAllowed,
 } from '../shared/features';
+protectTerminalOutput();
 const execFileAsync = promisify(execFile);
 if (process.env.EVERYTHING_PROFILE) app.setPath('userData', process.env.EVERYTHING_PROFILE);
 const windows = new Map<number, { window: BrowserWindow; appId?: string; mode: string }>(),
