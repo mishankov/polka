@@ -18,22 +18,41 @@ export interface MacLauncherApp {
   description: string;
   searchTerms?: string[];
 }
-export type LauncherApp = EverythingLauncherApp | MacLauncherApp;
+export interface BuiltinLauncherApp {
+  kind: 'builtin';
+  id: 'builtin:clipboard';
+  name: string;
+  icon: string;
+  description: string;
+  searchTerms: string[];
+}
+export const BUILTIN_APPS: BuiltinLauncherApp[] = [
+  {
+    kind: 'builtin',
+    id: 'builtin:clipboard',
+    name: 'История буфера обмена',
+    icon: 'clipboard',
+    description: 'Скопированный текст и изображения',
+    searchTerms: ['clipboard', 'history', 'буфер', 'копировать'],
+  },
+];
+export type LauncherApp = EverythingLauncherApp | MacLauncherApp | BuiltinLauncherApp;
 
 export function launcherApps(apps: LauncherApp[], query: string): LauncherApp[] {
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   return apps
     .filter(
       (app) =>
-        (app.kind === 'mac' || app.status !== 'archived') &&
+        (app.kind !== 'everything' || app.status !== 'archived') &&
         terms.every((term) =>
-          `${app.name} ${app.description} ${app.kind === 'mac' ? app.searchTerms?.join(' ') || '' : ''}`
+          `${app.name} ${app.description} ${app.kind !== 'everything' ? app.searchTerms?.join(' ') || '' : ''}`
             .toLocaleLowerCase()
             .includes(term),
         ),
     )
     .sort(
       (a, b) =>
+        Number(b.kind === 'builtin') - Number(a.kind === 'builtin') ||
         Number(b.kind === 'everything' && b.favorite) -
           Number(a.kind === 'everything' && a.favorite) ||
         Number(b.kind === 'everything') - Number(a.kind === 'everything') ||

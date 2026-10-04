@@ -1,18 +1,26 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Group, Stack, Text, TextInput } from '@mantine/core';
+import { Alert, Button, Group, Stack, Switch, Text, TextInput } from '@mantine/core';
+import type { ClipboardState } from '../../shared/clipboard';
 import { api, errorMessage } from './api';
 import { shortcutLabel, type LauncherPreferences } from '../../shared/launcher';
 
 export default function LauncherSettings() {
+  const [hoverEnabled, setHoverEnabled] = useState<boolean>();
   const [preferences, setPreferences] = useState<LauncherPreferences>();
   const [recording, setRecording] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
+    const refreshHover = () =>
+      void api<ClipboardState>('clipboardHistory.state')
+        .then((state) => setHoverEnabled(state.preferences.hoverEnabled))
+        .catch((error) => setError(errorMessage(error)));
+    refreshHover();
     api<LauncherPreferences>('launcher.getPreferences')
       .then(setPreferences)
       .catch((error) => setError(errorMessage(error)));
     return window.platform.onEvent((event) => {
+      if (event.type === 'clipboardHistory.changed') refreshHover();
       if (event.type === 'launcher.preferencesChanged') setPreferences(event.preferences);
     });
   }, []);
@@ -31,11 +39,26 @@ export default function LauncherSettings() {
   return (
     <Stack gap="sm">
       <Text size="sm" fw={500}>
-        Быстрый запуск приложений
+        Полка и быстрый запуск
       </Text>
       <Text size="sm" c="dimmed">
-        Поиск и запуск ваших приложений из любой программы. Everything App должен быть запущен.
+        Наведите указатель на вырез камеры или нажмите сочетание — откроется одна полка с поиском
+        приложений. На других мониторах наведите указатель к середине верхнего края. Поиск сразу
+        получает фокус. Everything App должен быть запущен.
       </Text>
+      <Switch
+        label="Открывать полку при наведении к вырезу камеры"
+        checked={hoverEnabled || false}
+        disabled={hoverEnabled === undefined || saving}
+        onChange={(event) => {
+          const value = event.currentTarget.checked;
+          setSaving(true);
+          void api<ClipboardState>('clipboardHistory.preferences', { hoverEnabled: value })
+            .then((state) => setHoverEnabled(state.preferences.hoverEnabled))
+            .catch((error) => setError(errorMessage(error)))
+            .finally(() => setSaving(false));
+        }}
+      />
       <TextInput
         label="Сочетание для запуска"
         readOnly

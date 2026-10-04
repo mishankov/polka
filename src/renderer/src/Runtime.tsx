@@ -1,4 +1,4 @@
-import { workspaceTheme, workspaceVariables } from './theme';
+import { workspaceTheme, workspaceVariables, shelfTheme, shelfVariables } from './theme';
 import { useEffect, useState } from 'react';
 import {
   ActionIcon,
@@ -533,29 +533,38 @@ export default function Runtime({
   onScreenChange,
   onEdit,
   standalone = false,
+  surface = 'workspace',
 }: {
   app: AppInstance;
   screenId?: string;
   onScreenChange: (id: string) => void;
   onEdit?: () => void;
   standalone?: boolean;
+  surface?: 'workspace' | 'shelf';
 }) {
   const screens = app.definition.screens;
   const [screenControls, setScreenControls] = useState<HTMLDivElement | null>(null);
   const screen = screens.find((s) => s.id === screenId) || screens[0];
   const theme = app.definition.theme;
+  const baseTheme = surface === 'shelf' ? shelfTheme : workspaceTheme;
   return (
     <MantineProvider
-      cssVariablesResolver={workspaceVariables}
+      cssVariablesResolver={surface === 'shelf' ? shelfVariables : workspaceVariables}
       theme={{
-        ...workspaceTheme,
-        primaryColor: theme?.primaryColor || workspaceTheme.primaryColor,
+        ...baseTheme,
+        primaryColor: theme?.primaryColor || baseTheme.primaryColor,
         defaultRadius: theme?.radius || workspaceTheme.defaultRadius,
         ...(theme?.density === 'compact'
           ? { spacing: { xs: '0.4rem', sm: '0.6rem', md: '0.8rem', lg: '1rem', xl: '1.4rem' } }
           : {}),
       }}
-      forceColorScheme={theme?.mode === 'light' || theme?.mode === 'dark' ? theme.mode : undefined}
+      forceColorScheme={
+        surface === 'shelf'
+          ? 'dark'
+          : theme?.mode === 'light' || theme?.mode === 'dark'
+            ? theme.mode
+            : undefined
+      }
     >
       <div className={`runtime-page${screen?.type === 'custom' ? ' runtime-custom' : ''}`}>
         <ActionToolbar app={app} />

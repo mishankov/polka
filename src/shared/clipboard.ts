@@ -35,12 +35,3 @@ export function clipboardResults(clips: ClipboardClip[], query: string) {
     )
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt - a.createdAt);
 }
-
-export interface ClipboardPresentation {
-  revision: number;
-  visible: boolean;
-  focusSearch: boolean;
-  topInset: number;
-  notchWidth: number;
-  notchHeight: number;
-}

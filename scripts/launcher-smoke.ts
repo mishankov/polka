@@ -61,7 +61,15 @@ async function main() {
       )
       .toBe(true);
     const opened = app.waitForEvent('window');
-    await shell.getByRole('button', { name: 'Быстрый запуск', exact: true }).click();
+    // Rapid entry changes during lazy window creation must not lose the final
+    // destination or wait for a draft acknowledgement from an unmounted renderer.
+    await shell.evaluate(() =>
+      Promise.all([
+        window.platform.call('launcher.show'),
+        window.platform.call('clipboardHistory.show'),
+        window.platform.call('launcher.show'),
+      ]),
+    );
     let panel = await opened;
     const search = panel.getByRole('combobox', { name: 'Найти приложение' });
     if (process.platform === 'darwin') {
@@ -99,12 +107,11 @@ async function main() {
       await app.evaluate(({ shell }) => {
         shell.openPath = (globalThis as any).__originalOpenPath;
       });
-    } else
-      await panel.getByText('Пока нет приложений. Создайте своё в рабочем пространстве.').waitFor();
+    }
     const panelId = await app.evaluate(
       ({ BrowserWindow }) =>
         BrowserWindow.getAllWindows().find((win) =>
-          win.webContents.getURL().includes('mode=launcher'),
+          win.webContents.getURL().includes('mode=shelf'),
         )!.id,
     );
     const visible = () =>
@@ -131,6 +138,21 @@ async function main() {
       await search.fill('');
       await expect(panel.locator('.launcher-app-header')).toHaveCount(0);
     }
+    await search.fill('clipboard');
+    await expect(panel.getByRole('option')).toHaveCount(1);
+    await search.press('Enter');
+    const clipboardSearch = panel.getByRole('combobox', { name: 'Найти в истории' });
+    await expect(clipboardSearch).toBeFocused();
+    assert.equal(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
+      2,
+    );
+    await clipboardSearch.fill('abc');
+    await clipboardSearch.press('Backspace');
+    await expect(clipboardSearch).toHaveValue('ab');
+    await clipboardSearch.fill('');
+    await clipboardSearch.press('Backspace');
+    await expect(search).toBeFocused();
     await panel.keyboard.press('Escape');
     await expect.poll(visible).toBe(false);
     // Capture the registered callback and invoke that OS entrypoint deterministically.
@@ -206,11 +228,13 @@ async function main() {
     await invokeHotkey();
     await expect.poll(visible).toBe(true);
     await expect(panel.locator('.launcher-result[data-kind="everything"]')).toHaveCount(3);
-    assert.match(await panel.getByRole('option').first().innerText(), /Бета/);
+    assert.match(await panel.getByRole('option').first().innerText(), /История буфера обмена/);
+    assert.match(await panel.getByRole('option').nth(1).innerText(), /Бета/);
     await expect(search).toBeFocused();
     await search.fill('not-a-real-app-qa');
     await panel.getByText('Приложения не найдены. Попробуйте другое название.').waitFor();
     await search.fill('');
+    await search.press('ArrowDown');
     await search.press('ArrowDown');
     await expect(panel.getByRole('option', { selected: true })).toContainText('Альфа');
     await mkdir('artifacts', { recursive: true });
@@ -248,9 +272,11 @@ async function main() {
     await expect.poll(visible).toBe(false);
     await invokeHotkey();
     await expect.poll(visible).toBe(true);
+    await expect(search).toBeFocused();
+    await search.fill('Альфа');
+    await search.press('Enter');
     await panel.getByText('Запись из быстрого запуска', { exact: true }).waitFor();
     await panel.getByRole('button', { name: 'Назад к приложениям', exact: true }).click();
-    await expect(search).toBeFocused();
     await search.fill('Полотно');
     await search.press('Enter');
     await expect(panel.locator('.launcher-app-header')).toContainText('Полотно');
@@ -278,8 +304,7 @@ async function main() {
     await expect.poll(visible).toBe(false);
     await invokeHotkey();
     await expect.poll(visible).toBe(true);
-    await extension.getByRole('button', { name: 'Нажатий: 1', exact: true }).waitFor();
-    await panel.getByRole('button', { name: 'Назад к приложениям', exact: true }).click();
+    await expect(search).toBeFocused();
     await expect
       .poll(() =>
         app.evaluate(
@@ -374,6 +399,17 @@ async function main() {
     assert.equal(saved[0].content, 'Правка перед возвратом к поиску');
     await docSearch.press('Enter');
     await expect(panel.locator('.cm-content')).toHaveText('Правка перед возвратом к поиску');
+    await panel.locator('.cm-content').fill('Черновик перед буфером обмена');
+    await panel.evaluate(() => window.platform.call('clipboardHistory.show'));
+    await expect(panel.getByRole('combobox', { name: 'Найти в истории' })).toBeFocused();
+    const switched = await panel.evaluate(
+      (appId) => window.platform.call('docs.list', { appId }),
+      documents.id,
+    );
+    assert.equal(switched[0].content, 'Черновик перед буфером обмена');
+    await panel.evaluate(() => window.platform.call('launcher.show'));
+    await docSearch.fill('Черновики');
+    await docSearch.press('Enter');
     await panel.locator('.cm-content').fill('Последняя правка в скрытой панели');
     await panel.evaluate(() => window.platform.call('launcher.hide'));
     const closed = app.waitForEvent('close', { timeout: 15000 });

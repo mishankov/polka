@@ -31,10 +31,9 @@ import { bindAssistantShortcut, bindSettingsShortcut } from './workspace-shortcu
 import { ConnectionCredentials } from './connections';
 import { externalWebUrl } from '../shared/externalLinks';
 import type { AppInstance } from '../shared/types';
-import { createLauncher } from './launcher';
-import { createClipboardShelf } from './clipboard-shelf';
+import { createShelf } from './shelf';
 import { LauncherShortcut } from './launcher-shortcut';
-import { DEFAULT_LAUNCHER_SHORTCUT } from '../shared/launcher';
+import { BUILTIN_APPS, DEFAULT_LAUNCHER_SHORTCUT } from '../shared/launcher';
 import { InstalledApps, readApplicationIcons } from './installed-apps';
 const execFileAsync = promisify(execFile);
 if (process.env.EVERYTHING_PROFILE) app.setPath('userData', process.env.EVERYTHING_PROFILE);
@@ -57,9 +56,10 @@ const installedApps = new InstalledApps({
   },
   openPath: (path) => shell.openPath(path),
 });
-const launcher = createLauncher(
+const shelf = createShelf(
+  root,
   (win) => {
-    windows.set(win.id, { window: win, mode: 'launcher' });
+    windows.set(win.id, { window: win, mode: 'shelf' });
     bindSettingsShortcut(win.webContents, showSettings);
     const ownerId = win.webContents.id;
     win.webContents.on('destroyed', () => extensionViews?.disposeOwner(ownerId));
@@ -68,24 +68,16 @@ const launcher = createLauncher(
     });
     win.on('closed', () => windows.delete(win.id));
   },
+  () => broadcast({ type: 'clipboardHistory.changed' }),
   () => quitting,
+  flushWindow,
 );
 const launcherShortcut = new LauncherShortcut(
   globalShortcut,
   () => {
-    void launcher.toggle()?.catch((error) => console.error('Could not open launcher', error));
+    void shelf.toggle('apps').catch((error) => console.error('Could not open shelf', error));
   },
   (accelerator) => call('settings.set', { key: 'launcherShortcut', value: accelerator }),
-);
-const clipboardShelf = createClipboardShelf(
-  root,
-  (win) => {
-    windows.set(win.id, { window: win, mode: 'clipboard' });
-    bindSettingsShortcut(win.webContents, showSettings);
-    win.on('closed', () => windows.delete(win.id));
-  },
-  () => broadcast({ type: 'clipboardHistory.changed' }),
-  () => quitting,
 );
 const flushRequests = new Map<
   string,
@@ -210,10 +202,10 @@ async function refreshTrayMenu() {
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: 'Открыть Everything App', click: () => void openWindow() },
-        { label: 'Запуск приложений', click: () => void launcher.show().catch(console.error) },
+        { label: 'Запуск приложений', click: () => void shelf.show().catch(console.error) },
         {
           label: 'История буфера обмена',
-          click: () => void clipboardShelf.show().catch(console.error),
+          click: () => void shelf.show('keyboard', 'clipboard').catch(console.error),
         },
         {
           label: 'Работающие приложения',
@@ -252,7 +244,7 @@ function applyWindowPreferences(win: BrowserWindow, alwaysOnTop: boolean) {
   win.setVisibleOnAllWorkspaces(alwaysOnTop, { visibleOnFullScreen: alwaysOnTop });
 }
 function showSettings() {
-  launcher.hide();
+  shelf.hide();
   void openWindow(undefined, 'settings').catch((error) =>
     dialog.showErrorBox('Не удалось открыть настройки', String(error)),
   );
@@ -394,50 +386,56 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     throw Error('Недоверенный отправитель');
   rpcSchema.parse([method, params]);
   if (JSON.stringify(params).length > 48 * 1024 * 1024) throw Error('Запрос превышает лимит');
-  if (method.startsWith('clipboardHistory.')) return clipboardShelf.handle(method, params);
+  if (method.startsWith('clipboardHistory.') || method.startsWith('shelf.'))
+    return shelf.handle(method, params);
   if (method === 'launcher.show') {
-    await launcher.show();
+    await shelf.show();
     return true;
   }
   if (method === 'launcher.hide') {
-    launcher.hide();
+    shelf.hide();
     return true;
   }
   if (method === 'launcher.apps') {
     const apps: AppInstance[] = await call('apps.list');
-    return apps
-      .filter((instance) => instance.status !== 'archived')
-      .map(({ id, name, icon, description, favorite, status }) => ({
-        kind: 'everything',
-        id,
-        name,
-        icon,
-        description,
-        favorite,
-        status,
-      }));
+    return [
+      ...BUILTIN_APPS,
+      ...apps
+        .filter((instance) => instance.status !== 'archived')
+        .map(({ id, name, icon, description, favorite, status }) => ({
+          kind: 'everything',
+          id,
+          name,
+          icon,
+          description,
+          favorite,
+          status,
+        })),
+    ];
   }
   if (method === 'launcher.macApps') return installedApps.list();
   if (method === 'launcher.openMac') {
+    const revision = shelf.getRevision();
     const id = z
       .string()
       .regex(/^mac:[a-f0-9]{32}$/)
       .parse(params.id);
     const result = await installedApps.open(id);
-    launcher.hide();
+    if (revision === shelf.getRevision()) shelf.hide();
     return result;
   }
   if (method === 'launcher.open') {
+    const revision = shelf.getRevision();
     const appId = z.string().min(1).max(200).parse(params.appId);
     const instance: AppInstance = await call('apps.get', { appId });
     if (instance.status === 'archived')
       throw Error('Приложение находится в архиве. Восстановите его в рабочем пространстве.');
     const started = await call('apps.start', { appId });
-    launcher.setExpanded(true);
+    if (revision === shelf.getRevision()) shelf.setExpanded(true);
     return started;
   }
   if (method === 'launcher.back') {
-    launcher.setExpanded(false);
+    shelf.setExpanded(false);
     return true;
   }
   if (method === 'launcher.getPreferences') return launcherShortcut.getPreferences();
@@ -710,13 +708,13 @@ app
         );
         if (workspace) bindAssistantShortcut(contents, owner);
         const panel = [...windows.values()].find(
-          (entry) => entry.window.webContents === owner && entry.mode === 'launcher',
+          (entry) => entry.window.webContents === owner && entry.mode === 'shelf',
         );
         if (panel)
           contents.on('before-input-event', (event, input) => {
             if (input.type === 'keyDown' && input.key === 'Escape' && !input.isComposing) {
               event.preventDefault();
-              launcher.hide();
+              shelf.hide();
             }
           });
       },
@@ -749,10 +747,10 @@ app
             },
             { type: 'separator' },
             { label: 'Открыть рабочее пространство', click: () => void openWindow() },
-            { label: 'Запуск приложений', click: () => void launcher.show().catch(console.error) },
+            { label: 'Запуск приложений', click: () => void shelf.show().catch(console.error) },
             {
               label: 'История буфера обмена',
-              click: () => void clipboardShelf.show().catch(console.error),
+              click: () => void shelf.show('keyboard', 'clipboard').catch(console.error),
             },
             { type: 'separator' },
             { role: 'hide' },
@@ -811,17 +809,17 @@ app
     tray.setToolTip('Everything App — фоновые приложения');
     await refreshTrayMenu();
     powerMonitor.on('resume', () => {
-      clipboardShelf.resume();
+      shelf.resume();
       void call('runtime.signal', { event: 'resume' });
       broadcast({ type: 'system.resume' });
     });
     powerMonitor.on('suspend', () => {
-      clipboardShelf.suspend();
+      shelf.suspend();
       void call('runtime.signal', { event: 'suspend' });
       broadcast({ type: 'system.suspend' });
     });
-    powerMonitor.on('lock-screen', () => clipboardShelf.suspend('lock'));
-    powerMonitor.on('unlock-screen', () => clipboardShelf.resume('lock'));
+    powerMonitor.on('lock-screen', () => shelf.suspend('lock'));
+    powerMonitor.on('unlock-screen', () => shelf.resume('lock'));
     screen.on('display-removed', () => {
       const area = screen.getPrimaryDisplay().workArea;
       for (const { window } of windows.values()) {
@@ -878,7 +876,7 @@ app
         ? settings.launcherShortcut
         : DEFAULT_LAUNCHER_SHORTCUT,
     );
-    await clipboardShelf.start();
+    await shelf.start();
   })
   .catch((e) => {
     console.error('Startup failed', e);
@@ -896,7 +894,7 @@ nativeUpdater.on('before-quit-for-update', () => {
   if (!updateInstalling) return;
   quitting = true;
   globalShortcut.unregisterAll();
-  void clipboardShelf.stop();
+  void shelf.stop();
   // Keep core alive during download/staging; persisted jobs recover if exit wins this flush.
   try {
     worker?.postMessage({ kind: 'shutdown' });
@@ -916,7 +914,7 @@ app.on('before-quit', (event) => {
   void Promise.all([...windows.values()].map(({ window }) => flushWindow(window)))
     .then(async () => {
       globalShortcut.unregisterAll();
-      await clipboardShelf.stop();
+      await shelf.stop();
       const stopped = new Promise<void>((resolve) => worker.once('exit', () => resolve()));
       worker.postMessage({ kind: 'shutdown' });
       await stopped;

@@ -20,20 +20,25 @@ import {
 } from './clipboard-history';
 import { ClipboardHover, contains, shelfGeometry, type Notch } from './clipboard-hover';
 import { LauncherShortcut } from './launcher-shortcut';
-import type { ClipboardState, ClipboardPresentation } from '../shared/clipboard';
+import type { ClipboardState } from '../shared/clipboard';
+import type { ShelfPresentation } from '../shared/shelf';
 
-export function createClipboardShelf(
+export function createShelf(
   root: string,
   register: (win: BrowserWindow) => void,
   notify: () => void,
   isQuitting: () => boolean,
+  beforeNavigate: (win: BrowserWindow) => Promise<void>,
 ) {
   let window: BrowserWindow | undefined;
   let loading: Promise<void> | undefined;
   let requested = false;
+  let hasPresented = false;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
-  let presentation: ClipboardPresentation = {
+  let expanded = false;
+  let presentation: ShelfPresentation = {
     revision: 0,
+    destination: 'apps',
     visible: false,
     focusSearch: false,
     topInset: 0,
@@ -73,7 +78,7 @@ export function createClipboardShelf(
   const shortcut = new LauncherShortcut(
     globalShortcut,
     () => {
-      void (requested ? Promise.resolve(hide()) : show('keyboard')).catch(failed);
+      void toggle('clipboard').catch(failed);
     },
     (accelerator) => history.preferences({ accelerator }),
   );
@@ -113,20 +118,33 @@ export function createClipboardShelf(
       return;
     }
     window.webContents.send('platform:event', {
-      type: 'clipboardHistory.presentation',
+      type: 'shelf.presentation',
       presentation,
     });
     // The renderer confirms animation completion; this also works if it stops responding.
     const revision = presentation.revision;
     hideTimer = setTimeout(() => finishHide(revision), 240);
   }
-  async function show(source: 'hover' | 'keyboard' = 'keyboard') {
+  async function show(
+    source: 'hover' | 'keyboard' = 'keyboard',
+    destination: 'apps' | 'clipboard' = 'apps',
+  ) {
     if (disposed || suspensions.size > 0) return;
     clearTimeout(hideTimer);
     hideTimer = undefined;
     requested = true;
     const revision = presentation.revision + 1;
     presentation = { ...presentation, revision };
+    if (hasPresented && window && !window.isDestroyed()) {
+      try {
+        await beforeNavigate(window);
+      } catch (reason) {
+        if (presentation.revision === revision) requested = window.isVisible();
+        throw reason;
+      }
+      if (!requested || presentation.revision !== revision) return;
+    }
+    expanded = false;
     openedBy = source;
     const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     displayId = display.id;
@@ -147,7 +165,7 @@ export function createClipboardShelf(
         fullscreenable: false,
         alwaysOnTop: true,
         skipTaskbar: true,
-        title: 'История буфера обмена',
+        title: 'Полка Everything App',
         transparent: true,
         enableLargerThanScreen: true,
         hasShadow: false,
@@ -180,14 +198,15 @@ export function createClipboardShelf(
         if (window === win) {
           window = undefined;
           requested = false;
+          hasPresented = false;
         }
       });
       win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
       win.webContents.on('will-navigate', (event) => event.preventDefault());
       win.webContents.on('will-attach-webview', (event) => event.preventDefault());
       loading = process.env.ELECTRON_RENDERER_URL
-        ? win.loadURL(`${process.env.ELECTRON_RENDERER_URL}?mode=clipboard`)
-        : win.loadFile(join(__dirname, '../renderer/index.html'), { query: { mode: 'clipboard' } });
+        ? win.loadURL(`${process.env.ELECTRON_RENDERER_URL}?mode=shelf`)
+        : win.loadFile(join(__dirname, '../renderer/index.html'), { query: { mode: 'shelf' } });
       loading.catch(() => {
         requested = false;
         win.destroy();
@@ -204,12 +223,14 @@ export function createClipboardShelf(
       return;
     presentation = {
       revision: revision + 1,
+      destination,
       visible: true,
       focusSearch: true,
       topInset: geometry.topInset,
       notchWidth: geometry.target.width,
       notchHeight: geometry.target.height,
     };
+    hasPresented = true;
     window.setIgnoreMouseEvents(false);
     window.setBounds(geometry.panel);
     // Both entry points are immediately keyboard-operable. Keep the native panel
@@ -218,9 +239,35 @@ export function createClipboardShelf(
     window.show();
     window.focus();
     window.webContents.send('platform:event', {
-      type: 'clipboardHistory.shown',
+      type: 'shelf.shown',
       presentation,
     });
+  }
+  function updateGeometry() {
+    if (!window || window.isDestroyed()) return;
+    const display = screen.getAllDisplays().find((item) => item.id === displayId);
+    if (!display) return;
+    const geometry = shelfGeometry(
+      display.bounds,
+      notches.find((item) => item.id === display.id),
+      expanded,
+    );
+    presentation = {
+      ...presentation,
+      topInset: geometry.topInset,
+      notchWidth: geometry.target.width,
+      notchHeight: geometry.target.height,
+    };
+    window.setBounds(geometry.panel);
+    window.webContents.send('platform:event', { type: 'shelf.presentation', presentation });
+  }
+  function setExpanded(value: boolean) {
+    expanded = value;
+    updateGeometry();
+  }
+  async function toggle(destination: 'apps' | 'clipboard') {
+    if (requested && presentation.destination === destination && !expanded) hide();
+    else await show('keyboard', destination);
   }
   async function capture() {
     if (disposed || suspensions.size > 0 || !initialized || history.getPreferences().paused) return;
@@ -309,6 +356,7 @@ export function createClipboardShelf(
     const geometry = shelfGeometry(
       display.bounds,
       notches.find((item) => item.id === display.id),
+      expanded,
     );
     if (requested && openedBy === 'keyboard') return;
     if (!history.getPreferences().hoverEnabled && !requested) return;
@@ -381,7 +429,7 @@ export function createClipboardShelf(
               if (requested) {
                 // The first snapshot may arrive after the user opens the shelf.
                 // Apply its geometry without treating startup as a monitor change.
-                if (initialGeometry) void show(openedBy).catch(failed);
+                if (initialGeometry) updateGeometry();
                 else hide();
               }
             }
@@ -402,13 +450,13 @@ export function createClipboardShelf(
     changed();
   }
   async function handle(method: string, params: Record<string, unknown>) {
-    if (method === 'clipboardHistory.presentation') return presentation;
-    if (method === 'clipboardHistory.didHide') {
+    if (method === 'shelf.presentation') return presentation;
+    if (method === 'shelf.didHide') {
       finishHide(z.number().int().parse(params.revision));
       return true;
     }
     if (method === 'clipboardHistory.show') {
-      await show();
+      await show('keyboard', 'clipboard');
       return true;
     }
     if (method === 'clipboardHistory.hide') {
@@ -502,6 +550,9 @@ export function createClipboardShelf(
     handle,
     show,
     hide,
+    toggle,
+    setExpanded,
+    getRevision: () => presentation.revision,
     suspend(reason = 'sleep') {
       suspensions.add(reason);
       generation++;

@@ -40,7 +40,7 @@ async function main() {
     const activation = await app.evaluate(({ app, BrowserWindow }) => ({
       dockVisible: app.dock?.isVisible(),
       windows: BrowserWindow.getAllWindows().map((win) => ({
-        shelf: win.webContents.getURL().includes('mode=clipboard'),
+        shelf: win.webContents.getURL().includes('mode=shelf'),
         visible: win.isVisible(),
         focused: win.isFocused(),
         allSpaces: win.isVisibleOnAllWorkspaces(),
@@ -70,7 +70,7 @@ async function main() {
     });
     const bounds = await app.evaluate(({ BrowserWindow, screen }) => {
       const win = BrowserWindow.getAllWindows().find((win) =>
-        win.webContents.getURL().includes('mode=clipboard'),
+        win.webContents.getURL().includes('mode=shelf'),
       )!;
       return {
         id: win.id,

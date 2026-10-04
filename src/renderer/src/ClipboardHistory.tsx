@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActionIcon, Alert, Button, Group, Loader, Menu, TextInput, Tooltip } from '@mantine/core';
 import {
   IconClipboard,
@@ -11,12 +11,7 @@ import {
   IconArrowLeft,
   IconTextSize,
 } from '@tabler/icons-react';
-import {
-  clipboardResults,
-  type ClipboardState,
-  type ClipboardPresentation,
-  type ClipboardClip,
-} from '../../shared/clipboard';
+import { clipboardResults, type ClipboardState, type ClipboardClip } from '../../shared/clipboard';
 import { api, errorMessage } from './api';
 
 function clipDate(timestamp: number) {
@@ -76,20 +71,7 @@ function ClipboardPreview({ clip }: { clip: ClipboardClip }) {
   );
 }
 
-export default function ClipboardShelf() {
-  const hasOpened = useRef(false);
-  const [presentation, setPresentation] = useState<ClipboardPresentation>({
-    revision: -1,
-    visible: false,
-    focusSearch: false,
-    topInset: 0,
-    notchWidth: 96,
-    notchHeight: 3,
-  });
-  const applyPresentation = useCallback((next: ClipboardPresentation) => {
-    if (next.visible) hasOpened.current = true;
-    setPresentation((previous) => (next.revision >= previous.revision ? next : previous));
-  }, []);
+export default function ClipboardHistory({ onBack }: { onBack: () => void }) {
   const [state, setState] = useState<ClipboardState>();
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string>();
@@ -131,43 +113,14 @@ export default function ClipboardShelf() {
   }, []);
   useEffect(() => {
     void refresh();
-    void api<ClipboardPresentation>('clipboardHistory.presentation')
-      .then(applyPresentation)
-      .catch((reason) => setError(errorMessage(reason)));
     const unsubscribe = window.platform.onEvent((event) => {
       if (event.type === 'clipboardHistory.changed') void refresh();
-      if (event.type === 'clipboardHistory.presentation') applyPresentation(event.presentation);
-      if (event.type === 'clipboardHistory.shown') {
-        applyPresentation(event.presentation);
-        setQuery('');
-        setSelected(undefined);
-        setError('');
-        setConfirmClear(false);
-        setPreviewId(undefined);
-        setMenuOpen(false);
-        void refresh();
-      }
-      if (event.type === 'workspace.beforeClose')
-        void api('windows.confirmClose', { token: event.token });
     });
     return () => {
       request.current++;
       unsubscribe();
     };
-  }, [refresh, applyPresentation]);
-  useEffect(() => {
-    // The snapshot also carries focus intent if the initial shown event arrived
-    // before React subscribed, including the first hover opening.
-    if (presentation.visible && presentation.focusSearch) input.current?.focus();
-  }, [presentation]);
-  useEffect(() => {
-    if (
-      !presentation.visible &&
-      presentation.revision >= 0 &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    )
-      void api('clipboardHistory.didHide', { revision: presentation.revision });
-  }, [presentation]);
+  }, [refresh]);
   useEffect(() => {
     document.getElementById(`clip-${selection?.id}`)?.scrollIntoView({ block: 'nearest' });
   }, [selection?.id, previewId, confirmClear]);
@@ -188,27 +141,29 @@ export default function ClipboardShelf() {
     }
   }
   return (
-    <main
-      className={`clipboard-shelf ${presentation.visible ? 'is-open' : hasOpened.current ? 'is-closed' : 'is-idle'}`}
-      data-notched={presentation.topInset > 0 || undefined}
-      style={
-        {
-          '--notch-width': `${presentation.notchWidth}px`,
-          '--notch-height': `${presentation.notchHeight}px`,
-          '--notch-inset': `${presentation.topInset}px`,
-        } as CSSProperties
-      }
-      onAnimationEnd={(event) => {
-        if (
-          event.target === event.currentTarget &&
-          event.animationName === 'clipboard-hide' &&
-          !presentation.visible
-        )
-          void api('clipboardHistory.didHide', { revision: presentation.revision });
-      }}
+    <section
+      className="clipboard-app"
       aria-label="История буфера обмена"
       onKeyDown={(event) => {
-        if (event.key === 'Escape') {
+        if (
+          event.key === 'Backspace' &&
+          !event.nativeEvent.isComposing &&
+          !event.defaultPrevented &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !menuOpen &&
+          !busy
+        ) {
+          const target = event.target as HTMLElement;
+          const editing = target.closest('input, textarea, [contenteditable="true"]');
+          if (!editing || (target === input.current && query.length === 0)) {
+            event.preventDefault();
+            onBack();
+            return;
+          }
+        }
+        if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
           event.preventDefault();
           if (menuOpen) setMenuOpen(false);
           else if (confirmClear) closeConfirmation();
@@ -218,9 +173,16 @@ export default function ClipboardShelf() {
       }}
     >
       <header className="clipboard-header">
-        <div className="clipboard-heading">
-          <h1>Буфер обмена</h1>
-          {state?.preferences.paused && <span>Запись на паузе</span>}
+        <div className="clipboard-app-heading">
+          <Tooltip label="Назад к приложениям · ⌫">
+            <ActionIcon aria-label="Назад к приложениям" variant="subtle" onClick={onBack}>
+              <IconArrowLeft size={18} />
+            </ActionIcon>
+          </Tooltip>
+          <div className="clipboard-heading">
+            <h1>Буфер обмена</h1>
+            {state?.preferences.paused && <span>Запись на паузе</span>}
+          </div>
         </div>
         <div className="clipboard-header-actions">
           <Menu opened={menuOpen} onChange={setMenuOpen} withinPortal={false} position="bottom-end">
@@ -248,6 +210,7 @@ export default function ClipboardShelf() {
         <div className="clipboard-search">
           <TextInput
             ref={input}
+            autoFocus
             aria-label="Найти в истории"
             placeholder="Найти скопированный текст…"
             leftSection={<IconSearch size={17} />}
@@ -463,6 +426,6 @@ export default function ClipboardShelf() {
           </button>
         )}
       </footer>
-    </main>
+    </section>
   );
 }

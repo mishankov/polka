@@ -46,23 +46,14 @@ export default function ClipboardSettings() {
         История буфера обмена
       </Text>
       <Text size="sm" c="dimmed">
-        Наведите указатель на вырез камеры и задержите его, затем переместите вниз к истории. На
-        других мониторах — к середине верхнего края. Выбор записи копирует её снова; вставьте её
-        обычным сочетанием ⌘ V.
+        Встроенное приложение на полке. Откройте его из списка приложений или своим сочетанием
+        клавиш. Выбор записи копирует её снова; вставьте её обычным сочетанием ⌘ V.
       </Text>
       <Switch
         label="Сохранять скопированный текст и изображения"
         checked={!!state && !state.preferences.paused}
         disabled={!state || saving}
         onChange={(event) => void save('preferences', { paused: !event.currentTarget.checked })}
-      />
-      <Switch
-        label="Открывать историю при наведении к вырезу камеры"
-        checked={state?.preferences.hoverEnabled || false}
-        disabled={!state || saving}
-        onChange={(event) =>
-          void save('preferences', { hoverEnabled: event.currentTarget.checked })
-        }
       />
       <Select
         label="Хранить незакреплённые записи"

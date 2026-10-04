@@ -1,13 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActionIcon, Alert, Button, Loader, Text, TextInput, Tooltip } from '@mantine/core';
-import { IconArrowLeft, IconExternalLink, IconSearch, IconX } from '@tabler/icons-react';
+import {
+  IconClipboard,
+  IconArrowLeft,
+  IconExternalLink,
+  IconSearch,
+  IconX,
+} from '@tabler/icons-react';
 import { launcherApps, type LauncherApp, type MacLauncherApp } from '../../shared/launcher';
 import type { AppInstance } from '../../shared/types';
 import { api, errorMessage, report } from './api';
 import { flushDocuments } from './documentFlush';
 import Runtime from './Runtime';
+import ClipboardHistory from './ClipboardHistory';
 
-export default function Launcher() {
+export default function Launcher({
+  entry,
+}: {
+  entry: { revision: number; destination: 'apps' | 'clipboard' };
+}) {
+  const [builtin, setBuiltin] = useState(false);
+  const navigation = useRef(0);
   const [apps, setApps] = useState<LauncherApp[]>([]);
   const [macApps, setMacApps] = useState<MacLauncherApp[]>([]);
   const [macLoading, setMacLoading] = useState(true);
@@ -60,11 +73,6 @@ export default function Launcher() {
     void refresh();
     void refreshMac();
     const unsubscribe = window.platform.onEvent((event) => {
-      if (event.type === 'launcher.shown') {
-        void refresh();
-        void refreshMac();
-        if (!activeApp.current) input.current?.focus();
-      }
       if (event.type === 'workspace.changed') {
         void refresh();
         const currentId = activeApp.current?.id;
@@ -93,6 +101,21 @@ export default function Launcher() {
     };
   }, [refresh, refreshMac]);
   useEffect(() => {
+    // Main has flushed document drafts before changing the entry destination.
+    navigation.current++;
+    activeApp.current = undefined;
+    setCurrent(undefined);
+    setBuiltin(entry.destination === 'clipboard');
+    setQuery('');
+    setSelected(undefined);
+    setError('');
+    void refresh();
+    void refreshMac();
+  }, [entry.revision, entry.destination, refresh, refreshMac]);
+  useEffect(() => {
+    if (!current && !builtin) input.current?.focus();
+  }, [current, builtin, entry.revision]);
+  useEffect(() => {
     document.getElementById(`launcher-app-${selection?.id}`)?.scrollIntoView({ block: 'nearest' });
   }, [selection?.id]);
   async function open(app: LauncherApp) {
@@ -100,12 +123,18 @@ export default function Launcher() {
     launchPending.current = true;
     setOpening(true);
     setError('');
+    const token = navigation.current;
     try {
+      if (app.kind === 'builtin') {
+        await api('clipboardHistory.show');
+        return;
+      }
       if (app.kind === 'mac') {
         await api('launcher.openMac', { id: app.id });
         return;
       }
       const instance = await api<AppInstance>('launcher.open', { appId: app.id });
+      if (token !== navigation.current) return;
       activeApp.current = instance;
       setCurrent(instance);
       setScreen(localStorage.getItem('screen:' + app.id) || undefined);
@@ -137,7 +166,7 @@ export default function Launcher() {
   }
   const hide = () => void api('launcher.hide').catch((error) => setError(errorMessage(error)));
   return (
-    <main
+    <section
       className="launcher"
       aria-label="Быстрый запуск"
       onKeyDown={(event) => {
@@ -154,39 +183,48 @@ export default function Launcher() {
         }
       }}
     >
-      {current ? (
+      {builtin ? (
+        <ClipboardHistory
+          key={entry.revision}
+          onBack={() => void api('launcher.show').catch((error) => setError(errorMessage(error)))}
+        />
+      ) : current ? (
         <>
-          <header className="launcher-app-header">
-            <Tooltip label="Назад к приложениям">
-              <ActionIcon
-                aria-label="Назад к приложениям"
-                variant="subtle"
-                disabled={opening}
-                onClick={() => void back()}
-              >
-                <IconArrowLeft size={20} />
+          <header className="launcher-app-header clipboard-header">
+            <div className="clipboard-app-heading">
+              <Tooltip label="Назад к приложениям">
+                <ActionIcon
+                  aria-label="Назад к приложениям"
+                  variant="subtle"
+                  disabled={opening}
+                  onClick={() => void back()}
+                >
+                  <IconArrowLeft size={20} />
+                </ActionIcon>
+              </Tooltip>
+              <Text fw={550} truncate>
+                {current.icon} {current.name}
+              </Text>
+            </div>
+            <div className="clipboard-header-actions">
+              <Tooltip label="Открыть в отдельном окне">
+                <ActionIcon
+                  aria-label="Открыть в отдельном окне"
+                  variant="subtle"
+                  onClick={() => {
+                    void flushDocuments()
+                      .then(() => api('windows.open', { appId: current.id }))
+                      .then(hide)
+                      .catch((error) => setError(errorMessage(error)));
+                  }}
+                >
+                  <IconExternalLink size={18} />
+                </ActionIcon>
+              </Tooltip>
+              <ActionIcon aria-label="Закрыть быстрый запуск" variant="subtle" onClick={hide}>
+                <IconX size={18} />
               </ActionIcon>
-            </Tooltip>
-            <Text fw={550} truncate>
-              {current.icon} {current.name}
-            </Text>
-            <Tooltip label="Открыть в отдельном окне">
-              <ActionIcon
-                aria-label="Открыть в отдельном окне"
-                variant="subtle"
-                onClick={() => {
-                  void flushDocuments()
-                    .then(() => api('windows.open', { appId: current.id }))
-                    .then(hide)
-                    .catch((error) => setError(errorMessage(error)));
-                }}
-              >
-                <IconExternalLink size={18} />
-              </ActionIcon>
-            </Tooltip>
-            <ActionIcon aria-label="Закрыть быстрый запуск" variant="subtle" onClick={hide}>
-              <IconX size={18} />
-            </ActionIcon>
+            </div>
           </header>
           {error && (
             <Alert color="red" m="sm">
@@ -198,6 +236,7 @@ export default function Launcher() {
               key={current.id}
               app={current}
               standalone
+              surface="shelf"
               screenId={screen}
               onScreenChange={(id) => {
                 setScreen(id);
@@ -208,13 +247,19 @@ export default function Launcher() {
         </>
       ) : (
         <>
-          <div className="launcher-search">
+          <header className="clipboard-header">
+            <h1>Everything App</h1>
+            <div className="clipboard-header-actions">
+              <ActionIcon aria-label="Закрыть полку" variant="subtle" onClick={hide}>
+                <IconX size={18} />
+              </ActionIcon>
+            </div>
+          </header>
+          <div className="launcher-search clipboard-search">
             <TextInput
               ref={input}
               autoFocus
-              variant="unstyled"
-              size="lg"
-              leftSection={<IconSearch size={22} />}
+              leftSection={<IconSearch size={17} />}
               placeholder="Найти приложение…"
               aria-label="Найти приложение"
               value={query}
@@ -245,9 +290,6 @@ export default function Launcher() {
                 }
               }}
             />
-            <ActionIcon aria-label="Закрыть быстрый запуск" variant="subtle" onClick={hide}>
-              <IconX size={18} />
-            </ActionIcon>
           </div>
           {(error || macError) && (
             <Alert color="red" mx="sm" mt="sm">
@@ -290,7 +332,9 @@ export default function Launcher() {
                   onClick={() => void open(app)}
                 >
                   <span className="launcher-icon" aria-hidden="true">
-                    {app.kind === 'mac' && app.icon ? (
+                    {app.kind === 'builtin' ? (
+                      <IconClipboard size={22} stroke={1.5} />
+                    ) : app.kind === 'mac' && app.icon ? (
                       <img src={app.icon} alt="" />
                     ) : (
                       app.icon || '◈'
@@ -301,13 +345,15 @@ export default function Launcher() {
                     <span>{app.description || 'Everything App'}</span>
                   </span>
                   <span className="launcher-result-hint">
-                    {app.kind === 'mac'
-                      ? 'macOS'
-                      : app.favorite
-                        ? '★'
-                        : app.status === 'stopped'
-                          ? 'Запустить'
-                          : 'Открыть'}
+                    {app.kind === 'builtin'
+                      ? 'Встроенное'
+                      : app.kind === 'mac'
+                        ? 'macOS'
+                        : app.favorite
+                          ? '★'
+                          : app.status === 'stopped'
+                            ? 'Запустить'
+                            : 'Открыть'}
                   </span>
                 </button>
               ))
@@ -334,12 +380,29 @@ export default function Launcher() {
               </div>
             )}
           </div>
-          <footer className="launcher-footer">
+          <footer className="launcher-footer clipboard-footer">
             <span>{macLoading ? 'Ищем приложения macOS…' : `Приложения · ${results.length}`}</span>
-            <span>{opening ? 'Открываем…' : '↑ ↓ выбрать · Enter открыть · Esc закрыть'}</span>
+            <div className="clipboard-shortcuts">
+              {opening ? (
+                <span>Открываем…</span>
+              ) : (
+                <>
+                  <span>
+                    <kbd>↑</kbd>
+                    <kbd>↓</kbd> выбрать
+                  </span>
+                  <span>
+                    <kbd>↵</kbd> открыть
+                  </span>
+                  <span>
+                    <kbd>esc</kbd> закрыть
+                  </span>
+                </>
+              )}
+            </div>
           </footer>
         </>
       )}
-    </main>
+    </section>
   );
 }

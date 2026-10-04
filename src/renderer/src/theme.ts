@@ -127,3 +127,58 @@ export const workspaceVariables: CSSVariablesResolver = () => ({
     '--character-shadow': '#0d080518',
   },
 });
+
+// The shelf and its embedded screens share neutral surfaces, including portals.
+export const shelfTheme = createTheme({
+  ...workspaceTheme,
+  primaryColor: 'gray',
+  variantColorResolver: (input) => {
+    const colors = defaultVariantColorsResolver(input);
+    return input.variant === 'filled' && (input.color || input.theme.primaryColor) === 'gray'
+      ? { ...colors, color: '#111' }
+      : colors;
+  },
+  colors: {
+    ...workspaceTheme.colors,
+    gray: [
+      '#fafafa',
+      '#f1f1f1',
+      '#e5e5e5',
+      '#d4d4d4',
+      '#aaa',
+      '#888',
+      '#666',
+      '#444',
+      '#292929',
+      '#171717',
+    ],
+    dark: [
+      '#f5f5f5',
+      '#ddd',
+      '#bbb',
+      '#999',
+      '#777',
+      '#555',
+      '#333',
+      '#242424',
+      '#181818',
+      '#0a0a0a',
+    ],
+  },
+});
+export const shelfVariables: CSSVariablesResolver = (...args) => {
+  const base = workspaceVariables(...args);
+  const surfaces = {
+    ...surfaceVariables,
+    '--workspace-bg': '#000',
+    '--surface-raised': '#181818',
+    '--sidebar-bg': '#111',
+    '--line': '#333',
+    '--ink': '#f5f5f5',
+    '--muted': '#aaa',
+    '--accent': '#ddd',
+    '--accent-contrast': '#111',
+    '--soft': '#242424',
+  };
+  return { variables: base.variables, light: surfaces, dark: surfaces };
+};

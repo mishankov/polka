@@ -71,20 +71,29 @@ async function main() {
     await expect.poll(async () => (await clips()).length).toBe(1);
     await copy('Второй пример: https://example.com/reference');
     await expect.poll(async () => (await clips()).length).toBe(2);
-    const existingPanel = app.windows().find((page) => page.url().includes('mode=clipboard'));
+    const existingPanel = app.windows().find((page) => page.url().includes('mode=shelf'));
     const opening = existingPanel ? Promise.resolve(existingPanel) : app.waitForEvent('window');
     await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
     let panel = await opening;
     const panelId = await app.evaluate(
       ({ BrowserWindow }) =>
         BrowserWindow.getAllWindows().find((win) =>
-          win.webContents.getURL().includes('mode=clipboard'),
+          win.webContents.getURL().includes('mode=shelf'),
         )!.id,
     );
     const visible = () =>
       app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)!.isVisible(), panelId);
     const search = panel.getByRole('combobox', { name: 'Найти в истории' });
     await expect(search).toBeFocused();
+    await expect
+      .poll(() =>
+        panel
+          .locator('.clipboard-shelf')
+          .evaluate((element) =>
+            element.getAnimations().some((animation) => animation.playState === 'running'),
+          ),
+      )
+      .toBe(false);
     await expect(panel.getByRole('option')).toHaveCount(2);
     await search.press('Meta+Enter');
     await expect(panel.getByRole('region', { name: 'Просмотр записи' })).toBeVisible();
@@ -237,6 +246,8 @@ async function main() {
         app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)!.isFocused(), panelId),
       )
       .toBe(true);
+    await expect(panel.getByRole('combobox', { name: 'Найти приложение' })).toBeFocused();
+    await panel.keyboard.press('Enter');
     await expect(search).toBeFocused();
     await app.evaluate(({ BrowserWindow }, id) => {
       const bounds = BrowserWindow.fromId(id)!.getBounds();
@@ -244,7 +255,7 @@ async function main() {
     }, panelId);
     await new Promise((resolve) => setTimeout(resolve, 700));
     assert(await visible());
-    // No click or explicit focus: hover alone must enable navigation and copying.
+    // Hover opens the app list; Enter opens the first built-in, then keyboard copying works.
     await panel.keyboard.press('ArrowDown');
     await expect(panel.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true');
     await panel.keyboard.press('ArrowUp');

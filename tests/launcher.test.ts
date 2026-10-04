@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LauncherShortcut } from '../src/main/launcher-shortcut';
-import { launcherApps, type LauncherApp } from '../src/shared/launcher';
+import { BUILTIN_APPS, launcherApps, type LauncherApp } from '../src/shared/launcher';
 
 test('launcher searches names and descriptions, excludes archives, and prefers favorites', () => {
   const apps: LauncherApp[] = [
@@ -63,6 +63,11 @@ test('launcher searches names and descriptions, excludes archives, and prefers f
       'visual studio',
     ).length,
     1,
+  );
+  assert.equal(launcherApps([...apps, ...BUILTIN_APPS], '')[0].id, 'builtin:clipboard');
+  assert.deepEqual(
+    launcherApps([...apps, ...BUILTIN_APPS], 'clipboard history').map((app) => app.id),
+    ['builtin:clipboard'],
   );
   assert.deepEqual(
     apps.map((app) => app.id),
