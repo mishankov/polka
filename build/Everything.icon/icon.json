@@ -1,0 +1,33 @@
+{
+  "fill": {
+    "solid": "srgb:0.96078,0.94510,0.90980,1.00000"
+  },
+  "groups": [
+    {
+      "name": "Shelf",
+      "layers": [
+        {
+          "name": "Terracotta and graphite shelf",
+          "image-name": "shelf.png",
+          "glass": false,
+          "position": {
+            "scale": 0.9,
+            "translation-in-points": [0, 0]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "none",
+        "opacity": 0
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

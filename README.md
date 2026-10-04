@@ -48,7 +48,7 @@ AI-помощник и пользовательские приложения в�
 
 ## Установка и разработка
 
-Для сборки нужны **Node.js 24.18+**, **npm 11** и **Xcode Command Line Tools** на Mac с Apple silicon и macOS 27 или новее:
+Для разработки нужны **Node.js 24.18+**, **npm 11** и **Xcode Command Line Tools** на Mac с Apple silicon и macOS 27 или новее:
 
 ```sh
 npm ci
@@ -61,6 +61,8 @@ npm run dev
 ```sh
 npm run package
 ```
+
+Для упаковки нужен полный **Xcode 26+** с выбранной директорией разработчика (`sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`) и установленными компонентами первого запуска (`xcodebuild -runFirstLaunch`). Electron Builder компилирует нативную иконку `build/Everything.icon` в `Assets.car` и совместимый ICNS; PNG с готовой плиткой больше не используется для упаковки.
 
 Сборка создаёт DMG, ZIP и `release/mac-arm64/Everything App.app`. Перенесите приложение из DMG в «Программы». Локальная сборка не является проверенным подписанным выпуском; [подробнее о выпуске](docs/macos.md).
 
