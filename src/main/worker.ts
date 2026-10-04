@@ -1,3 +1,4 @@
+import { CUSTOM_APPS_ENABLED, FROZEN_FEATURE_MESSAGE } from '../shared/features';
 import { parentPort, workerData } from 'node:worker_threads';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -51,12 +52,12 @@ async function scoped(appId: string, method: string, params: any = {}, signal?: 
   if (method === 'transforms.run') return formats.run(params.operation, params.input, signal);
   if (method === 'adapters.list') return adapters.registry.catalog();
   if (method === 'actions.run') return dispatch('actions.run', { ...params, appId });
-  if (method === 'jobs.list') return runtime.handle('jobs.list', { appId });
+  if (method === 'jobs.list') return runtime!.handle('jobs.list', { appId });
   if (method === 'jobs.cancel') {
-    const jobs = await runtime.handle('jobs.list', { appId });
+    const jobs = await runtime!.handle('jobs.list', { appId });
     if (!jobs.some((job: any) => job.id === params.jobId))
       throw Error('Задание не принадлежит приложению');
-    return runtime.handle('jobs.cancel', { jobId: params.jobId });
+    return runtime!.handle('jobs.cancel', { jobId: params.jobId });
   }
   if (
     method.startsWith('records.') ||
@@ -127,26 +128,28 @@ async function executeAction(
   onProgress(1);
   return result;
 }
-const runtime = new RuntimeService(
-  { handle: (method: string, p: any) => dispatch(method, p) } as any,
-  {
-    readSecret: (id: string) => host('secret.read', { id }),
-    writeSecret: (id: string, value: string) => host('secret.write', { id, value }),
-    emit,
-    executeAction,
-    clipboardRead: () => host('clipboard.read'),
-    notify: (title: string, body: string) => {
-      void host('notifications.show', { title, body });
-    },
-    call: (m: string, p: any) => dispatch(m, p),
-  },
-);
+const customAppsEnabled = workerData.customAppsEnabled ?? CUSTOM_APPS_ENABLED;
+const runtime = customAppsEnabled
+  ? new RuntimeService({ handle: (method: string, p: any) => dispatch(method, p) } as any, {
+      readSecret: (id: string) => host('secret.read', { id }),
+      writeSecret: (id: string, value: string) => host('secret.write', { id, value }),
+      emit,
+      executeAction,
+      clipboardRead: () => host('clipboard.read'),
+      notify: (title: string, body: string) => {
+        void host('notifications.show', { title, body });
+      },
+      call: (m: string, p: any) => dispatch(m, p),
+    })
+  : undefined;
 const importPreviews = new Map<string, any>();
 async function validateExtensions(definition: any) {
   for (const ext of definition?.extensions || [])
     await compileExtension(ext.source, ext.kind, ext.dependencies);
 }
 async function dispatch(method: string, p: any = {}, documentLock = false): Promise<any> {
+  if (!customAppsEnabled && !/^(settings|state)\./.test(method))
+    throw Error(FROZEN_FEATURE_MESSAGE);
   if (
     !documentLock &&
     (method.startsWith('docs.') ||
@@ -176,7 +179,7 @@ async function dispatch(method: string, p: any = {}, documentLock = false): Prom
     method === 'runtime.stopApp' ||
     method === 'runtime.syncApp'
   )
-    return runtime.handle(method, p);
+    return runtime!.handle(method, p);
   if (method.startsWith('docs.')) return docs.handle(method, p);
   if (method === 'packages.taskCancel') return packageTasks.cancel(p.taskId);
   if (method === 'packages.taskStatus') return packageTasks.status(p.taskId);
@@ -184,7 +187,7 @@ async function dispatch(method: string, p: any = {}, documentLock = false): Prom
   if (method === 'transforms.list') return transforms;
   if (method === 'transforms.run') return formats.run(p.operation, p.input);
   if (method === 'adapters.list') return adapters.registry.catalog();
-  if (method === 'actions.run') return runtime.handle('jobs.enqueue', p);
+  if (method === 'actions.run') return runtime!.handle('jobs.enqueue', p);
   if (method === 'extensions.build') {
     const ext = await extension(p.appId, p.extensionId);
     return ext.kind === 'component'
@@ -226,7 +229,7 @@ async function dispatch(method: string, p: any = {}, documentLock = false): Prom
     method === 'permissions.revoke'
   ) {
     adapters.abortApp(p.appId);
-    await runtime.handle('runtime.stopApp', { appId: p.appId });
+    await runtime!.handle('runtime.stopApp', { appId: p.appId });
   }
   const result = await core.handle(method, p);
   if (
@@ -242,7 +245,7 @@ async function dispatch(method: string, p: any = {}, documentLock = false): Prom
     ].includes(method)
   ) {
     const appId = result?.app?.id || result?.id;
-    if (appId) await runtime.handle('runtime.syncApp', { appId });
+    if (appId) await runtime!.handle('runtime.syncApp', { appId });
   }
   if (
     /^(apps|definitions|permissions|records|packages|snapshots)\./.test(method) &&
@@ -264,7 +267,7 @@ port.on('message', async (message: any) => {
   if (message.kind === 'shutdown') {
     formats.close();
     await packageTasks.shutdown();
-    await runtime.shutdown();
+    await runtime?.shutdown();
     core.close();
     process.exit(0);
   }

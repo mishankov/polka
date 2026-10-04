@@ -23,7 +23,7 @@ import { ClipboardHover, contains, shelfGeometry, type Notch } from './clipboard
 import { ClipboardPaste } from './clipboard-paste';
 import { LauncherShortcut } from './launcher-shortcut';
 import type { ClipboardState } from '../shared/clipboard';
-import type { ShelfPresentation } from '../shared/shelf';
+import type { ShelfDestination, ShelfPresentation } from '../shared/shelf';
 
 export function createShelf(
   root: string,
@@ -38,7 +38,7 @@ export function createShelf(
   let hasPresented = false;
   let captureTargetPending: Promise<void> | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
-  let expanded = false;
+  let expanded: boolean | 'settings' = false;
   let presentation: ShelfPresentation = {
     revision: 0,
     destination: 'apps',
@@ -137,7 +137,7 @@ export function createShelf(
   }
   async function show(
     source: 'hover' | 'keyboard' = 'keyboard',
-    destination: 'apps' | 'clipboard' = 'apps',
+    destination: ShelfDestination = 'apps',
   ) {
     if (disposed || suspensions.size > 0) return;
     clearTimeout(hideTimer);
@@ -163,10 +163,11 @@ export function createShelf(
       }
       if (!requested || presentation.revision !== revision) return;
     }
-    expanded = false;
+    expanded = destination === 'settings' || destination === 'about' ? 'settings' : false;
     const geometry = shelfGeometry(
       display.bounds,
       notches.find((item) => item.id === display.id),
+      expanded,
     );
     if (!window || window.isDestroyed()) {
       const win = new BrowserWindow({
@@ -196,8 +197,8 @@ export function createShelf(
       });
       window = win;
       register(win);
-      // A nonactivating panel can join Spaces without transforming the entire app
-      // (which hides its Dock icon and can disturb the current Space on first open).
+      // Keep the background app activation policy when the panel joins Spaces.
+      // Transforming the process here can disturb the current Space.
       win.setVisibleOnAllWorkspaces(true, {
         visibleOnFullScreen: true,
         skipTransformProcessType: true,
@@ -502,6 +503,10 @@ export function createShelf(
     changed();
   }
   async function handle(method: string, params: Record<string, unknown>) {
+    if (method === 'shelf.settings') {
+      await show('keyboard', params.section === 'about' ? 'about' : 'settings');
+      return true;
+    }
     if (method === 'shelf.presentation') return presentation;
     if (method === 'shelf.didHide') {
       finishHide(z.number().int().parse(params.revision));

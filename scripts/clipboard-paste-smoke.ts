@@ -19,7 +19,7 @@ async function main() {
   let backedUp = false;
   try {
     const shell = await app.firstWindow();
-    await shell.locator('.home-page').waitFor();
+    await shell.locator('.launcher').waitFor();
     await app.evaluate(async ({ clipboard, ClipboardItem }) => {
       (globalThis as any).__clipboardBackup = await Promise.all(
         (await clipboard.read()).map(
@@ -125,12 +125,18 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
         await app.evaluate(({ screen }) => {
           (globalThis as any).__realCursor = screen.getCursorScreenPoint;
           const { bounds } = screen.getPrimaryDisplay();
-          (globalThis as any).__qaCursor = { x: bounds.x + bounds.width / 2, y: bounds.y + 1 };
+          (globalThis as any).__qaCursor = { x: bounds.x + bounds.width / 2, y: bounds.y + 500 };
           screen.getCursorScreenPoint = () => (globalThis as any).__qaCursor;
         });
         await shell.evaluate(() =>
           window.platform.call('clipboardHistory.preferences', { hoverEnabled: true }),
         );
+        // The startup shelf was dismissed when the target app took focus. Leave
+        // the hot zone before entering it again, as a real pointer would.
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        await app.evaluate(({ screen }) => {
+          (globalThis as any).__qaCursor.y = screen.getPrimaryDisplay().bounds.y + 1;
+        });
       } else await shell.evaluate(() => window.platform.call('launcher.show'));
       await expect.poll(() => app.windows().some((w) => w.url().includes('mode=shelf'))).toBe(true);
       shelf = app.windows().find((w) => w.url().includes('mode=shelf'))!;

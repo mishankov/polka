@@ -139,3 +139,26 @@ test('shortcut replacement, concurrent changes, disabling, and startup conflict 
   assert.deepEqual([...fixture.registered], []);
   assert.deepEqual(fixture.service.getPreferences(), { accelerator: '', registered: false });
 });
+
+test('launcher and clipboard cannot replace each other when native registration accepts duplicates', async () => {
+  const callbacks = new Map<string, () => void>();
+  const shortcuts = {
+    isRegistered: (key: string) => callbacks.has(key),
+    register: (key: string, callback: () => void) => {
+      callbacks.set(key, callback);
+      return true;
+    },
+    unregister: (key: string) => {
+      callbacks.delete(key);
+    },
+  };
+  const launch = () => {};
+  const clipboard = () => {};
+  const launcher = new LauncherShortcut(shortcuts, launch, async () => {});
+  const history = new LauncherShortcut(shortcuts, clipboard, async () => {});
+  launcher.initialize('Control+Space');
+  history.initialize('Control+V');
+  await assert.rejects(history.set('Control+Space'), /занято/);
+  assert.equal(callbacks.get('Control+Space'), launch);
+  assert.equal(callbacks.get('Control+V'), clipboard);
+});

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActionIcon, Alert, Button, Loader, Text, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Alert, Button, Loader, Menu, Text, TextInput, Tooltip } from '@mantine/core';
 import {
+  IconSettings,
+  IconDots,
   IconClipboard,
   IconArrowLeft,
   IconExternalLink,
@@ -13,14 +15,19 @@ import { api, errorMessage, report } from './api';
 import { flushDocuments } from './documentFlush';
 import Runtime from './Runtime';
 import ClipboardHistory from './ClipboardHistory';
+import ShelfSettings from './ShelfSettings';
+import ShelfWelcome from './ShelfWelcome';
+import type { ShelfDestination } from '../../shared/shelf';
+import { CUSTOM_APPS_ENABLED } from '../../shared/features';
 
 export default function Launcher({
   entry,
 }: {
-  entry: { revision: number; destination: 'apps' | 'clipboard' };
+  entry: { revision: number; destination: ShelfDestination };
 }) {
   // Apply the entry destination in this render. Mirroring it in an effect briefly
   // remounts clipboard history when a closed shelf reopens on the app list.
+  const settings = entry.destination === 'settings' || entry.destination === 'about';
   const builtin = entry.destination === 'clipboard';
   const navigation = useRef(0);
   const [apps, setApps] = useState<LauncherApp[]>([]);
@@ -114,8 +121,8 @@ export default function Launcher({
     void refreshMac();
   }, [entry.revision, entry.destination, refresh, refreshMac]);
   useEffect(() => {
-    if (!current && !builtin) input.current?.focus();
-  }, [current, builtin, entry.revision]);
+    if (!current && !builtin && !settings) input.current?.focus();
+  }, [current, builtin, settings, entry.revision]);
   useEffect(() => {
     document.getElementById(`launcher-app-${selection?.id}`)?.scrollIntoView({ block: 'nearest' });
   }, [selection?.id]);
@@ -180,11 +187,17 @@ export default function Launcher({
           )
         ) {
           event.preventDefault();
-          hide();
+          if (settings) void api('launcher.show').catch(report);
+          else hide();
         }
       }}
     >
-      {builtin ? (
+      {settings ? (
+        <ShelfSettings
+          key={entry.revision}
+          initialTab={entry.destination === 'about' ? 'about' : 'general'}
+        />
+      ) : builtin ? (
         <ClipboardHistory
           key={entry.revision}
           onBack={() => void api('launcher.show').catch((error) => setError(errorMessage(error)))}
@@ -283,7 +296,38 @@ export default function Launcher({
                 }
               }}
             />
+            <Tooltip label="Настройки · ⌘ ,">
+              <ActionIcon
+                aria-label="Настройки"
+                variant="subtle"
+                onClick={() => void api('shelf.settings').catch(report)}
+              >
+                <IconSettings size={20} />
+              </ActionIcon>
+            </Tooltip>
+            <Menu position="bottom-end" withinPortal={false}>
+              <Menu.Target>
+                <ActionIcon aria-label="Меню полки" variant="subtle">
+                  <IconDots size={20} />
+                </ActionIcon>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item onClick={() => void api('shelf.settings').catch(report)}>
+                  Настройки…
+                </Menu.Item>
+                <Menu.Item
+                  onClick={() => void api('shelf.settings', { section: 'about' }).catch(report)}
+                >
+                  О приложении и обновления
+                </Menu.Item>
+                <Menu.Divider />
+                <Menu.Item onClick={() => void api('system.quit').catch(report)}>
+                  Выйти из Everything App
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
           </div>
+          <ShelfWelcome />
           {(error || macError) && (
             <Alert color="red" mx="sm" mt="sm">
               {error || macError}
@@ -355,9 +399,9 @@ export default function Launcher({
                 <Text c="dimmed" size="sm">
                   {apps.length || macApps.length
                     ? 'Приложения не найдены. Попробуйте другое название.'
-                    : 'Пока нет приложений. Создайте своё в рабочем пространстве.'}
+                    : 'Список приложений пока пуст. Попробуйте обновить его.'}
                 </Text>
-                {!apps.length && (
+                {CUSTOM_APPS_ENABLED && !apps.length && (
                   <Button
                     variant="default"
                     mt="md"

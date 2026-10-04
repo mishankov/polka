@@ -1721,3 +1721,46 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   background: #191919;
   color: #eee;
 }
+
+.shelf-settings {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.shelf-settings-tabs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.shelf-settings-tabs > .mantine-Tabs-list {
+  padding: 0 24px;
+  flex-shrink: 0;
+}
+.shelf-settings-scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 28px;
+}
+.shelf-settings .settings-section {
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr);
+  border-color: #262626;
+}
+.shelf-welcome {
+  padding: 14px 18px;
+  border-bottom: 1px solid #222;
+  flex-shrink: 0;
+}
+@media (max-width: 620px) {
+  .shelf-settings-tabs > .mantine-Tabs-list {
+    padding: 0 12px;
+  }
+  .shelf-settings-scroll {
+    padding: 20px;
+  }
+  .shelf-settings .settings-section {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}

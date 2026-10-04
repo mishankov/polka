@@ -1,6 +1,8 @@
+export type ShelfDestination = 'apps' | 'clipboard' | 'settings' | 'about';
+
 export interface ShelfPresentation {
   revision: number;
-  destination: 'apps' | 'clipboard';
+  destination: ShelfDestination;
   visible: boolean;
   focusSearch: boolean;
   topInset: number;

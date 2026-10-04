@@ -16,7 +16,7 @@ async function main() {
   });
   try {
     const shell = await app.firstWindow();
-    await shell.locator('.home-page').waitFor();
+    await shell.locator('.launcher').waitFor();
     // Materialize the backup before changing the clipboard: read() items can be lazy.
     await app.evaluate(async ({ clipboard, ClipboardItem }) => {
       (globalThis as any).__clipboardBackup = await Promise.all(

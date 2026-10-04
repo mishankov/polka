@@ -3,6 +3,7 @@ import { DEFAULT_LAUNCHER_SHORTCUT, type LauncherPreferences } from '../shared/l
 interface Shortcuts {
   register(accelerator: string, callback: () => void): boolean;
   unregister(accelerator: string): void;
+  isRegistered?(accelerator: string): boolean;
 }
 
 // Reserve the replacement before releasing the old shortcut, including on save failure.
@@ -24,7 +25,10 @@ export class LauncherShortcut {
     this.state = { accelerator, registered: false };
     if (!accelerator) return;
     try {
-      if (!this.shortcuts.register(accelerator, this.toggle))
+      if (
+        this.shortcuts.isRegistered?.(accelerator) ||
+        !this.shortcuts.register(accelerator, this.toggle)
+      )
         throw Error('Сочетание занято другой программой. Выберите другое в настройках.');
       this.state.registered = true;
     } catch (error) {
@@ -35,7 +39,11 @@ export class LauncherShortcut {
     const operation = this.queue.then(async () => {
       const previous = this.state;
       if (previous.accelerator === accelerator && previous.registered) return this.getPreferences();
-      if (accelerator && !this.shortcuts.register(accelerator, this.toggle))
+      if (
+        accelerator &&
+        (this.shortcuts.isRegistered?.(accelerator) ||
+          !this.shortcuts.register(accelerator, this.toggle))
+      )
         throw Error('Сочетание недоступно или занято другой программой. Выберите другое.');
       try {
         await this.save(accelerator);

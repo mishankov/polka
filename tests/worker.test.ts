@@ -62,7 +62,7 @@ async function fixture(
   }) => Promise<void>,
 ) {
   const root = mkdtempSync(join(tmpdir(), 'everything-worker-')),
-    worker = new Worker(workerPath, { workerData: { root } });
+    worker = new Worker(workerPath, { workerData: { root, customAppsEnabled: true } });
   const pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>(),
     hostCalls: { method: string; params: any }[] = [],
     held: any[] = [];

@@ -15,7 +15,7 @@ async function main() {
     });
   let app = await launch();
   const errors: string[] = [];
-  let savedClipboard: { type: string; bytes?: number[]; bookmark?: unknown }[][] = [];
+  let savedClipboard: { type: string; bytes?: string; bookmark?: unknown }[][] = [];
   let originalClipboardSaved = false;
   function watch() {
     app
@@ -25,7 +25,7 @@ async function main() {
   watch();
   try {
     let shell = await app.firstWindow();
-    await shell.locator('.home-page').waitFor();
+    await shell.locator('.launcher').waitFor();
     await expect
       .poll(() =>
         shell.evaluate(() =>
@@ -48,7 +48,7 @@ async function main() {
             item.types.map(async (type) => {
               const data = await item.getType(type);
               return data instanceof Blob
-                ? { type, bytes: Array.from(new Uint8Array(await data.arrayBuffer())) }
+                ? { type, bytes: Buffer.from(await data.arrayBuffer()).toString('base64') }
                 : { type, bookmark: data };
             }),
           ),
@@ -336,7 +336,7 @@ async function main() {
     app = await launch();
     watch();
     shell = await app.firstWindow();
-    await shell.locator('.home-page').waitFor();
+    await shell.locator('.launcher').waitFor();
     await expect.poll(async () => (await clips()).length).toBe(3);
     const restored = await shell.evaluate(() => window.platform.call('clipboardHistory.state'));
     assert.equal(restored.preferences.paused, true);
@@ -344,7 +344,7 @@ async function main() {
     assert.equal(restored.preferences.retentionDays, 30);
     assert.equal(restored.preferences.accelerator, 'Control+Alt+Shift+F11');
     assert.equal(restored.clips.filter((clip: any) => clip.pinned).length, 1);
-    const reopened = app.waitForEvent('window');
+    const reopened = Promise.resolve(shell);
     await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
     panel = await reopened;
     await panel.getByRole('button', { name: 'Действия с историей' }).click();
@@ -375,8 +375,8 @@ async function main() {
                   Object.fromEntries(
                     item.map((entry) => [
                       entry.type,
-                      entry.bytes
-                        ? new Blob([new Uint8Array(entry.bytes)])
+                      entry.bytes !== undefined
+                        ? new Blob([Buffer.from(entry.bytes, 'base64')])
                         : (entry.bookmark as any),
                     ]),
                   ),

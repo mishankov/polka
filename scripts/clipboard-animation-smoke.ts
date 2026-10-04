@@ -14,10 +14,10 @@ async function main() {
   });
   try {
     const shell = await app.firstWindow();
-    await shell.locator('.home-page').waitFor();
+    await shell.locator('.launcher').waitFor();
     await new Promise((resolve) => setTimeout(resolve, 700));
-    // Exercise lazy creation through hover, with the workspace hidden. This used
-    // to transform the whole app's activation policy and remove its Dock icon.
+    // Reopen through hover without changing the Dock activation policy.
+    await shell.evaluate(() => window.platform.call('launcher.hide'));
     const dockBefore = await app.evaluate(({ app, BrowserWindow, screen }) => {
       for (const win of BrowserWindow.getAllWindows()) win.hide();
       (globalThis as any).__realCursor = screen.getCursorScreenPoint;
@@ -26,7 +26,9 @@ async function main() {
       screen.getCursorScreenPoint = () => (globalThis as any).__qaCursor;
       return app.dock?.isVisible();
     });
-    const opening = app.waitForEvent('window');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(dockBefore, false, 'The running app stays out of the Dock');
+    const opening = Promise.resolve(shell);
     await app.evaluate(({ screen }) => {
       const { bounds } = screen.getPrimaryDisplay();
       (globalThis as any).__qaCursor = {

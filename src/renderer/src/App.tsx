@@ -52,8 +52,10 @@ import Inbox from './Inbox';
 import { flushDocuments } from './documentFlush';
 import StandaloneApp from './StandaloneApp';
 import Shelf from './Shelf';
+import { CUSTOM_APPS_ENABLED } from '../../shared/features';
 export default function App() {
-  if (new URLSearchParams(location.search).get('mode') === 'shelf') return <Shelf />;
+  if (!CUSTOM_APPS_ENABLED || new URLSearchParams(location.search).get('mode') === 'shelf')
+    return <Shelf />;
   const appId = new URLSearchParams(location.search).get('appId');
   return appId ? <StandaloneApp appId={appId} /> : <Workspace />;
 }

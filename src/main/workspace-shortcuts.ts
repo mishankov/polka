@@ -1,6 +1,6 @@
 import type { WebContents } from 'electron';
 
-/** Settings belong to the workspace, even when a standalone or extension view has focus. */
+/** Route Command-comma through the shared settings destination. */
 export function bindSettingsShortcut(contents: WebContents, openSettings: () => void) {
   contents.on('before-input-event', (event, input) => {
     const modifier =

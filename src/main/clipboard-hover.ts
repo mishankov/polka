@@ -18,12 +18,12 @@ export function contains(rect: Rect, point: { x: number; y: number }) {
     point.y < rect.y + rect.height
   );
 }
-export function shelfGeometry(bounds: Rect, notch?: Notch, expanded = false) {
+export function shelfGeometry(bounds: Rect, notch?: Notch, expanded: boolean | 'settings' = false) {
   const hasNotch = notch && notch.height > 0 && notch.width > 0;
   const target = hasNotch
     ? { x: bounds.x + notch.x, y: bounds.y, width: notch.width, height: notch.height }
     : { x: bounds.x + (bounds.width - 96) / 2, y: bounds.y, width: 96, height: 3 };
-  const width = Math.min(expanded ? 960 : 560, bounds.width);
+  const width = Math.min(expanded === 'settings' ? 720 : expanded ? 960 : 560, bounds.width);
   const topInset = hasNotch ? Math.ceil(notch.height) : 0;
   const panel = {
     x: Math.round(

@@ -35,6 +35,11 @@ import { createShelf } from './shelf';
 import { LauncherShortcut } from './launcher-shortcut';
 import { BUILTIN_APPS, DEFAULT_LAUNCHER_SHORTCUT } from '../shared/launcher';
 import { InstalledApps, readApplicationIcons } from './installed-apps';
+import {
+  CUSTOM_APPS_ENABLED,
+  FROZEN_FEATURE_MESSAGE,
+  shelfMethodAllowed,
+} from '../shared/features';
 const execFileAsync = promisify(execFile);
 if (process.env.EVERYTHING_PROFILE) app.setPath('userData', process.env.EVERYTHING_PROFILE);
 const windows = new Map<number, { window: BrowserWindow; appId?: string; mode: string }>(),
@@ -185,6 +190,25 @@ let trayRefresh = 0;
 let trayAppsKey: string | undefined;
 async function refreshTrayMenu() {
   if (!tray || tray.isDestroyed()) return;
+  if (!CUSTOM_APPS_ENABLED) {
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: 'Открыть полку', click: () => void shelf.show().catch(console.error) },
+        {
+          label: 'История буфера обмена',
+          click: () => void shelf.show('keyboard', 'clipboard').catch(console.error),
+        },
+        { label: 'Настройки…', click: showSettings },
+        {
+          label: 'О приложении и обновления',
+          click: () => void shelf.show('keyboard', 'about').catch(console.error),
+        },
+        { type: 'separator' },
+        { label: 'Выйти из Everything App', click: () => app.quit() },
+      ]),
+    );
+    return;
+  }
   const refresh = ++trayRefresh;
   try {
     const apps: AppInstance[] = await call('apps.list');
@@ -244,12 +268,21 @@ function applyWindowPreferences(win: BrowserWindow, alwaysOnTop: boolean) {
   win.setVisibleOnAllWorkspaces(alwaysOnTop, { visibleOnFullScreen: alwaysOnTop });
 }
 function showSettings() {
+  if (!CUSTOM_APPS_ENABLED) {
+    void shelf.show('keyboard', 'settings').catch(console.error);
+    return;
+  }
   shelf.hide();
   void openWindow(undefined, 'settings').catch((error) =>
     dialog.showErrorBox('Не удалось открыть настройки', String(error)),
   );
 }
 async function openWindow(appId?: string, page?: 'settings') {
+  if (!CUSTOM_APPS_ENABLED) {
+    if (appId) throw Error(FROZEN_FEATURE_MESSAGE);
+    await shelf.show('keyboard', page || 'apps');
+    return;
+  }
   const mode = 'window';
   // Opening an app also resumes it, including when its window already exists.
   const instance = appId ? await call('apps.start', { appId }) : undefined;
@@ -385,6 +418,7 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
   if (!sender || event.senderFrame !== event.sender.mainFrame)
     throw Error('Недоверенный отправитель');
   rpcSchema.parse([method, params]);
+  if (!CUSTOM_APPS_ENABLED && !shelfMethodAllowed(method)) throw Error(FROZEN_FEATURE_MESSAGE);
   if (JSON.stringify(params).length > 48 * 1024 * 1024) throw Error('Запрос превышает лимит');
   if (method === 'clipboardHistory.select' && sender.mode !== 'shelf')
     throw Error('Вставка доступна только из истории на полке');
@@ -398,6 +432,7 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     shelf.hide();
     return true;
   }
+  if (method === 'launcher.apps' && !CUSTOM_APPS_ENABLED) return BUILTIN_APPS;
   if (method === 'launcher.apps') {
     const apps: AppInstance[] = await call('apps.list');
     return [
@@ -619,8 +654,12 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
       backgroundPolicy:
         'Локальные задания выполняются только при включённом компьютере. Во сне запуски пропускаются или переносятся по политике правила.',
     };
+  if (method === 'system.quit') {
+    app.quit();
+    return true;
+  }
   if (method === 'system.login') {
-    app.setLoginItemSettings({ openAtLogin: !!params.enabled });
+    app.setLoginItemSettings({ openAtLogin: !!params.enabled, args: ['--hidden'] });
     return app.getLoginItemSettings().openAtLogin;
   }
   if (method === 'system.shortcut') {
@@ -638,16 +677,21 @@ if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', (_e, argv) => {
   void openWindow();
   const file = argv.find((a) => a.endsWith('.everyapp'));
-  if (file) void previewPackage(file);
+  if (file && CUSTOM_APPS_ENABLED) void previewPackage(file);
 });
 app.on('open-file', (event, path) => {
   event.preventDefault();
+  if (!CUSTOM_APPS_ENABLED) {
+    if (worker) void shelf.show().catch(console.error);
+    return;
+  }
   if (worker) void openWindow().then(() => previewPackage(path));
   else pendingPackage = path;
 });
 app
   .whenReady()
   .then(async () => {
+    if (process.platform === 'darwin') app.setActivationPolicy('accessory');
     await fs.mkdir(root, { recursive: true, mode: 0o700 });
     session.defaultSession.setPermissionRequestHandler((_wc, _p, cb) => cb(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
@@ -656,7 +700,9 @@ app
         process.resourcesPath,
         'app.asar.unpacked/node_modules/@esbuild/darwin-arm64/bin/esbuild',
       );
-    worker = new Worker(join(__dirname, 'worker.js'), { workerData: { root } });
+    worker = new Worker(join(__dirname, 'worker.js'), {
+      workerData: { root, customAppsEnabled: CUSTOM_APPS_ENABLED },
+    });
     worker.on('message', async (m) => {
       if (m.kind === 'result') {
         const request = pending.get(m.id);
@@ -726,6 +772,7 @@ app
       .list()
       .catch((error) => console.error('Could not list installed apps', error));
     ipcMain.handle('docs:drop', async (event, params, paths) => {
+      if (!CUSTOM_APPS_ENABLED) throw Error(FROZEN_FEATURE_MESSAGE);
       const sender = [...windows.values()].find((w) => w.window.webContents === event.sender);
       if (!sender || event.senderFrame !== event.sender.mainFrame)
         throw Error('Недоверенный отправитель');
@@ -740,7 +787,10 @@ app
         {
           label: 'Everything App',
           submenu: [
-            { role: 'about' },
+            {
+              label: 'О приложении и обновления',
+              click: () => void shelf.show('keyboard', 'about').catch(console.error),
+            },
             {
               id: 'settings',
               label: 'Настройки…',
@@ -748,7 +798,10 @@ app
               click: showSettings,
             },
             { type: 'separator' },
-            { label: 'Открыть рабочее пространство', click: () => void openWindow() },
+            {
+              label: CUSTOM_APPS_ENABLED ? 'Открыть рабочее пространство' : 'Открыть полку',
+              click: () => void openWindow(),
+            },
             { label: 'Запуск приложений', click: () => void shelf.show().catch(console.error) },
             {
               label: 'История буфера обмена',
@@ -761,9 +814,12 @@ app
         },
         {
           label: 'Файл',
+          visible: CUSTOM_APPS_ENABLED,
           submenu: [
             {
               label: 'Импортировать приложение…',
+              enabled: CUSTOM_APPS_ENABLED,
+              acceleratorWorksWhenHidden: false,
               accelerator: 'CmdOrCtrl+O',
               click: async () => {
                 const r = await dialog.showOpenDialog({
@@ -808,16 +864,16 @@ app
     image.setTemplateImage(true);
     tray = new Tray(image);
     tray.setTitle('◉');
-    tray.setToolTip('Everything App — фоновые приложения');
+    tray.setToolTip('Everything App — полка');
     await refreshTrayMenu();
     powerMonitor.on('resume', () => {
       shelf.resume();
-      void call('runtime.signal', { event: 'resume' });
+      if (CUSTOM_APPS_ENABLED) void call('runtime.signal', { event: 'resume' });
       broadcast({ type: 'system.resume' });
     });
     powerMonitor.on('suspend', () => {
       shelf.suspend();
-      void call('runtime.signal', { event: 'suspend' });
+      if (CUSTOM_APPS_ENABLED) void call('runtime.signal', { event: 'suspend' });
       broadcast({ type: 'system.suspend' });
     });
     powerMonitor.on('lock-screen', () => shelf.suspend('lock'));
@@ -865,20 +921,22 @@ app
           if (!window.isDestroyed()) window.setEnabled(true);
       },
     );
-    await openWindow();
     const settings = await call('settings.get');
-    for (const [key, value] of Object.entries(settings || {}))
-      if (key.startsWith('shortcut:') && typeof value === 'string')
+    for (const [key, value] of Object.entries(settings || {})) {
+      if (CUSTOM_APPS_ENABLED && key.startsWith('shortcut:') && typeof value === 'string')
         globalShortcut.register(
           value,
           () => void openWindow(key.slice(9) === 'shell' ? undefined : key.slice(9)),
         );
+    }
     launcherShortcut.initialize(
       typeof settings?.launcherShortcut === 'string'
         ? settings.launcherShortcut
         : DEFAULT_LAUNCHER_SHORTCUT,
     );
     await shelf.start();
+    if (!process.argv.includes('--hidden') && !app.getLoginItemSettings().wasOpenedAtLogin)
+      await openWindow();
   })
   .catch((e) => {
     console.error('Startup failed', e);

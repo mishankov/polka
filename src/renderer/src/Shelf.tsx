@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import type { ShelfPresentation } from '../../shared/shelf';
+import type { ShelfDestination, ShelfPresentation } from '../../shared/shelf';
 import { api, report } from './api';
 import Launcher from './Launcher';
 
@@ -14,7 +14,7 @@ export default function Shelf() {
     notchWidth: 96,
     notchHeight: 3,
   });
-  const [entry, setEntry] = useState({ revision: -1, destination: 'apps' as 'apps' | 'clipboard' });
+  const [entry, setEntry] = useState({ revision: -1, destination: 'apps' as ShelfDestination });
   const latest = useRef(-1);
   const apply = useCallback((next: ShelfPresentation, navigate = false) => {
     if (next.revision < latest.current) return;
