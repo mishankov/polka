@@ -1179,12 +1179,46 @@ kbd {
 .launcher-search.clipboard-search {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: max(8px, var(--notch-inset)) 14px 8px;
+  gap: 8px;
+  padding: max(12px, var(--notch-inset)) 18px 12px;
   border-bottom: 1px solid #222;
 }
 .launcher-search > .mantine-TextInput-root {
   flex: 1;
+  min-width: 0;
+}
+.launcher-search.clipboard-search input {
+  height: 56px;
+  font-size: 20px;
+  border-radius: 10px;
+}
+.launcher-result-group {
+  padding: 10px 12px 6px;
+  color: #aaa;
+  font-size: 11px;
+  font-weight: 550;
+}
+.launcher-calculation {
+  min-height: 96px;
+}
+.launcher-calculation .launcher-result-text strong {
+  font-size: 32px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.launcher-calculation-status {
+  padding: 20px;
+  color: #aaa;
+  font-size: 14px;
+}
+.launcher .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 .launcher-results {
   flex: 1;

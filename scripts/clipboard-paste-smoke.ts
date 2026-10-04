@@ -149,7 +149,7 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
           ),
         )
         .toBe(true);
-      const search = shelf.getByRole('combobox', { name: 'Найти приложение' });
+      const search = shelf.getByRole('combobox', { name: 'Поиск по полке' });
       await expect(search).toBeFocused();
       if (scenario === 'retained')
         await app.evaluate(() => {
@@ -169,18 +169,24 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
         }, scenario);
         await expect(input).not.toBeFocused();
       }
-      // Navigation must retain the original field and its selected text range.
-      await search.fill('clipboard');
-      await search.press('Enter');
-      const clipboardSearch = shelf.getByRole('combobox', { name: 'Найти в истории' });
-      await expect(clipboardSearch).toBeFocused();
+      // Search results and navigation must retain the original target and selection.
+      let selectionSearch = search;
+      if (scenario === 'retained') {
+        await search.fill('Paste fixture');
+        await expect(shelf.locator('.launcher-result[data-kind="clip"]')).toHaveCount(1);
+      } else {
+        await search.fill('clipboard');
+        await search.press('Enter');
+        selectionSearch = shelf.getByRole('combobox', { name: 'Найти в истории' });
+        await expect(selectionSearch).toBeFocused();
+      }
       assert.equal(
         await menuOwner(),
         target.process().pid,
         'Navigating inside the shelf preserves the active app',
       );
       const state = await shelf.evaluate(() => window.platform.call('clipboardHistory.state'));
-      if (state.pasteAccess === 'required')
+      if (state.pasteAccess === 'required' && scenario !== 'retained')
         await expect(shelf.getByText('Разрешить…', { exact: true })).toBeVisible();
       await expect
         .poll(() =>
@@ -191,7 +197,7 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
             ),
         )
         .toBe(false);
-      await clipboardSearch.press('Enter');
+      await selectionSearch.press('Enter');
 
       await expect
         .poll(() =>

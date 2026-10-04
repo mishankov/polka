@@ -74,6 +74,49 @@ async function main() {
     await expect.poll(async () => (await clips()).length).toBe(1);
     await copy('Второй пример: https://example.com/reference');
     await expect.poll(async () => (await clips()).length).toBe(2);
+    // The main shelf combines arithmetic, app launch and clipboard search.
+    await shell.evaluate(() => window.platform.call('launcher.show'));
+    const mainSearch = shell.getByRole('combobox', { name: 'Поиск по полке', exact: true });
+    await expect(mainSearch).toBeFocused();
+    await mainSearch.fill('1250 * 3');
+    await expect(shell.locator('.launcher-calculation strong')).toHaveText('3750');
+    await expect(shell.locator('.launcher-footer')).toContainText('копировать результат');
+    assert.equal(await mainSearch.evaluate((el) => el.getBoundingClientRect().height), 56);
+    await mainSearch.press('Enter');
+    await expect(shell.locator('.launcher-calculation')).toContainText('Скопировано');
+    assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), '3750');
+    assert(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()));
+    await expect(mainSearch).toBeFocused();
+    await mainSearch.fill('1 / 0');
+    await expect(shell.getByText('На ноль делить нельзя')).toBeVisible();
+    await expect(shell.locator('.launcher-calculation')).toHaveCount(0);
+    await mainSearch.fill('12 +');
+    await expect(shell.getByText('Продолжите выражение…')).toBeVisible();
+    await mainSearch.fill('15% от 240');
+    await expect(shell.locator('.launcher-calculation strong')).toHaveText('36');
+    await shell.locator('.launcher-calculation').click();
+    await expect(mainSearch).toBeFocused();
+    await expect(shell.locator('.launcher-calculation')).toContainText('Скопировано');
+    assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), '36');
+    await shell.screenshot({ path: '/tmp/everything-shelf-calculator.png' });
+    assert.equal((await clips()).length, 2, 'Calculator copying must not add history entries');
+    await mainSearch.fill('пример');
+    const shelfClips = shell.locator('.launcher-result[data-kind="clip"]');
+    await expect(shelfClips).toHaveCount(2);
+    await expect(shelfClips.first()).toHaveAttribute('aria-selected', 'true');
+    await mainSearch.press('ArrowDown');
+    await expect(shelfClips.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await mainSearch.press('Shift+Enter');
+    await expect
+      .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()))
+      .toBe(false);
+    assert.equal(
+      await app.evaluate(({ clipboard }) => clipboard.readText()),
+      'Первый пример: план проекта',
+    );
+    await shell.evaluate(() => window.platform.call('launcher.show'));
+    await expect(mainSearch).toHaveValue('');
+    await expect(shelfClips).toHaveCount(0);
     const existingPanel = app.windows().find((page) => page.url().includes('mode=shelf'));
     const opening = existingPanel ? Promise.resolve(existingPanel) : app.waitForEvent('window');
     await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
@@ -160,6 +203,7 @@ async function main() {
     const imageRow = panel
       .locator('.clipboard-row')
       .filter({ has: panel.getByRole('img', { name: 'Скопированное изображение' }) });
+    await expect.poll(visible).toBe(true);
     await imageRow.hover();
     await imageRow.getByRole('button', { name: 'Просмотреть запись' }).click();
     await expect(
@@ -179,18 +223,30 @@ async function main() {
     await search.fill('');
     const savedIds = (await clips()).map((clip: any) => clip.id);
     const longText =
-      'Обсудить макет на следующей встрече\n' +
+      'Обсудить макет на следующей встрече: поиск\n' +
       'Проверить поиск, изображения и длинные записи.\n'.repeat(20);
     for (const text of [
       longText,
-      'npm run typecheck',
-      'https://example.com/design',
-      'Сначала найти, затем скопировать',
+      'Поиск: npm run typecheck',
+      'Поиск: https://example.com/design',
+      'Поиск: сначала найти, затем скопировать',
     ]) {
       const count = (await clips()).length;
       await copy(text);
       await expect.poll(async () => (await clips()).length).toBe(count + 1);
     }
+    await shell.evaluate(() => window.platform.call('launcher.show'));
+    await mainSearch.fill('поиск');
+    await expect(shelfClips).toHaveCount(3);
+    await shell.screenshot({ path: '/tmp/everything-shelf-search.png' });
+    const moreClips = shell.getByRole('option', { name: /Показать все записи/ });
+    await expect(moreClips).toContainText('4');
+    await moreClips.click();
+    await expect(search).toHaveValue('поиск');
+    await expect(panel.getByRole('option')).toHaveCount(4);
+    // An explicit clipboard opening must reset the forwarded query.
+    await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
+    await expect(search).toHaveValue('');
     await search.fill('Обсудить макет');
     await search.press('Meta+Enter');
     await expect(panel.locator('.clipboard-preview pre')).toHaveText(longText);
@@ -249,7 +305,7 @@ async function main() {
         app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)!.isFocused(), panelId),
       )
       .toBe(true);
-    await expect(panel.getByRole('combobox', { name: 'Найти приложение' })).toBeFocused();
+    await expect(panel.getByRole('combobox', { name: 'Поиск по полке' })).toBeFocused();
     await panel.keyboard.press('Enter');
     await expect(search).toBeFocused();
     await app.evaluate(({ BrowserWindow }, id) => {

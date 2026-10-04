@@ -14,7 +14,11 @@ export default function Shelf() {
     notchWidth: 96,
     notchHeight: 3,
   });
-  const [entry, setEntry] = useState({ revision: -1, destination: 'apps' as ShelfDestination });
+  const [entry, setEntry] = useState({
+    revision: -1,
+    destination: 'apps' as ShelfDestination,
+    searchQuery: '',
+  });
   const latest = useRef(-1);
   const apply = useCallback((next: ShelfPresentation, navigate = false) => {
     if (next.revision < latest.current) return;
@@ -22,7 +26,11 @@ export default function Shelf() {
     if (next.visible) hasOpened.current = true;
     setPresentation(next);
     if (navigate && next.visible)
-      setEntry({ revision: next.revision, destination: next.destination });
+      setEntry({
+        revision: next.revision,
+        destination: next.destination,
+        searchQuery: next.searchQuery || '',
+      });
   }, []);
   useEffect(() => {
     const unsubscribe = window.platform.onEvent((event) => {

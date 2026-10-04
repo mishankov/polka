@@ -71,9 +71,15 @@ function ClipboardPreview({ clip }: { clip: ClipboardClip }) {
   );
 }
 
-export default function ClipboardHistory({ onBack }: { onBack: () => void }) {
+export default function ClipboardHistory({
+  onBack,
+  initialQuery = '',
+}: {
+  onBack: () => void;
+  initialQuery?: string;
+}) {
   const [state, setState] = useState<ClipboardState>();
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [selected, setSelected] = useState<string>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);

@@ -45,9 +45,7 @@ async function main() {
   try {
     const page = await app.firstWindow();
     page.on('pageerror', (error) => errors.push(error.message));
-    await expect(
-      page.getByRole('combobox', { name: 'Найти приложение', exact: true }),
-    ).toBeFocused();
+    await expect(page.getByRole('combobox', { name: 'Поиск по полке', exact: true })).toBeFocused();
     await expect(page.locator('.home-page')).toHaveCount(0);
     assert.equal(
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
@@ -104,9 +102,7 @@ async function main() {
     await page.keyboard.press('Escape');
     await expect(page.locator('.shelf-settings')).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(
-      page.getByRole('combobox', { name: 'Найти приложение', exact: true }),
-    ).toBeFocused();
+    await expect(page.getByRole('combobox', { name: 'Поиск по полке', exact: true })).toBeFocused();
     await pressSettingsShortcut(app, page);
     await expect(page.locator('.shelf-settings')).toBeVisible();
     await pressSettingsShortcut(app, page);
@@ -134,17 +130,13 @@ async function main() {
       .toBe(false);
     // Reopening through macOS must reuse the shelf without adding a Dock icon.
     await app.evaluate(({ app }) => app.emit('activate'));
-    await expect(
-      page.getByRole('combobox', { name: 'Найти приложение', exact: true }),
-    ).toBeFocused();
+    await expect(page.getByRole('combobox', { name: 'Поиск по полке', exact: true })).toBeFocused();
     await page
-      .getByRole('combobox', { name: 'Найти приложение', exact: true })
+      .getByRole('combobox', { name: 'Поиск по полке', exact: true })
       .fill('zz-no-results-zz');
-    await expect(
-      page.getByText('Приложения не найдены. Попробуйте другое название.'),
-    ).toBeVisible();
+    await expect(page.getByText('Ничего не найдено. Попробуйте другое слово.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Открыть рабочее пространство' })).toHaveCount(0);
-    await page.getByRole('combobox', { name: 'Найти приложение', exact: true }).fill('');
+    await page.getByRole('combobox', { name: 'Поиск по полке', exact: true }).fill('');
     await page.screenshot({ path: '/tmp/everything-shelf-launcher.png' });
     const hiddenMenu = await app.evaluate(
       ({ Menu }) => Menu.getApplicationMenu()!.items.find((item) => item.label === 'Файл')!.visible,
@@ -175,7 +167,7 @@ async function main() {
     await app.evaluate(({ app }) => app.emit('activate'));
     const reopened = await app.firstWindow();
     await expect(
-      reopened.getByRole('combobox', { name: 'Найти приложение', exact: true }),
+      reopened.getByRole('combobox', { name: 'Поиск по полке', exact: true }),
     ).toBeFocused();
     await expect(reopened.locator('.shelf-welcome')).toHaveCount(0);
     assert.equal(await app.evaluate(({ app }) => app.dock?.isVisible()), false);

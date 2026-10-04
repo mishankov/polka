@@ -71,7 +71,7 @@ async function main() {
       ]),
     );
     let panel = await opened;
-    const search = panel.getByRole('combobox', { name: 'Найти приложение' });
+    const search = panel.getByRole('combobox', { name: 'Поиск по полке' });
     if (process.platform === 'darwin') {
       await expect
         .poll(() => panel.locator('.launcher-result[data-kind="mac"]').count(), { timeout: 15000 })
@@ -265,7 +265,7 @@ async function main() {
     assert.match(await panel.getByRole('option').nth(1).innerText(), /Бета/);
     await expect(search).toBeFocused();
     await search.fill('not-a-real-app-qa');
-    await panel.getByText('Приложения не найдены. Попробуйте другое название.').waitFor();
+    await panel.getByText('Ничего не найдено. Попробуйте другое слово.').waitFor();
     await search.fill('');
     await search.press('ArrowDown');
     await search.press('ArrowDown');
@@ -418,7 +418,7 @@ async function main() {
     await shell.evaluate(() => window.platform.call('launcher.show'));
     panel = await finalOpened;
     await panel.locator('.launcher').waitFor();
-    const docSearch = panel.getByRole('combobox', { name: 'Найти приложение' });
+    const docSearch = panel.getByRole('combobox', { name: 'Поиск по полке' });
     await docSearch.fill('Черновики');
     await expect(panel.getByRole('option')).toHaveCount(1);
     await docSearch.press('Enter');

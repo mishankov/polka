@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActionIcon, Alert, Button, Loader, Menu, Text, TextInput, Tooltip } from '@mantine/core';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { ActionIcon, Alert, Button, Loader, Text, TextInput, Tooltip } from '@mantine/core';
 import {
   IconSettings,
-  IconDots,
-  IconClipboard,
   IconArrowLeft,
   IconExternalLink,
   IconSearch,
   IconX,
 } from '@tabler/icons-react';
-import { launcherApps, type LauncherApp, type MacLauncherApp } from '../../shared/launcher';
+import { type LauncherApp, type MacLauncherApp } from '../../shared/launcher';
+import { type ClipboardState } from '../../shared/clipboard';
+import { shelfSearch, type ShelfSearchResult } from '../../shared/shelf-search';
+import SearchResult from './ShelfSearchResult';
 import type { AppInstance } from '../../shared/types';
 import { api, errorMessage, report } from './api';
 import { flushDocuments } from './documentFlush';
@@ -23,7 +24,7 @@ import { CUSTOM_APPS_ENABLED } from '../../shared/features';
 export default function Launcher({
   entry,
 }: {
-  entry: { revision: number; destination: ShelfDestination };
+  entry: { revision: number; destination: ShelfDestination; searchQuery?: string };
 }) {
   // Apply the entry destination in this render. Mirroring it in an effect briefly
   // remounts clipboard history when a closed shelf reopens on the app list.
@@ -34,6 +35,10 @@ export default function Launcher({
   const [macApps, setMacApps] = useState<MacLauncherApp[]>([]);
   const [macLoading, setMacLoading] = useState(true);
   const [macError, setMacError] = useState('');
+  const [clipboard, setClipboard] = useState<ClipboardState>();
+  const [clipboardError, setClipboardError] = useState('');
+  const [clipboardLoading, setClipboardLoading] = useState(true);
+  const [copied, setCopied] = useState('');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string>();
   const [loading, setLoading] = useState(true);
@@ -46,12 +51,53 @@ export default function Launcher({
   const launchPending = useRef(false);
   const request = useRef(0);
   const macRequest = useRef(0);
-  const results = launcherApps([...apps, ...macApps], query);
+  const clipboardRequest = useRef(0);
+  const { results, calculation } = shelfSearch(
+    [...apps, ...macApps],
+    clipboard?.clips || [],
+    query,
+  );
   const index = Math.max(
     0,
     results.findIndex((app) => app.id === selected),
   );
   const selection = results[index];
+  const canPaste =
+    !!clipboard?.preferences.pasteOnSelect &&
+    clipboard.pasteAccess === 'granted' &&
+    clipboard.pasteReady;
+  const actionLabel =
+    selection?.kind === 'calculation'
+      ? 'копировать результат'
+      : selection?.kind === 'clip'
+        ? canPaste
+          ? 'вставить'
+          : 'копировать'
+        : 'открыть';
+  const refreshClipboard = useCallback(async () => {
+    const id = ++clipboardRequest.current;
+    try {
+      const next = await api<ClipboardState>('clipboardHistory.state');
+      if (id !== clipboardRequest.current) return;
+      setClipboard(next);
+      setClipboardError(next.error || '');
+    } catch (error) {
+      if (id === clipboardRequest.current) setClipboardError(errorMessage(error));
+    } finally {
+      if (id === clipboardRequest.current) setClipboardLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (builtin || settings || current) return;
+    void refreshClipboard();
+    const unsubscribe = window.platform.onEvent((event) => {
+      if (event.type === 'clipboardHistory.changed') void refreshClipboard();
+    });
+    return () => {
+      clipboardRequest.current++;
+      unsubscribe();
+    };
+  }, [builtin, settings, current, entry.revision, refreshClipboard]);
   const refreshMac = useCallback(async () => {
     const id = ++macRequest.current;
     try {
@@ -117,6 +163,7 @@ export default function Launcher({
     setQuery('');
     setSelected(undefined);
     setError('');
+    setCopied('');
     void refresh();
     void refreshMac();
   }, [entry.revision, entry.destination, refresh, refreshMac]);
@@ -148,6 +195,34 @@ export default function Launcher({
       setScreen(localStorage.getItem('screen:' + app.id) || undefined);
     } catch (error) {
       setError(errorMessage(error));
+    } finally {
+      launchPending.current = false;
+      setOpening(false);
+    }
+  }
+  async function activate(result: ShelfSearchResult, copyOnly = false) {
+    if (result.kind === 'app') return open(result.app);
+    if (launchPending.current) return;
+    launchPending.current = true;
+    setOpening(true);
+    setError('');
+    const token = navigation.current;
+    try {
+      if (result.kind === 'calculation') {
+        await api('shelf.copyCalculation', { expression: result.calculation.expression });
+        if (token === navigation.current) {
+          setCopied(result.id);
+          input.current?.focus();
+        }
+      } else if (result.kind === 'clip') {
+        await api(copyOnly ? 'clipboardHistory.copy' : 'clipboardHistory.select', {
+          id: result.clip.id,
+        });
+      } else {
+        await api('clipboardHistory.show', { query: result.query });
+      }
+    } catch (error) {
+      if (token === navigation.current) setError(errorMessage(error));
     } finally {
       launchPending.current = false;
       setOpening(false);
@@ -200,6 +275,7 @@ export default function Launcher({
       ) : builtin ? (
         <ClipboardHistory
           key={entry.revision}
+          initialQuery={entry.searchQuery}
           onBack={() => void api('launcher.show').catch((error) => setError(errorMessage(error)))}
         />
       ) : current ? (
@@ -265,13 +341,16 @@ export default function Launcher({
             <TextInput
               ref={input}
               autoFocus
-              leftSection={<IconSearch size={17} />}
-              placeholder="Найти приложение…"
-              aria-label="Найти приложение"
+              leftSection={<IconSearch size={22} />}
+              placeholder="Найти или посчитать…"
+              aria-label="Поиск по полке"
+              maxLength={10000}
               value={query}
               onChange={(event) => {
                 setQuery(event.currentTarget.value);
                 setSelected(undefined);
+                setCopied('');
+                setError('');
               }}
               role="combobox"
               aria-expanded="true"
@@ -292,7 +371,7 @@ export default function Launcher({
                 }
                 if (event.key === 'Enter' && selection) {
                   event.preventDefault();
-                  void open(selection);
+                  void activate(selection, event.shiftKey);
                 }
               }}
             />
@@ -305,29 +384,24 @@ export default function Launcher({
                 <IconSettings size={20} />
               </ActionIcon>
             </Tooltip>
-            <Menu position="bottom-end" withinPortal={false}>
-              <Menu.Target>
-                <ActionIcon aria-label="Меню полки" variant="subtle">
-                  <IconDots size={20} />
-                </ActionIcon>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item onClick={() => void api('shelf.settings').catch(report)}>
-                  Настройки…
-                </Menu.Item>
-                <Menu.Item
-                  onClick={() => void api('shelf.settings', { section: 'about' }).catch(report)}
-                >
-                  О приложении и обновления
-                </Menu.Item>
-                <Menu.Divider />
-                <Menu.Item onClick={() => void api('system.quit').catch(report)}>
-                  Выйти из Everything App
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
           </div>
-          <ShelfWelcome />
+          {!query.trim() && <ShelfWelcome />}
+          {query.trim() && clipboardError && (
+            <Alert color="red" mx="sm" mt="sm" title="История буфера обмена">
+              {clipboardError}
+              <Button variant="subtle" onClick={() => void refreshClipboard()}>
+                Повторить
+              </Button>
+            </Alert>
+          )}
+          {calculation && calculation.status !== 'result' && (
+            <div className="launcher-calculation-status" role="status">
+              {calculation.status === 'incomplete' ? 'Продолжите выражение…' : calculation.message}
+            </div>
+          )}
+          <span className="sr-only" role="status">
+            {copied === selection?.id ? 'Результат скопирован' : ''}
+          </span>
           {(error || macError) && (
             <Alert color="red" mx="sm" mt="sm">
               {error || macError}
@@ -346,59 +420,42 @@ export default function Launcher({
             className="launcher-results"
             id="launcher-results"
             role="listbox"
-            aria-label="Ваши приложения"
-            aria-busy={loading || opening}
+            aria-label="Результаты поиска"
+            aria-busy={loading || macLoading || clipboardLoading || opening}
           >
-            {(loading || macLoading) && !results.length ? (
+            {(loading || macLoading || clipboardLoading) && !results.length ? (
               <div className="launcher-message">
-                <Loader size="sm" aria-label="Загрузка приложений" />
+                <Loader size="sm" aria-label="Загрузка результатов" />
               </div>
             ) : results.length ? (
-              results.map((app) => (
-                <button
-                  type="button"
-                  role="option"
-                  tabIndex={-1}
-                  id={`launcher-app-${app.id}`}
-                  key={app.id}
-                  data-kind={app.kind}
-                  className={`launcher-result ${selection?.id === app.id ? 'selected' : ''}`}
-                  aria-selected={selection?.id === app.id}
-                  disabled={opening}
-                  onMouseMove={() => setSelected(app.id)}
-                  onClick={() => void open(app)}
-                >
-                  <span className="launcher-icon" aria-hidden="true">
-                    {app.kind === 'builtin' ? (
-                      <IconClipboard size={22} stroke={1.5} />
-                    ) : app.kind === 'mac' && app.icon ? (
-                      <img src={app.icon} alt="" />
-                    ) : (
-                      app.icon || '◈'
-                    )}
-                  </span>
-                  <span className="launcher-result-text">
-                    <strong>{app.name}</strong>
-                    <span>{app.description || 'Everything App'}</span>
-                  </span>
-                  <span className="launcher-result-hint">
-                    {app.kind === 'builtin'
-                      ? 'Встроенное'
-                      : app.kind === 'mac'
-                        ? 'macOS'
-                        : app.favorite
-                          ? '★'
-                          : app.status === 'stopped'
-                            ? 'Запустить'
-                            : 'Открыть'}
-                  </span>
-                </button>
+              results.map((result, position) => (
+                <Fragment key={result.id}>
+                  {result.kind !== 'more-clips' && result.kind !== results[position - 1]?.kind && (
+                    <div className="launcher-result-group" role="presentation">
+                      {result.kind === 'calculation'
+                        ? 'Калькулятор'
+                        : result.kind === 'clip'
+                          ? 'Буфер обмена'
+                          : 'Приложения'}
+                    </div>
+                  )}
+                  <SearchResult
+                    result={result}
+                    query={query}
+                    selected={selection?.id === result.id}
+                    busy={opening}
+                    copied={copied === result.id}
+                    canPaste={canPaste}
+                    onSelect={() => setSelected(result.id)}
+                    onActivate={(copyOnly) => void activate(result, copyOnly)}
+                  />
+                </Fragment>
               ))
-            ) : (
+            ) : calculation ? null : (
               <div className="launcher-message">
                 <Text c="dimmed" size="sm">
-                  {apps.length || macApps.length
-                    ? 'Приложения не найдены. Попробуйте другое название.'
+                  {query.trim()
+                    ? 'Ничего не найдено. Попробуйте другое слово.'
                     : 'Список приложений пока пуст. Попробуйте обновить его.'}
                 </Text>
                 {CUSTOM_APPS_ENABLED && !apps.length && (
@@ -418,19 +475,30 @@ export default function Launcher({
             )}
           </div>
           <footer className="launcher-footer clipboard-footer">
-            <span>{macLoading ? 'Ищем приложения macOS…' : `Приложения · ${results.length}`}</span>
+            <span>
+              {macLoading || clipboardLoading
+                ? 'Ищем…'
+                : `Результаты · ${results.filter((result) => result.kind !== 'more-clips').length}`}
+            </span>
             <div className="clipboard-shortcuts">
               {opening ? (
-                <span>Открываем…</span>
+                <span>Выполняем…</span>
               ) : (
                 <>
                   <span>
                     <kbd>↑</kbd>
                     <kbd>↓</kbd> выбрать
                   </span>
-                  <span>
-                    <kbd>↵</kbd> открыть
-                  </span>
+                  {selection && (
+                    <span>
+                      <kbd>↵</kbd> {actionLabel}
+                    </span>
+                  )}
+                  {selection?.kind === 'clip' && canPaste && (
+                    <span>
+                      <kbd>⇧↵</kbd> копировать
+                    </span>
+                  )}
                   <span>
                     <kbd>esc</kbd> закрыть
                   </span>
