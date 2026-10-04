@@ -1,6 +1,7 @@
 export const DEFAULT_CLIPBOARD_SHORTCUT = 'CommandOrControl+Shift+V';
 export interface ClipboardPreferences {
   paused: boolean;
+  pasteOnSelect: boolean;
   hoverEnabled: boolean;
   retentionDays: 1 | 7 | 30;
   accelerator: string;
@@ -17,10 +18,13 @@ export interface ClipboardState {
   clips: ClipboardClip[];
   preferences: ClipboardPreferences;
   registered: boolean;
+  pasteAccess: 'granted' | 'required' | 'unavailable';
+  pasteReady: boolean;
   error?: string;
 }
 export const DEFAULT_CLIPBOARD_PREFERENCES: ClipboardPreferences = {
   paused: false,
+  pasteOnSelect: true,
   hoverEnabled: true,
   retentionDays: 7,
   accelerator: DEFAULT_CLIPBOARD_SHORTCUT,

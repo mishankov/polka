@@ -44,6 +44,7 @@
     "build:extensions": "tsx scripts/build-extension-runtime.ts",
     "test:formats": "tsx scripts/formats-smoke.ts",
     "test:clipboard": "tsx scripts/clipboard-smoke.ts",
+    "test:clipboard:paste": "tsx scripts/clipboard-paste-smoke.ts",
     "test:clipboard:images": "tsx scripts/clipboard-screenshot-smoke.ts",
     "test:clipboard:animation": "tsx scripts/clipboard-animation-smoke.ts"
   },

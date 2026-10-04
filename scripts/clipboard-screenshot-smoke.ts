@@ -33,7 +33,10 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 700));
     const state = () => shell.evaluate(() => window.platform.call('clipboardHistory.state'));
     await shell.evaluate(() =>
-      window.platform.call('clipboardHistory.preferences', { hoverEnabled: false }),
+      window.platform.call('clipboardHistory.preferences', {
+        hoverEnabled: false,
+        pasteOnSelect: false,
+      }),
     );
     const fixtureBytes = await app.evaluate(async ({ clipboard, ClipboardItem, nativeImage }) => {
       const bytes = Buffer.alloc(1800 * 1200 * 4);

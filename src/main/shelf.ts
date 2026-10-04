@@ -5,6 +5,7 @@ import {
   ClipboardItem,
   globalShortcut,
   nativeImage,
+  Notification,
   safeStorage,
   screen,
 } from 'electron';
@@ -19,6 +20,7 @@ import {
   MAX_IMAGE_BYTES,
 } from './clipboard-history';
 import { ClipboardHover, contains, shelfGeometry, type Notch } from './clipboard-hover';
+import { ClipboardPaste } from './clipboard-paste';
 import { LauncherShortcut } from './launcher-shortcut';
 import type { ClipboardState } from '../shared/clipboard';
 import type { ShelfPresentation } from '../shared/shelf';
@@ -34,6 +36,7 @@ export function createShelf(
   let loading: Promise<void> | undefined;
   let requested = false;
   let hasPresented = false;
+  let captureTargetPending: Promise<void> | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   let expanded = false;
   let presentation: ShelfPresentation = {
@@ -48,6 +51,11 @@ export function createShelf(
   let openedBy: 'hover' | 'keyboard' = 'keyboard';
   let displayId: number | undefined;
   let probe: ChildProcess | undefined;
+  const paste = new ClipboardPaste((message) => {
+    if (!probe?.stdin?.writable) return false;
+    probe.stdin.write(message);
+    return true;
+  });
   let hoverTimer: ReturnType<typeof setInterval> | undefined;
   let expiryTimer: ReturnType<typeof setInterval> | undefined;
   let disposed = false;
@@ -96,6 +104,8 @@ export function createShelf(
         content: clip.kind === 'image' ? '' : clip.content,
       })),
       registered: shortcut.getPreferences().registered,
+      pasteAccess: paste.access,
+      pasteReady: paste.ready,
       error: error || shortcut.getPreferences().error,
     };
   }
@@ -113,14 +123,14 @@ export function createShelf(
     clearTimeout(hideTimer);
     presentation = { ...presentation, visible: false, revision: presentation.revision + 1 };
     window.setIgnoreMouseEvents(true);
-    if (!animate) {
-      finishHide(presentation.revision);
-      return;
-    }
     window.webContents.send('platform:event', {
       type: 'shelf.presentation',
       presentation,
     });
+    if (!animate) {
+      finishHide(presentation.revision);
+      return;
+    }
     // The renderer confirms animation completion; this also works if it stops responding.
     const revision = presentation.revision;
     hideTimer = setTimeout(() => finishHide(revision), 240);
@@ -132,9 +142,18 @@ export function createShelf(
     if (disposed || suspensions.size > 0) return;
     clearTimeout(hideTimer);
     hideTimer = undefined;
+    const captureTarget = !requested && !window?.isFocused();
     requested = true;
+    // Target capture can wait on another app's accessibility tree. Establish the
+    // opening context first so the hover timer cannot dismiss a keyboard opening.
+    openedBy = source;
+    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    displayId = display.id;
     const revision = presentation.revision + 1;
     presentation = { ...presentation, revision };
+    if (captureTarget) captureTargetPending = paste.capture();
+    if (captureTargetPending) await captureTargetPending;
+    if (!requested || presentation.revision !== revision || disposed) return;
     if (hasPresented && window && !window.isDestroyed()) {
       try {
         await beforeNavigate(window);
@@ -145,9 +164,6 @@ export function createShelf(
       if (!requested || presentation.revision !== revision) return;
     }
     expanded = false;
-    openedBy = source;
-    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-    displayId = display.id;
     const geometry = shelfGeometry(
       display.bounds,
       notches.find((item) => item.id === display.id),
@@ -372,6 +388,14 @@ export function createShelf(
   const displayChanged = () => {
     hide(false);
   };
+  const displayMetricsChanged = (
+    _event: Electron.Event,
+    _display: Electron.Display,
+    metrics: string[],
+  ) => {
+    if (metrics.some((metric) => ['bounds', 'scaleFactor', 'rotation'].includes(metric)))
+      displayChanged();
+  };
   async function start() {
     try {
       await history.initialize();
@@ -381,7 +405,8 @@ export function createShelf(
         ? join(process.resourcesPath, 'clipboard-probe')
         : join(app.getAppPath(), 'build/clipboard-probe');
       await new Promise<void>((resolve, reject) => {
-        probe = spawn(probePath, [], { stdio: ['ignore', 'pipe', 'ignore'] });
+        probe = spawn(probePath, [String(process.pid)], { stdio: ['pipe', 'pipe', 'ignore'] });
+        probe.stdin?.on('error', () => paste.stop());
         const timeout = setTimeout(() => {
           probe?.kill();
           reject(Error('Не удалось запустить наблюдение за буфером обмена'));
@@ -397,6 +422,7 @@ export function createShelf(
           );
         });
         probe.on('exit', () => {
+          paste.stop();
           clearTimeout(timeout);
           lines.close();
           if (!disposed) {
@@ -408,10 +434,37 @@ export function createShelf(
         lines.on('line', (line) => {
           try {
             const message = JSON.parse(line);
+            if (
+              message.type === 'paste.reply' &&
+              process.env.EVERYTHING_PASTE_DEBUG === '1' &&
+              (message.result?.token ||
+                message.result?.sent !== undefined ||
+                message.result?.reason)
+            )
+              console.log('Clipboard paste reply', {
+                trusted: message.result?.trusted,
+                captured: !!message.result?.token,
+                sent: message.result?.sent,
+                reason: message.result?.reason,
+              });
             if (message.type === 'ready') {
               clearTimeout(timeout);
               resolve();
             }
+            if (message.type === 'paste.reply')
+              paste.receive(
+                z
+                  .object({
+                    id: z.string(),
+                    result: z.object({
+                      trusted: z.boolean().optional(),
+                      token: z.string().uuid().optional(),
+                      sent: z.boolean().optional(),
+                      reason: z.string().optional(),
+                    }),
+                  })
+                  .parse(message),
+              );
             if (message.type === 'clipboard') void capture();
             if (message.type === 'screens') {
               const initialGeometry = !receivedScreenGeometry;
@@ -446,7 +499,7 @@ export function createShelf(
       void history.prune().catch(failed);
     }, 60000);
     screen.on('display-removed', displayChanged);
-    screen.on('display-metrics-changed', displayChanged);
+    screen.on('display-metrics-changed', displayMetricsChanged);
     changed();
   }
   async function handle(method: string, params: Record<string, unknown>) {
@@ -463,7 +516,10 @@ export function createShelf(
       hide();
       return true;
     }
-    if (method === 'clipboardHistory.state') return state();
+    if (method === 'clipboardHistory.state' || method === 'clipboardHistory.requestPasteAccess') {
+      await paste.status(method === 'clipboardHistory.requestPasteAccess');
+      return state();
+    }
     if (method === 'clipboardHistory.preview') {
       const id = z.string().parse(params.id);
       await history.prune();
@@ -484,6 +540,7 @@ export function createShelf(
       const patch = z
         .object({
           paused: z.boolean().optional(),
+          pasteOnSelect: z.boolean().optional(),
           hoverEnabled: z.boolean().optional(),
           retentionDays: z.union([z.literal(1), z.literal(7), z.literal(30)]).optional(),
         })
@@ -511,7 +568,16 @@ export function createShelf(
       await history.remove(z.string().parse(params.id));
     } else if (method === 'clipboardHistory.pin')
       await history.pin(z.string().parse(params.id), z.boolean().parse(params.pinned));
-    else if (method === 'clipboardHistory.copy') {
+    else if (method === 'clipboardHistory.copy' || method === 'clipboardHistory.select') {
+      if (method === 'clipboardHistory.select' && (!requested || !window?.isFocused()))
+        throw Error('Откройте историю буфера на полке');
+      const revision = presentation.revision;
+      const autoPaste =
+        method === 'clipboardHistory.select' &&
+        history.getPreferences().pasteOnSelect &&
+        paste.ready;
+      if (process.env.EVERYTHING_PASTE_DEBUG === '1')
+        console.log('Clipboard paste selection', { autoPaste, revision });
       await history.prune();
       const clip = history.snapshot().clips.find((item) => item.id === params.id);
       if (!clip) throw Error('Запись уже удалена');
@@ -528,7 +594,31 @@ export function createShelf(
           ]),
         }),
       ]);
-      hide();
+      if (presentation.revision !== revision || disposed || suspensions.size > 0) {
+        if (process.env.EVERYTHING_PASTE_DEBUG === '1')
+          console.log('Clipboard paste cancelled', {
+            revision,
+            currentRevision: presentation.revision,
+            disposed,
+            suspensions: suspensions.size,
+          });
+        return true;
+      }
+      if (autoPaste) {
+        // Hide the native window before restoring focus; don't race the exit animation.
+        hide(false);
+        const sent = await paste.paste();
+        if (!sent && !requested && !disposed && Notification.isSupported()) {
+          new Notification({
+            title: 'Запись скопирована',
+            body: ['focus-not-restored', 'field-changed', 'window-changed'].includes(
+              paste.failureReason ?? '',
+            )
+              ? 'Не удалось вернуть фокус в прежнее поле. Нажмите на него и нажмите ⌘ V.'
+              : 'Автоматическая вставка не выполнена. Вернитесь в нужное поле и нажмите ⌘ V.',
+          }).show();
+        }
+      } else hide();
       return true;
     } else throw Error('Неизвестная операция истории буфера');
     return state();
@@ -539,9 +629,10 @@ export function createShelf(
     clearTimeout(hideTimer);
     clearInterval(hoverTimer);
     clearInterval(expiryTimer);
+    paste.stop();
     probe?.kill();
     screen.removeListener('display-removed', displayChanged);
-    screen.removeListener('display-metrics-changed', displayChanged);
+    screen.removeListener('display-metrics-changed', displayMetricsChanged);
     await history.flush();
   }
   return {
@@ -555,6 +646,7 @@ export function createShelf(
     getRevision: () => presentation.revision,
     suspend(reason = 'sleep') {
       suspensions.add(reason);
+      paste.cancel();
       generation++;
       hide(false);
     },

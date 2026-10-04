@@ -1703,3 +1703,21 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   border-radius: 9px;
   color: #ddd;
 }
+
+.clipboard-paste-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 14px;
+  color: #aaa;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.clipboard-paste-hint button {
+  flex-shrink: 0;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: #191919;
+  color: #eee;
+}

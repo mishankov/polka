@@ -89,6 +89,8 @@ export default function ClipboardHistory({ onBack }: { onBack: () => void }) {
     results.findIndex((clip) => clip.id === selected),
   );
   const selection = results[index];
+  const canPaste =
+    !!state?.preferences.pasteOnSelect && state.pasteAccess === 'granted' && state.pasteReady;
   const preview = state?.clips.find((clip) => clip.id === previewId);
   function openPreview(id: string) {
     setSelected(id);
@@ -193,6 +195,12 @@ export default function ClipboardHistory({ onBack }: { onBack: () => void }) {
             </Menu.Target>
             <Menu.Dropdown className="clipboard-menu">
               <Menu.Item
+                disabled={!selection || busy}
+                onClick={() => selection && void run('copy', { id: selection.id })}
+              >
+                Копировать без вставки · ⇧↵
+              </Menu.Item>
+              <Menu.Item
                 leftSection={<IconTrash size={15} />}
                 disabled={!state?.clips.length || busy}
                 onClick={() => {
@@ -240,10 +248,22 @@ export default function ClipboardHistory({ onBack }: { onBack: () => void }) {
               if (event.key === 'Enter' && selection) {
                 event.preventDefault();
                 if (event.metaKey) openPreview(selection.id);
-                else void run('copy', { id: selection.id });
+                else void run(event.shiftKey ? 'copy' : 'select', { id: selection.id });
               }
             }}
           />
+        </div>
+      )}
+      {state?.preferences.pasteOnSelect && state.pasteAccess !== 'granted' && (
+        <div className="clipboard-paste-hint">
+          <span>
+            {state.pasteAccess === 'required'
+              ? 'Для вставки в предыдущее поле нужен доступ «Универсальный доступ». Пока запись только копируется.'
+              : 'Автовставка пока недоступна. Запись будет скопирована; вставьте её сочетанием ⌘ V.'}
+          </span>
+          {state.pasteAccess === 'required' && (
+            <button onClick={() => void run('requestPasteAccess')}>Разрешить…</button>
+          )}
         </div>
       )}
       {(error || state?.error) && (
@@ -284,9 +304,9 @@ export default function ClipboardHistory({ onBack }: { onBack: () => void }) {
               size="compact-sm"
               variant="default"
               disabled={busy}
-              onClick={() => void run('copy', { id: preview.id })}
+              onClick={() => void run('select', { id: preview.id })}
             >
-              Копировать
+              {canPaste ? 'Вставить' : 'Копировать'}
             </Button>
           </div>
           <ClipboardPreview key={preview.id} clip={preview} />
@@ -312,7 +332,7 @@ export default function ClipboardHistory({ onBack }: { onBack: () => void }) {
                   ? 'Попробуйте другое слово.'
                   : state.preferences.paused
                     ? 'Включите сохранение буфера обмена в настройках приложения.'
-                    : 'Скопируйте текст или изображение в любой программе. Выберите запись, чтобы скопировать её снова.'}
+                    : 'Скопируйте текст или изображение в любой программе. Выберите запись, чтобы вставить её в предыдущее поле или скопировать снова.'}
               </p>
             </div>
           ) : (
@@ -328,11 +348,14 @@ export default function ClipboardHistory({ onBack }: { onBack: () => void }) {
                   className="clipboard-copy"
                   disabled={busy}
                   onFocus={() => setSelected(clip.id)}
-                  onClick={() => void run('copy', { id: clip.id })}
+                  onClick={() => void run('select', { id: clip.id })}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' && event.metaKey) {
                       event.preventDefault();
                       openPreview(clip.id);
+                    } else if (event.key === 'Enter' && event.shiftKey) {
+                      event.preventDefault();
+                      void run('copy', { id: clip.id });
                     }
                   }}
                 >
@@ -406,7 +429,7 @@ export default function ClipboardHistory({ onBack }: { onBack: () => void }) {
               <kbd>↓</kbd> выбрать
             </span>
             <span>
-              <kbd>↵</kbd> копировать
+              <kbd>↵</kbd> {canPaste ? 'вставить' : 'копировать'}
             </span>
             <span>
               <kbd>esc</kbd> закрыть

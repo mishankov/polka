@@ -386,6 +386,8 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     throw Error('Недоверенный отправитель');
   rpcSchema.parse([method, params]);
   if (JSON.stringify(params).length > 48 * 1024 * 1024) throw Error('Запрос превышает лимит');
+  if (method === 'clipboardHistory.select' && sender.mode !== 'shelf')
+    throw Error('Вставка доступна только из истории на полке');
   if (method.startsWith('clipboardHistory.') || method.startsWith('shelf.'))
     return shelf.handle(method, params);
   if (method === 'launcher.show') {

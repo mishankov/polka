@@ -20,11 +20,13 @@ export default function ClipboardSettings() {
           if (active) setError(errorMessage(reason));
         });
     refresh();
+    window.addEventListener('focus', refresh);
     const unsubscribe = window.platform.onEvent((event) => {
       if (event.type === 'clipboardHistory.changed') refresh();
     });
     return () => {
       active = false;
+      window.removeEventListener('focus', refresh);
       unsubscribe();
     };
   }, []);
@@ -47,7 +49,7 @@ export default function ClipboardSettings() {
       </Text>
       <Text size="sm" c="dimmed">
         Встроенное приложение на полке. Откройте его из списка приложений или своим сочетанием
-        клавиш. Выбор записи копирует её снова; вставьте её обычным сочетанием ⌘ V.
+        клавиш. Выбор записи копирует её и вставляет в поле, которое было активно до открытия полки.
       </Text>
       <Switch
         label="Сохранять скопированный текст и изображения"
@@ -55,6 +57,26 @@ export default function ClipboardSettings() {
         disabled={!state || saving}
         onChange={(event) => void save('preferences', { paused: !event.currentTarget.checked })}
       />
+      <Switch
+        label="Вставлять выбранную запись в предыдущее поле"
+        checked={state?.preferences.pasteOnSelect ?? true}
+        disabled={!state || saving}
+        onChange={(event) =>
+          void save('preferences', { pasteOnSelect: event.currentTarget.checked })
+        }
+      />
+      {state?.preferences.pasteOnSelect && (
+        <Text size="xs" c="dimmed">
+          {state.pasteAccess === 'granted'
+            ? 'Доступ разрешён. Для копирования без вставки используйте ⇧ Enter в истории.'
+            : 'macOS требует разрешение в «Конфиденциальность и безопасность → Универсальный доступ». Разрешите приложение, указанное в системном запросе. Без разрешения запись только копируется; используйте ⌘ V.'}
+        </Text>
+      )}
+      {state?.preferences.pasteOnSelect && state.pasteAccess === 'required' && (
+        <Button variant="default" onClick={() => void save('requestPasteAccess', {})}>
+          Разрешить автоматическую вставку…
+        </Button>
+      )}
       <Select
         label="Хранить незакреплённые записи"
         value={String(state?.preferences.retentionDays || 7)}

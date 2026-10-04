@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -179,4 +179,29 @@ test('image representations take priority over companion file references and tex
   assert.equal(clipboardContentType(['text/plain']), 'text/plain');
   assert.equal(clipboardContentType(['application/octet-stream']), undefined);
   assert(excludedClipboardType(['image/png', 'org.nspasteboard.ConcealedType']));
+});
+
+test('existing history gains paste preference without losing clips or prior settings', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'clipboard-migrate-'));
+  try {
+    const path = join(root, 'history');
+    const history = new ClipboardHistory(path, codec, () => {});
+    await history.initialize();
+    await history.add('text', 'Preserved clip', 'Preserved clip');
+    const saved = JSON.parse(await readFile(path, 'utf8'));
+    delete saved.preferences.pasteOnSelect;
+    saved.preferences.hoverEnabled = false;
+    await writeFile(path, JSON.stringify(saved));
+    const restored = new ClipboardHistory(path, codec, () => {});
+    await restored.initialize();
+    assert.equal(restored.getPreferences().pasteOnSelect, true);
+    assert.equal(restored.getPreferences().hoverEnabled, false);
+    assert.equal(restored.snapshot().clips[0].content, 'Preserved clip');
+    await restored.preferences({ pasteOnSelect: false });
+    const again = new ClipboardHistory(path, codec, () => {});
+    await again.initialize();
+    assert.equal(again.getPreferences().pasteOnSelect, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

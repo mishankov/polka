@@ -35,7 +35,10 @@ async function main() {
       .toBe(true);
     // Keep the real pointer from opening the shelf before the test's hover phase.
     await shell.evaluate(() =>
-      window.platform.call('clipboardHistory.preferences', { hoverEnabled: false }),
+      window.platform.call('clipboardHistory.preferences', {
+        hoverEnabled: false,
+        pasteOnSelect: false,
+      }),
     );
     // Back up all formats in memory and restore on exit; never print the user's clipboard.
     savedClipboard = await app.evaluate(async ({ clipboard }) => {

@@ -15,6 +15,7 @@ export const MAX_HISTORY_BYTES = 128 * 1024 * 1024;
 export const MAX_HISTORY_ITEMS = 200;
 const preferencesSchema = z.object({
   paused: z.boolean(),
+  pasteOnSelect: z.boolean().default(true),
   hoverEnabled: z.boolean(),
   retentionDays: z.union([z.literal(1), z.literal(7), z.literal(30)]),
   accelerator: z.string().max(80),
