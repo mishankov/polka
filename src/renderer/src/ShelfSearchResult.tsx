@@ -14,6 +14,7 @@ export default function SearchResult({
   busy,
   copied,
   canPaste,
+  shortcut,
   onSelect,
   onActivate,
 }: {
@@ -23,6 +24,7 @@ export default function SearchResult({
   busy: boolean;
   copied: boolean;
   canPaste: boolean;
+  shortcut?: number;
   onSelect: () => void;
   onActivate: (copyOnly: boolean) => void;
 }) {
@@ -67,6 +69,7 @@ export default function SearchResult({
       data-kind={app?.kind || result.kind}
       className={`launcher-result${selected ? ' selected' : ''}${calculation ? ' launcher-calculation' : ''}`}
       aria-selected={selected}
+      aria-keyshortcuts={shortcut ? `Meta+${shortcut}` : undefined}
       disabled={busy}
       onMouseMove={onSelect}
       onFocus={onSelect}
@@ -107,7 +110,10 @@ export default function SearchResult({
         <strong>{title}</strong>
         <span>{description}</span>
       </span>
-      <span className="launcher-result-hint">{hint}</span>
+      <span className="launcher-result-hint">
+        <span>{hint}</span>
+        {shortcut && <kbd>⌘{shortcut}</kbd>}
+      </span>
     </button>
   );
 }

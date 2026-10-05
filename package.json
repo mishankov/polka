@@ -36,7 +36,7 @@
     "test:clipboard:paste": "tsx scripts/clipboard-paste-smoke.ts",
     "test:clipboard:images": "tsx scripts/clipboard-screenshot-smoke.ts",
     "test:clipboard:animation": "tsx scripts/clipboard-animation-smoke.ts",
-    "test:shelf": "tsx scripts/shelf-smoke.ts",
+    "test:shelf": "tsx scripts/shelf-smoke.ts && tsx scripts/shelf-search-shortcuts-smoke.ts",
     "test:media": "tsx scripts/media-indicator-smoke.ts"
   },
   "build": {

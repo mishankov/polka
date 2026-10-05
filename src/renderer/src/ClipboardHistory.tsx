@@ -264,6 +264,26 @@ export default function ClipboardHistory({
             aria-activedescendant={selection ? `clip-${selection.id}` : undefined}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return;
+              if (
+                event.metaKey &&
+                !event.ctrlKey &&
+                !event.altKey &&
+                !event.shiftKey &&
+                /^[1-9]$/.test(event.key)
+              ) {
+                if (
+                  event.defaultPrevented ||
+                  menuOpen ||
+                  document.querySelector(
+                    '[role="dialog"], [role="menu"], [role="listbox"]:not(#clipboard-results)',
+                  )
+                )
+                  return;
+                event.preventDefault();
+                const clip = results[Number(event.key) - 1];
+                if (clip && !event.repeat) void run('select', { id: clip.id });
+                return;
+              }
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault();
                 const next =
@@ -366,7 +386,7 @@ export default function ClipboardHistory({
               </p>
             </div>
           ) : (
-            results.map((clip) => (
+            results.map((clip, position) => (
               <div
                 key={clip.id}
                 className={`clipboard-row${selection?.id === clip.id ? ' selected' : ''}`}
@@ -375,6 +395,7 @@ export default function ClipboardHistory({
                   id={`clip-${clip.id}`}
                   role="option"
                   aria-selected={selection?.id === clip.id}
+                  aria-keyshortcuts={position < 9 ? `Meta+${position + 1}` : undefined}
                   className="clipboard-copy"
                   disabled={busy}
                   onFocus={() => setSelected(clip.id)}
@@ -446,6 +467,9 @@ export default function ClipboardHistory({
                     </ActionIcon>
                   </Tooltip>
                 </div>
+                <span className="clipboard-result-shortcut">
+                  {position < 9 && <kbd>⌘{position + 1}</kbd>}
+                </span>
               </div>
             ))
           )}

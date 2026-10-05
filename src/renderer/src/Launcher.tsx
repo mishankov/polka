@@ -244,6 +244,25 @@ export default function Launcher({
               aria-activedescendant={selection ? `launcher-app-${selection.id}` : undefined}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing) return;
+                if (
+                  event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.altKey &&
+                  !event.shiftKey &&
+                  /^[1-9]$/.test(event.key)
+                ) {
+                  if (
+                    event.defaultPrevented ||
+                    document.querySelector(
+                      '[role="dialog"], [role="menu"], [role="listbox"]:not(#launcher-results)',
+                    )
+                  )
+                    return;
+                  event.preventDefault();
+                  const result = results[Number(event.key) - 1];
+                  if (result && !event.repeat) void activate(result);
+                  return;
+                }
                 if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                   event.preventDefault();
                   if (results.length)
@@ -331,6 +350,7 @@ export default function Launcher({
                     busy={opening}
                     copied={copied === result.id}
                     canPaste={canPaste}
+                    shortcut={position < 9 ? position + 1 : undefined}
                     onSelect={() => setSelected(result.id)}
                     onActivate={(copyOnly) => void activate(result, copyOnly)}
                   />
