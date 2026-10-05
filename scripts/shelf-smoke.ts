@@ -153,32 +153,23 @@ async function main() {
     await expect(actions).toBeFocused();
     await expect(actions).toHaveAttribute('aria-expanded', 'false');
     await pressSettingsShortcut(app, page);
-    await Promise.all([
-      settings.waitForEvent('close'),
-      app.evaluate(({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows()
-          .find((w) => w.webContents.getURL().includes('mode=settings'))!
-          .close(),
-      ),
-    ]);
-    [settings] = await Promise.all([
-      app.waitForEvent('window'),
-      app.evaluate(({ Menu }) => {
-        Menu.getApplicationMenu()!.getMenuItemById('settings')!.click();
-      }),
-    ]);
-    await expect(settings.getByRole('tab', { name: 'О приложении', exact: true })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
-    await Promise.all([
-      settings.waitForEvent('close'),
-      app.evaluate(({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows()
-          .find((w) => w.webContents.getURL().includes('mode=settings'))!
-          .close(),
-      ),
-    ]);
+    for (let cycle = 0; cycle < 3; cycle++) {
+      await Promise.all([settings.waitForEvent('close'), settings.evaluate(() => window.close())]);
+      [settings] = await Promise.all([
+        app.waitForEvent('window'),
+        app.evaluate(async ({ Menu }) => {
+          // Inspector evaluations can interrupt native window teardown. Dispatch
+          // menu actions on the normal event loop, like a real menu selection.
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          Menu.getApplicationMenu()!.getMenuItemById('settings')!.click();
+        }),
+      ]);
+      settings.on('pageerror', (error) => errors.push(error.message));
+      await expect(
+        settings.getByRole('tab', { name: 'О приложении', exact: true }),
+      ).toHaveAttribute('aria-selected', 'true');
+    }
+    await Promise.all([settings.waitForEvent('close'), settings.evaluate(() => window.close())]);
     // Reopening through macOS must reuse the shelf without adding a Dock icon.
     await app.evaluate(({ app }) => app.emit('activate'));
     await expect(page.getByRole('combobox', { name: 'Поиск по полке', exact: true })).toBeFocused();
@@ -236,6 +227,10 @@ async function main() {
     );
   } catch (error) {
     console.error('Shelf smoke failed:', error);
+    console.error('Electron process:', {
+      exitCode: app.process().exitCode,
+      signalCode: app.process().signalCode,
+    });
     const failedPage = app.windows()[0];
     console.error(
       'Shelf state at failure:',
@@ -246,7 +241,7 @@ async function main() {
         }))
         .catch(() => 'Renderer unavailable'),
     );
-    await failedPage?.screenshot({ path: '/tmp/polka-shelf-failure.png' }).catch(() => {});
+    await failedPage?.screenshot({ path: '/tmp/everything-shelf-failure.png' }).catch(() => {});
     throw error;
   } finally {
     await app.close();
