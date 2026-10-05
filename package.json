@@ -35,7 +35,10 @@
     "test:clipboard:images": "tsx scripts/clipboard-screenshot-smoke.ts",
     "test:clipboard:animation": "tsx scripts/clipboard-animation-smoke.ts",
     "test:shelf": "tsx scripts/shelf-smoke.ts",
-    "test:media": "tsx scripts/media-indicator-smoke.ts"
+    "test:media": "tsx scripts/media-indicator-smoke.ts",
+    "site:dev": "vite website --host 127.0.0.1",
+    "site:build": "vite build website --base ./ --outDir ../out/website --emptyOutDir",
+    "site:preview": "vite preview website --outDir ../out/website --host 127.0.0.1"
   },
   "build": {
     "appId": "app.everything.desktop",

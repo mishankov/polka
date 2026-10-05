@@ -79,3 +79,7 @@ Workflow `release.yml` собирает и загружает ARM64 DMG, ZIP и 
 Для испытаний используйте отдельный профиль: `EVERYTHING_PROFILE=/absolute/test/profile`.
 
 [Архитектура](docs/architecture.md) · [Хранение данных](docs/data.md) · [Ограничения](docs/validation.md) · [MIT](LICENSE)
+
+## Промосайт
+
+Отдельный промосайт находится в [`website/`](website/README.md). Запуск: `npm run site:dev`, статическая сборка: `npm run site:build`. Результат — `out/website`.
