@@ -119,8 +119,7 @@ export class UpdateService {
         this.restoreAfterInstallFailure();
         this.set({
           status: 'ready',
-          message:
-            'Не удалось сохранить документы или начать установку. Повторите после сохранения.',
+          message: 'Не удалось сохранить историю буфера или начать установку. Повторите попытку.',
         });
       } finally {
         this.busy = false;

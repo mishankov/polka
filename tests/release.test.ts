@@ -38,7 +38,7 @@ test('signed release filenames match GitHub-safe update URLs and uploaded assets
   const { releaseArtifactNames } = await import('../scripts/release-config.mjs');
   // @ts-expect-error Pure build-time JavaScript.
   const { verifyReleaseMetadata } = await import('../scripts/release-metadata.mjs');
-  const pkg = { name: 'everything-app', version: '0.2.0' };
+  const pkg = { name: 'polka', version: '0.2.0' };
   const directory = await mkdtemp(join(tmpdir(), 'everything-release-'));
   try {
     const names: string[] = releaseArtifactNames(pkg);
@@ -58,7 +58,7 @@ test('signed release filenames match GitHub-safe update URLs and uploaded assets
     assert.deepEqual(await verifyReleaseMetadata(pkg, directory), names);
     await writeFile(
       join(directory, 'latest-mac.yml'),
-      JSON.stringify({ ...metadata, path: 'Everything App-0.2.0-arm64.zip' }),
+      JSON.stringify({ ...metadata, path: 'Polka 0.2.0-arm64.zip' }),
     );
     await assert.rejects(verifyReleaseMetadata(pkg, directory), /ZIP asset/);
     await writeFile(join(directory, 'latest-mac.yml'), JSON.stringify(metadata));

@@ -148,7 +148,7 @@ export default function ClipboardSyncSettings({
           )}
           <Textarea
             label="Код с другого Mac"
-            placeholder="Вставьте код из настроек Everything App на другом Mac"
+            placeholder="Вставьте код из настроек Полки на другом Mac"
             autosize
             minRows={2}
             maxRows={3}

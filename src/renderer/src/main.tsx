@@ -7,16 +7,15 @@ import '@mantine/notifications/styles.css';
 import './styles.css';
 import App from './App';
 import { ErrorBoundary } from './ErrorBoundary';
-import { workspaceTheme, workspaceVariables, shelfTheme, shelfVariables } from './theme';
-const mode = new URLSearchParams(location.search).get('mode');
-if (mode === 'shelf') document.documentElement.dataset.windowMode = mode;
+import { shelfTheme, shelfVariables } from './theme';
+document.documentElement.dataset.windowMode = 'shelf';
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <MantineProvider
-      theme={mode === 'shelf' ? shelfTheme : workspaceTheme}
-      cssVariablesResolver={mode === 'shelf' ? shelfVariables : workspaceVariables}
+      theme={shelfTheme}
+      cssVariablesResolver={shelfVariables}
       defaultColorScheme="auto"
-      forceColorScheme={mode === 'shelf' ? 'dark' : undefined}
+      forceColorScheme={'dark'}
     >
       <Notifications position="bottom-right" />
       <ErrorBoundary>

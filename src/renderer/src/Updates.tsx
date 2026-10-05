@@ -18,7 +18,7 @@ export default function Updates() {
           Обновления
         </Title>
         <Text size="sm" c="dimmed">
-          {state ? `Everything App ${state.currentVersion}` : 'Загрузка версии…'}
+          {state ? `Полка ${state.currentVersion}` : 'Загрузка версии…'}
         </Text>
       </div>
       <Stack className="settings-section-content" gap="sm">
@@ -43,7 +43,7 @@ export default function Updates() {
         )}
         {state?.status === 'ready' && (
           <Text size="sm" c="dimmed">
-            Документы будут сохранены. Приложение перезапустится для установки.
+            Приложение перезапустится для установки обновления.
           </Text>
         )}
         <Group>
@@ -61,7 +61,7 @@ export default function Updates() {
           )}
           {state && ['ready', 'installing'].includes(state.status) && (
             <Button loading={state.status === 'installing'} onClick={() => action('install')}>
-              Сохранить и перезапустить
+              Установить и перезапустить
             </Button>
           )}
         </Group>

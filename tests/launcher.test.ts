@@ -3,76 +3,30 @@ import assert from 'node:assert/strict';
 import { LauncherShortcut } from '../src/main/launcher-shortcut';
 import { BUILTIN_APPS, launcherApps, type LauncherApp } from '../src/shared/launcher';
 
-test('launcher searches names and descriptions, excludes archives, and prefers favorites', () => {
-  const apps: LauncherApp[] = [
-    {
-      id: '1',
-      kind: 'everything',
-      name: 'Бета',
-      description: 'Мои проекты',
-      icon: '',
-      status: 'stopped',
-      favorite: true,
-    },
-    {
-      id: '2',
-      kind: 'everything',
-      name: 'Альфа',
-      description: 'Мои проекты',
-      icon: '',
-      status: 'running',
-      favorite: false,
-    },
-    {
-      id: '3',
-      kind: 'everything',
-      name: 'Архив',
-      description: 'Мои проекты',
-      icon: '',
-      status: 'archived',
-      favorite: true,
-    },
-  ];
-  assert.deepEqual(
-    launcherApps(apps, '  ПРОЕКТЫ мои ').map((app) => app.id),
-    ['1', '2'],
-  );
-  assert.deepEqual(
-    launcherApps(apps, 'альф').map((app) => app.id),
-    ['2'],
-  );
-  assert.equal(launcherApps(apps, 'unknown').length, 0);
+test('launcher searches native app names, descriptions and aliases and puts clipboard first', () => {
   const native: LauncherApp = {
     kind: 'mac',
     id: 'mac:qa',
-    name: 'Google Chrome',
+    name: 'Code',
     icon: '',
     description: 'macOS · /Applications',
+    searchTerms: ['Visual Studio Code'],
   };
+  const apps = [native, ...BUILTIN_APPS];
   assert.deepEqual(
-    launcherApps([...apps, native], '').map((app) => app.id),
-    ['1', '2', 'mac:qa'],
+    launcherApps(apps, '').map((app) => app.id),
+    ['builtin:clipboard', 'mac:qa'],
   );
   assert.deepEqual(
-    launcherApps([...apps, native], 'CHROME').map((app) => app.id),
+    launcherApps(apps, ' VISUAL studio ').map((app) => app.id),
     ['mac:qa'],
   );
-  assert.equal(
-    launcherApps(
-      [{ ...native, name: 'Code', searchTerms: ['Visual Studio Code'] }],
-      'visual studio',
-    ).length,
-    1,
-  );
-  assert.equal(launcherApps([...apps, ...BUILTIN_APPS], '')[0].id, 'builtin:clipboard');
   assert.deepEqual(
-    launcherApps([...apps, ...BUILTIN_APPS], 'clipboard history').map((app) => app.id),
+    launcherApps(apps, 'clipboard history').map((app) => app.id),
     ['builtin:clipboard'],
   );
-  assert.deepEqual(
-    apps.map((app) => app.id),
-    ['1', '2', '3'],
-  );
+  assert.equal(launcherApps(apps, 'unknown').length, 0);
+  assert.equal(apps[0], native);
 });
 
 function shortcutFixture() {
