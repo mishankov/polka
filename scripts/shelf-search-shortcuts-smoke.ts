@@ -44,10 +44,7 @@ async function main() {
     };
     await expect(input).toBeFocused();
     await expect(rows).toHaveCount(11);
-    assert.deepEqual(
-      await rows.locator('kbd').allTextContents(),
-      Array.from({ length: 9 }, (_, i) => `⌘${i + 1}`),
-    );
+    await expect(rows.locator('kbd')).toHaveText(Array.from({ length: 9 }, (_, i) => `⌘${i + 1}`));
     await expect(rows.nth(9)).not.toHaveAttribute('aria-keyshortcuts');
     await page.mouse.move(0, 0);
     await rows.first().focus();
@@ -92,7 +89,7 @@ async function main() {
 
     await input.fill('пример');
     await expect(rows).toHaveCount(4);
-    assert.deepEqual(await rows.locator('kbd').allTextContents(), ['⌘1', '⌘2', '⌘3', '⌘4']);
+    await expect(rows.locator('kbd')).toHaveText(['⌘1', '⌘2', '⌘3', '⌘4']);
     await input.press('Meta+2');
     await lastAction('clipboardHistory.select', { id: 'clip-2' });
     await expect(rows.first()).toHaveAttribute('aria-selected', 'true');
@@ -176,7 +173,8 @@ async function main() {
     const historyInput = page.getByRole('combobox', { name: 'Найти в истории' });
     const historyRows = page.locator('.clipboard-row');
     await expect(historyInput).toBeFocused();
-    assert.deepEqual(await historyRows.locator('kbd').allTextContents(), ['⌘1', '⌘2', '⌘3', '⌘4']);
+    // Autofocus happens before the asynchronous history request has populated the rows.
+    await expect(historyRows.locator('kbd')).toHaveText(['⌘1', '⌘2', '⌘3', '⌘4']);
     await historyInput.press('Meta+2');
     await lastAction('clipboardHistory.select', { id: 'clip-2' });
     await expect(historyRows.first().getByRole('option')).toHaveAttribute('aria-selected', 'true');
@@ -184,8 +182,7 @@ async function main() {
     await app.evaluate(() => (globalThis as any).fixture.setClipCount(12));
     await historyInput.fill('');
     await expect(historyRows).toHaveCount(12);
-    assert.deepEqual(
-      await historyRows.locator('kbd').allTextContents(),
+    await expect(historyRows.locator('kbd')).toHaveText(
       Array.from({ length: 9 }, (_, i) => `⌘${i + 1}`),
     );
     await expect(historyRows.nth(9).getByRole('option')).not.toHaveAttribute('aria-keyshortcuts');
