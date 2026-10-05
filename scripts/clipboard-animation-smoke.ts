@@ -88,13 +88,19 @@ async function main() {
     );
     const layout = await root.evaluate((element) => {
       const css = getComputedStyle(element);
+      const input = element.querySelector('input')!;
+      const inputCSS = getComputedStyle(input);
+      const focusOutset = Math.max(
+        0,
+        parseFloat(inputCSS.outlineWidth) + parseFloat(inputCSS.outlineOffset),
+      );
       return {
         background: css.backgroundColor,
         border: css.borderTopWidth,
         topLeft: css.borderTopLeftRadius,
         topRight: css.borderTopRightRadius,
         inset: css.getPropertyValue('--notch-inset'),
-        searchTop: element.querySelector('input')!.getBoundingClientRect().top,
+        focusTop: input.getBoundingClientRect().top - focusOutset,
         animation: css.animationName,
         duration: css.animationDuration,
       };
@@ -104,7 +110,10 @@ async function main() {
     assert.equal(layout.topLeft, '0px');
     assert.equal(layout.topRight, '0px');
     if (parseFloat(layout.inset) > 0) {
-      assert(layout.searchTop >= parseFloat(layout.inset), 'Search stays below the camera');
+      assert(
+        layout.focusTop >= parseFloat(layout.inset) + 8,
+        'The full focus ring has breathing room below the camera',
+      );
     }
     assert.equal(layout.animation, 'clipboard-reveal');
     assert.equal(layout.duration, '0.2s');
@@ -153,8 +162,33 @@ async function main() {
       }),
       'Reduced-motion shelf remains fully revealed',
     );
+    // The shelf is visually part of the notch, regardless of the system theme.
+    for (const appearance of ['light', 'dark'] as const) {
+      await app.evaluate(({ nativeTheme }, appearance) => {
+        nativeTheme.themeSource = appearance;
+      }, appearance);
+      await expect(panel.locator('html')).toHaveAttribute('data-appearance', appearance);
+      for (const method of ['launcher.show', 'clipboardHistory.show']) {
+        await panel.evaluate((method) => window.platform.call(method), method);
+        await expect(panel.getByRole('combobox')).toBeFocused();
+        const surfaces = await panel
+          .locator('.clipboard-shelf, .clipboard-search, .clipboard-header')
+          .evaluateAll((elements) =>
+            elements.map((element) => getComputedStyle(element).backgroundColor),
+          );
+        assert(surfaces.length >= 2);
+        assert(
+          surfaces.every((color) => color === 'rgb(0, 0, 0)'),
+          `${method} stays black in ${appearance} mode`,
+        );
+        assert.equal(
+          await root.evaluate((element) => getComputedStyle(element).colorScheme),
+          'dark',
+        );
+      }
+    }
     console.log(
-      'Notch shelf passed: first-hover activation/focus, keyboard focus, square top corners, screen-top geometry, black surface, safe controls, reveal/hide, quick reopening and reduced motion.',
+      'Notch shelf passed: first-hover activation/focus, keyboard focus, square top corners, screen-top geometry, permanent black launcher and clipboard in both system themes, safe controls, reveal/hide, quick reopening and reduced motion.',
     );
   } finally {
     await app.close();

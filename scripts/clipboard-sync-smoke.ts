@@ -107,13 +107,16 @@ async function main() {
     await a.page.evaluate(() => window.platform.call('clipboardHistory.syncInvite'));
     const code = (await state(a.page)).sync!.invitation!.code;
     // Exercise the real pairing form through the app, with actual backend calls.
+    const settingsOpening = b.app.waitForEvent('window');
     await b.page.evaluate(() => window.platform.call('shelf.settings'));
-    await b.page.getByRole('tab', { name: 'Буфер обмена' }).click();
-    await b.page.getByLabel('Код с другого Mac', { exact: true }).fill(code);
-    await b.page.getByRole('button', { name: 'Связать Mac и объединить историю' }).click();
+    const settings = await settingsOpening;
+    await settings.locator('.shelf-settings').waitFor();
+    await settings.getByRole('tab', { name: 'Буфер обмена' }).click();
+    await settings.getByLabel('Код с другого Mac', { exact: true }).fill(code);
+    await settings.getByRole('button', { name: 'Связать Mac и объединить историю' }).click();
     await expect.poll(async () => (await state(b.page)).clips.length).toBe(3);
     await expect.poll(async () => (await state(a.page)).clips.length).toBe(3);
-    await expect(b.page.getByText('История синхронизирована', { exact: false })).toBeVisible();
+    await expect(settings.getByText('История синхронизирована', { exact: false })).toBeVisible();
     const idA = clipId('text', contentA);
     await b.page.evaluate(
       (id) => window.platform.call('clipboardHistory.pin', { id, pinned: true }),

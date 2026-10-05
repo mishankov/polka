@@ -5,6 +5,8 @@ import {
   Menu,
   Tray,
   nativeImage,
+  nativeTheme,
+  dialog,
   globalShortcut,
   screen,
   powerMonitor,
@@ -33,6 +35,8 @@ import polkaTray2xPath from './assets/polkaTemplate@2x.png?asset';
 import polkaTray3xPath from './assets/polkaTemplate@3x.png?asset';
 import { shelfMethodAllowed } from '../shared/features';
 protectTerminalOutput();
+// Keep native materials dark alongside the shelf and settings.
+nativeTheme.themeSource = 'dark';
 const execFileAsync = promisify(execFile);
 // Keep the pre-rebrand profile so existing settings and clipboard history remain available.
 const profilePath =
@@ -48,6 +52,16 @@ let worker: Worker,
   quitting = false,
   quitPending = false,
   updateInstalling = false;
+function desktopAppearance() {
+  return {
+    dark: nativeTheme.shouldUseDarkColors,
+    contrast: nativeTheme.shouldUseHighContrastColors,
+    reducedTransparency: nativeTheme.prefersReducedTransparency,
+  };
+}
+nativeTheme.on('updated', () =>
+  broadcast({ type: 'appearance.changed', appearance: desktopAppearance() }),
+);
 const root = app.getPath('userData');
 const mediaIndicator = createMediaIndicator({
   preload: join(__dirname, '../preload/media-indicator.js'),
@@ -130,15 +144,74 @@ async function refreshTrayMenu() {
       { label: 'Настройки…', click: showSettings },
       {
         label: 'О приложении и обновления',
-        click: () => void shelf.show('keyboard', 'about').catch(console.error),
+        click: () => void openSettings('about').catch(console.error),
       },
       { type: 'separator' },
       { label: 'Выйти из Полки', click: () => app.quit() },
     ]),
   );
 }
+let settingsOpening: Promise<void> | undefined;
+async function openSettings(pane?: 'about') {
+  shelf.hide();
+  if (settingsOpening) await settingsOpening;
+  const existing = [...windows.values()].find((entry) => entry.mode === 'settings');
+  if (existing) {
+    existing.window.show();
+    existing.window.focus();
+    if (pane)
+      existing.window.webContents.send('platform:event', { type: 'settings.navigate', pane });
+    return;
+  }
+  settingsOpening = (async () => {
+    const win = new BrowserWindow({
+      width: 760,
+      height: 620,
+      minWidth: 660,
+      minHeight: 480,
+      title: 'Настройки — Полка',
+      show: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      titleBarStyle: 'hiddenInset',
+      backgroundColor: '#00000000',
+      ...(process.platform === 'darwin' ? { vibrancy: 'sidebar' as const } : {}),
+      webPreferences: {
+        preload: join(__dirname, '../preload/index.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    windows.set(win.id, { window: win, mode: 'settings' });
+    bindSettingsShortcut(win.webContents, showSettings);
+    win.on('closed', () => windows.delete(win.id));
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    win.webContents.on('will-navigate', (event) => event.preventDefault());
+    win.webContents.on('will-attach-webview', (event) => event.preventDefault());
+    const query = { mode: 'settings', ...(pane ? { pane } : {}) };
+    try {
+      if (process.env.ELECTRON_RENDERER_URL)
+        await win.loadURL(`${process.env.ELECTRON_RENDERER_URL}?${new URLSearchParams(query)}`);
+      else await win.loadFile(join(__dirname, '../renderer/index.html'), { query });
+      win.show();
+      win.focus();
+    } catch (error) {
+      win.destroy();
+      throw error;
+    }
+  })();
+  try {
+    await settingsOpening;
+  } finally {
+    settingsOpening = undefined;
+  }
+}
 function showSettings() {
-  void shelf.show('keyboard', 'settings').catch(console.error);
+  void openSettings().catch((error) =>
+    dialog.showErrorBox('Не удалось открыть настройки', String(error)),
+  );
 }
 async function openWindow() {
   await shelf.show();
@@ -165,6 +238,11 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     return mediaIndicator.setEnabled(z.boolean().parse(params.enabled));
   if (method === 'settings.set' && params.key === 'mediaIndicatorEnabled')
     return mediaIndicator.setEnabled(z.boolean().parse(params.value));
+  if (method === 'shelf.appearance') return desktopAppearance();
+  if (method === 'shelf.settings') {
+    await openSettings(params.section === 'about' ? 'about' : undefined);
+    return true;
+  }
   if (method.startsWith('clipboardHistory.') || method.startsWith('shelf.'))
     return shelf.handle(method, params);
   if (method === 'launcher.show') {
@@ -281,7 +359,7 @@ app
           submenu: [
             {
               label: 'О приложении и обновления',
-              click: () => void shelf.show('keyboard', 'about').catch(console.error),
+              click: () => void openSettings('about').catch(console.error),
             },
             {
               id: 'settings',

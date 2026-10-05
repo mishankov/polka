@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActionIcon, Alert, Button, Group, Loader, Menu, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Alert, Button, Group, Loader, TextInput, Tooltip } from './NativeControls';
 import {
   IconClipboard,
   IconSearch,
@@ -193,31 +193,55 @@ export default function ClipboardHistory({
           </div>
         </div>
         <div className="clipboard-header-actions">
-          <Menu opened={menuOpen} onChange={setMenuOpen} withinPortal={false} position="bottom-end">
-            <Menu.Target>
-              <ActionIcon variant="subtle" color="gray" size="sm" aria-label="Действия с историей">
-                <IconDots size={18} />
-              </ActionIcon>
-            </Menu.Target>
-            <Menu.Dropdown className="clipboard-menu">
-              <Menu.Item
-                disabled={!selection || busy}
-                onClick={() => selection && void run('copy', { id: selection.id })}
-              >
-                Копировать без вставки · ⇧↵
-              </Menu.Item>
-              <Menu.Item
-                leftSection={<IconTrash size={15} />}
-                disabled={!state?.clips.length || busy}
-                onClick={() => {
-                  setPreviewId(undefined);
-                  setConfirmClear(true);
-                }}
-              >
-                Очистить историю на всех связанных Mac…
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
+          <div
+            className="native-history-menu"
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && menuOpen) {
+                event.preventDefault();
+                event.stopPropagation();
+                setMenuOpen(false);
+                event.currentTarget.querySelector<HTMLButtonElement>(':scope > button')?.focus();
+              }
+            }}
+          >
+            <ActionIcon
+              variant="subtle"
+              aria-label="Действия с историей"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen(!menuOpen)}
+            >
+              <IconDots size={18} />
+            </ActionIcon>
+            {menuOpen && (
+              <div className="clipboard-menu" role="group" aria-label="Действия с историей">
+                <Button
+                  variant="subtle"
+                  disabled={!selection || busy}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    if (selection) void run('copy', { id: selection.id });
+                  }}
+                >
+                  Копировать без вставки · ⇧↵
+                </Button>
+                <Button
+                  variant="subtle"
+                  color="red"
+                  disabled={!state?.clips.length || busy}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setPreviewId(undefined);
+                    setConfirmClear(true);
+                  }}
+                >
+                  Очистить историю на всех связанных Mac…
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
       {!preview && !confirmClear && (

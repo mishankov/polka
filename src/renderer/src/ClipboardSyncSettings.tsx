@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Button, Group, Stack, Switch, Text, Textarea } from '@mantine/core';
+import { Alert, Button, Group, Stack, Switch, Text, Textarea } from './NativeControls';
 import type { ClipboardSyncState } from '../../shared/clipboard';
 import { api, errorMessage } from './api';
 
@@ -47,7 +47,7 @@ export default function ClipboardSyncSettings({
           )}
           {state.peers.map((peer) => (
             <Stack gap={4} key={peer.id}>
-              <Group justify="space-between" wrap="nowrap">
+              <Group style={{ justifyContent: 'space-between' }} wrap="nowrap">
                 <div>
                   <Text size="sm" style={{ overflowWrap: 'anywhere' }}>
                     {peer.name}
@@ -96,9 +96,7 @@ export default function ClipboardSyncSettings({
               <Textarea
                 label="Код для другого Mac"
                 readOnly
-                autosize
-                minRows={2}
-                maxRows={3}
+                rows={3}
                 value={state.invitation.code}
               />
               <Text size="xs" c="dimmed">
@@ -149,9 +147,7 @@ export default function ClipboardSyncSettings({
           <Textarea
             label="Код с другого Mac"
             placeholder="Вставьте код из настроек Полки на другом Mac"
-            autosize
-            minRows={2}
-            maxRows={3}
+            rows={3}
             value={code}
             disabled={saving}
             onChange={(event) => setCode(event.currentTarget.value)}

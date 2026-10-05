@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { ActionIcon, Alert, Button, Loader, Text, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Alert, Button, Loader, Text, TextInput, Tooltip } from './NativeControls';
 import { IconSettings, IconSearch, IconX } from '@tabler/icons-react';
 import { type LauncherApp, type MacLauncherApp } from '../../shared/launcher';
 import { type ClipboardState } from '../../shared/clipboard';
