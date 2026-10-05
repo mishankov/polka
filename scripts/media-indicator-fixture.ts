@@ -3,6 +3,7 @@ import { app, BrowserWindow, screen } from 'electron';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createMediaIndicator } from '../src/main/media-indicator';
+import { mediaTrackingFromSettings } from '../src/shared/media-indicator';
 
 app.setPath('userData', process.env.EVERYTHING_PROFILE!);
 void app.whenReady().then(async () => {
@@ -12,9 +13,9 @@ void app.whenReady().then(async () => {
     microphone = 'inactive',
     fail = false;
   const preference = join(app.getPath('userData'), 'media-enabled.json');
-  const enabled = await readFile(preference, 'utf8')
+  const tracking = await readFile(preference, 'utf8')
     .then(JSON.parse)
-    .catch(() => true);
+    .catch(() => mediaTrackingFromSettings());
   const target = new BrowserWindow({ width: 600, height: 360, title: 'Media test typing target' });
   await target.loadURL(
     'data:text/html,<input autofocus aria-label="Typing target" style="margin:80px;font-size:20px">',
@@ -28,7 +29,7 @@ void app.whenReady().then(async () => {
       if (fail) throw Error('Fixture failure');
       return { camera: { state: camera }, microphone: { state: microphone } };
     },
-    saveEnabled: (value) => writeFile(preference, JSON.stringify(value)),
+    saveTracking: (value) => writeFile(preference, JSON.stringify(value)),
     changed: () => {},
   });
   const setNotched = (notched: boolean) => {
@@ -50,7 +51,7 @@ void app.whenReady().then(async () => {
       fail = error;
     },
   };
-  indicator.start(enabled);
+  indicator.start(tracking);
   app.on('before-quit', () => {
     target.setFullScreen(false);
     indicator.stop();

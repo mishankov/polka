@@ -26,6 +26,7 @@ import { UpdateService } from './updates';
 import { bindSettingsShortcut } from './workspace-shortcuts';
 import { createShelf } from './shelf';
 import { createMediaIndicator } from './media-indicator';
+import { mediaTrackingFromSettings } from '../shared/media-indicator';
 import { LauncherShortcut } from './launcher-shortcut';
 import { BUILTIN_APPS, DEFAULT_LAUNCHER_SHORTCUT } from '../shared/launcher';
 import { InstalledApps, readApplicationIcons } from './installed-apps';
@@ -69,8 +70,8 @@ const mediaIndicator = createMediaIndicator({
   devURL: process.env.ELECTRON_RENDERER_URL
     ? `${process.env.ELECTRON_RENDERER_URL}/media-indicator.html`
     : undefined,
-  read: () => host('system.media', {}),
-  saveEnabled: (enabled) => call('settings.set', { key: 'mediaIndicatorEnabled', value: enabled }),
+  read: (tracking) => host('system.media', tracking),
+  saveTracking: (value) => call('settings.set', { key: 'mediaIndicatorTracking', value }),
   changed: (state) => broadcast({ type: 'mediaIndicator.changed', state }),
 });
 const installedApps = new InstalledApps({
@@ -117,7 +118,10 @@ async function host(method: string, p: any): Promise<any> {
         app.isPackaged
           ? join(process.resourcesPath, 'media-probe')
           : join(app.getAppPath(), 'build/media-probe'),
-        [],
+        [
+          ...(p.cameraEnabled ? ['--camera'] : []),
+          ...(p.microphoneEnabled ? ['--microphone'] : []),
+        ],
         { timeout: 2000, maxBuffer: 128 * 1024 },
       );
       return JSON.parse(stdout);
@@ -236,8 +240,17 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
   if (method === 'mediaIndicator.getState') return mediaIndicator.state();
   if (method === 'mediaIndicator.setEnabled')
     return mediaIndicator.setEnabled(z.boolean().parse(params.enabled));
+  if (method === 'mediaIndicator.setTracking')
+    return mediaIndicator.setTracking(
+      z.enum(['camera', 'microphone']).parse(params.device),
+      z.boolean().parse(params.enabled),
+    );
   if (method === 'settings.set' && params.key === 'mediaIndicatorEnabled')
     return mediaIndicator.setEnabled(z.boolean().parse(params.value));
+  if (method === 'settings.set' && params.key === 'mediaIndicatorTracking')
+    return mediaIndicator.setPreferences(
+      z.object({ cameraEnabled: z.boolean(), microphoneEnabled: z.boolean() }).parse(params.value),
+    );
   if (method === 'shelf.appearance') return desktopAppearance();
   if (method === 'shelf.settings') {
     await openSettings(params.section === 'about' ? 'about' : undefined);
@@ -483,7 +496,7 @@ app
     await shelf.start();
     if (!process.argv.includes('--hidden') && !app.getLoginItemSettings().wasOpenedAtLogin)
       await openWindow();
-    mediaIndicator.start(settings?.mediaIndicatorEnabled !== false);
+    mediaIndicator.start(mediaTrackingFromSettings(settings));
   })
   .catch((e) => {
     console.error('Startup failed', e);

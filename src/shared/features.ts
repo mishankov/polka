@@ -11,6 +11,7 @@ export function shelfMethodAllowed(method: string) {
       'launcher.setShortcut',
       'mediaIndicator.getState',
       'mediaIndicator.setEnabled',
+      'mediaIndicator.setTracking',
       'settings.get',
       'settings.set',
       'system.status',

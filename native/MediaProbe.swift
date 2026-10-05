@@ -69,5 +69,9 @@ func camera() -> [String:Any] {
  return ["state":failures ? "unknown":"inactive","detail":"Только устройства, перечисленные CoreMediaIO; полнота списка не гарантируется"]
 }
 // CLI entry point.
-let payload:[String:Any] = ["microphone":microphone(),"camera":camera(),"screen":["state":"unsupported","detail":"Публичный API глобального наблюдения за чужим захватом экрана отсутствует"],"mute":["state":"unsupported","detail":"Mute зависит от приложения"],"timestamp":ISO8601DateFormatter().string(from:Date())]
+let arguments = Set(CommandLine.arguments.dropFirst())
+let allDevices = arguments.isEmpty
+let microphoneActivity: [String:Any] = (allDevices || arguments.contains("--microphone")) ? microphone() : ["state":"disabled"]
+let cameraActivity: [String:Any] = (allDevices || arguments.contains("--camera")) ? camera() : ["state":"disabled"]
+let payload:[String:Any] = ["microphone":microphoneActivity,"camera":cameraActivity,"screen":["state":"unsupported","detail":"Публичный API глобального наблюдения за чужим захватом экрана отсутствует"],"mute":["state":"unsupported","detail":"Mute зависит от приложения"],"timestamp":ISO8601DateFormatter().string(from:Date())]
 let data = try JSONSerialization.data(withJSONObject:payload,options:[.sortedKeys]);print(String(data:data,encoding:.utf8)!)
