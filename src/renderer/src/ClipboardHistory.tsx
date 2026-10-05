@@ -10,6 +10,7 @@ import {
   IconEye,
   IconArrowLeft,
   IconTextSize,
+  IconLock,
 } from '@tabler/icons-react';
 import { clipboardResults, type ClipboardState, type ClipboardClip } from '../../shared/clipboard';
 import { api, errorMessage } from './api';
@@ -305,14 +306,25 @@ export default function ClipboardHistory({
         </div>
       )}
       {state?.preferences.pasteOnSelect && state.pasteAccess !== 'granted' && (
-        <div className="clipboard-paste-hint">
-          <span>
-            {state.pasteAccess === 'required'
-              ? 'Для вставки в предыдущее поле нужен доступ «Универсальный доступ». Пока запись только копируется.'
-              : 'Автовставка пока недоступна. Запись будет скопирована; вставьте её сочетанием ⌘ V.'}
-          </span>
+        <div
+          className={`clipboard-paste-hint${state.pasteAccess === 'required' ? ' clipboard-paste-permission' : ''}`}
+          role="status"
+        >
           {state.pasteAccess === 'required' && (
-            <button onClick={() => void run('requestPasteAccess')}>Разрешить…</button>
+            <IconLock className="clipboard-paste-permission-icon" size={20} aria-hidden="true" />
+          )}
+          <div className="clipboard-paste-hint-text">
+            {state.pasteAccess === 'required' && <strong>Автовставке нужен доступ</strong>}
+            <p>
+              {state.pasteAccess === 'required'
+                ? 'Разрешите «Универсальный доступ» в macOS. Пока запись только копируется — вставьте её ⌘ V.'
+                : 'Автовставка пока недоступна. Запись будет скопирована; вставьте её сочетанием ⌘ V.'}
+            </p>
+          </div>
+          {state.pasteAccess === 'required' && (
+            <Button variant="default" loading={busy} onClick={() => void run('requestPasteAccess')}>
+              Разрешить…
+            </Button>
           )}
         </div>
       )}

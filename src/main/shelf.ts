@@ -573,6 +573,7 @@ export function createShelf(
       return true;
     }
     if (method === 'clipboardHistory.state' || method === 'clipboardHistory.requestPasteAccess') {
+      if (method === 'clipboardHistory.requestPasteAccess') hide(false);
       await paste.status(method === 'clipboardHistory.requestPasteAccess');
       return state();
     }
