@@ -45,25 +45,50 @@ Swift CLI `native/MediaProbe.swift` с Foundation/CoreAudio/CoreMediaIO/AVFounda
 
 Эти пункты — сценарии приёмки, не заявления о выполненных ручных тестах.
 
-## Подпись, notarization, обновления
+## Подпись и обновления
 
-`npm run package` создаёт arm64 DMG + ZIP без Developer ID и notarization. Локальная упаковка явно использует ad-hoc подпись (`identity: "-"`), необходимую для выполнения нативного ARM-кода на Apple silicon; полностью удалять подписи нельзя. `hardenedRuntime` отключён, entitlement разрешает JIT. Подпись готового bundle проверяется командой `codesign --verify --deep --strict "release/mac-arm64/Everything App.app"`. После переноса Gatekeeper может потребовать разрешение на запуск: ad-hoc подпись не делает сборку доверенным выпуском.
+Все сборки остаются ad-hoc signed (`identity: "-"`), без Developer ID и notarization. Это позволяет выполнять нативный ARM-код на Apple silicon, но не устанавливает доверие Apple к разработчику. `hardenedRuntime` отключён, entitlement разрешает JIT. Проверка готового bundle: `codesign --verify --deep --strict "release/mac-arm64/Everything App.app"`. Обычная оценка Gatekeeper (`spctl`) может отклонить ad-hoc сборку; stapler для неё не применяется.
 
-Production: команда `npm run release` выбирает сертификат Developer ID, включает `hardenedRuntime` и notarization. Предоставьте `CSC_LINK`/`CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` или поддерживаемый electron-builder App Store Connect API key. Секреты передаются через секретное хранилище CI, не `.env` в Git.
+Первый скачанный DMG может потребовать разрешения запуска в настройках macOS. Sparkle обрабатывает quarantine при обновлении: ожидаемый сценарий — перезапуск без команд Terminal и повторного «Открыть всё равно». Сохранение Accessibility-разрешения для автоматической вставки не гарантируется при изменении ad-hoc подписи и требует проверки на отдельном Mac.
 
-Задайте RELEASE_REPOSITORY=owner/repository и защищённые credentials CI для команды release. Нельзя выпускать релиз в чужой репозиторий/подписывать чужим сертификатом. Перед выпуском `codesign --verify --deep --strict`, `spctl --assess --type execute`, `xcrun stapler validate` и перенос на чистый Mac. Автообновления electron-updater только для установленной подписанной платформы; скачивание не происходит автоматически. Release/update rollback на другой установленной версии здесь не проверен.
+`npm run package` создаёт локальную сборку без канала обновлений. `npm run release` создаёт выпуск с нативным Sparkle через pinned `electron-sparkle-updater@0.5.2`. Отдельная Ed25519 подпись архива проверяется публичным ключом, встроенным в `Info.plist`; она не является Apple code signing. Проверка обязательна **до распаковки** (`SUVerifyUpdateBeforeExtraction`). Подпись ZIP и публичный ключ дополнительно проверяются Node.js при выпуске. Открытые GitHub Releases служат единственным хранилищем; отдельный сервер и GitHub Pages не требуются.
 
+## Настройка выпуска (один раз)
 
-## Полный поток выпуска и обновления
+На Apple silicon Mac с Node, Xcode Command Line Tools и `gh`:
 
-`.github/workflows/release.yml` повторяет поток camunda-stub-worker: опубликованный GitHub Release запускает сборку его тега; ручной запуск с `tag` и `prerelease` создаёт или переиспользует выпуск и публикует черновик после загрузки. Все jobs выполняются на hosted Apple silicon/macOS 27 (`xcode-27`). Тег должен иметь вид `vVERSION` и совпадать с `package.json`. DMG, ZIP и SHA-256 `checksums.txt` загружаются в GitHub Release. Это ad-hoc сборки без notarization и канала автообновлений; подписанный поток описан ниже.
+```sh
+npm ci
+npm run sparkle:build
+node_modules/electron-sparkle-updater/native/vendor/bin/generate_keys
+node_modules/electron-sparkle-updater/native/vendor/bin/generate_keys -x /secure/path/sparkle-private-key
+```
 
-`npm run release` проверяет обязательные `RELEASE_REPOSITORY=owner/repository`, `CSC_LINK`, `CSC_KEY_PASSWORD` и Apple credentials. Оно собирает с `forceCodeSigning` и notarize для .app, затем выполняет codesign/spctl/stapler, проверку целостности DMG и packaged smoke. Подписанное notarized .app поставляется внутри DMG/ZIP; архивы после создания не меняются, чтобы сохранить корректность updater checksums/blockmap. `npm run release -- --publish` после всех проверок загружает артефакты через `gh` в **черновик** GitHub Release. Требуются GH_TOKEN и установленный gh. Секреты не записываются в конфигурацию артефакта. Обычный `npm run package` продолжает создавать локальную неподписанную сборку без канала обновлений.
+Sparkle создаёт ключ в login Keychain; при наличии ключа использует его. Сохраните защищённую резервную копию. Публичный ключ из вывода `generate_keys` задайте как **variable** `SPARKLE_PUBLIC_KEY` в GitHub environment `release`. Содержимое экспортированного файла задайте как **secret** `SPARKLE_PRIVATE_KEY` в той же среде. Приватный ключ нельзя помещать в Git, артефакты, командные аргументы или логи. Потеря ключа для ad-hoc выпуска может потребовать ручной переустановки пользователями; не генерируйте новый ключ для очередной версии.
 
-В настройках подписанного выпуска: «Проверить обновления» → «Загрузить обновление» (процент загрузки) → «Сохранить и перезапустить». Самопроизвольная загрузка/установка, prerelease и downgrade выключены. Перед рестартом все окна подтверждают сохранение черновиков; ошибка сохранения не разрешает установку. Данные находятся в пользовательском профиле вне bundle, package builder его не включает и updater его не заменяет. Локальная сборка показывает честное отсутствие канала вместо попытки обратиться к вымышленному репозиторию.
+Для локального выпуска передайте через окружение `RELEASE_REPOSITORY=mishankov/polka`, `SPARKLE_PUBLIC_KEY`, `SPARKLE_PRIVATE_KEY` и, только для загрузки черновика, `GH_TOKEN`. Apple credentials не нужны. Переменные не сохраняются в конфигурацию сборки; приватный ключ передаётся `sign_update` через stdin.
 
-Приёмка настоящего обновления: выпустить две последовательные подписанные версии в выбранном репозитории, установить первую в /Applications на чистом Mac, создать запись и несохранённый документ, проверить обновление/загрузку/явный рестарт и сохранность данных во второй версии. Повторить с отказом сети и ошибкой сохранения. До выполнения этого прогона нельзя считать реальное обновление подтверждённым; unit-тесты проверяют состояния через mock adapter.
+## Полный поток выпуска
 
-Подписанный release использует безопасные для GitHub имена `everything-app-VERSION-arm64.dmg` и `everything-app-VERSION-arm64.zip` (плюс blockmap и `latest-mac.yml`). Обычная локальная упаковка сохраняет прежние имена с «Everything App». Перед загрузкой `release:verify` проверяет, что URL в метаданных точно совпадают с именами загружаемых файлов, а SHA-512 и размеры соответствуют готовым архивам.
+1. Повысить `package.json` version и обновить lockfile. Уже опубликованные версии и архивы не заменять.
+2. Запустить `.github/workflows/release.yml` вручную с тегом `vVERSION` или `npm run release -- --publish` локально.
+3. Команда собирает приложение, Swift helpers и Sparkle bridge, упаковывает DMG/ZIP, подписывает готовый ZIP, создаёт `appcast.xml`, проверяет signature/размер/URL/версию, codesign, целостность DMG и packaged shelf smoke.
+4. Workflow загружает ZIP, DMG и checksums, затем appcast. При ручном запуске выпуск остаётся черновиком до завершения загрузки, затем workflow публикует его. `npm run release -- --publish` локально только создаёт черновик: его следует опубликовать вручную после проверки. Предпочитайте ручной запуск workflow с черновиком; при событии `release: published` feed временно недоступен, пока сборка и загрузка не завершены. Пререлизы и черновики не попадают в stable latest. Уже публичные assets не перезаписываются; повторная загрузка staging assets разрешена только для черновиков.
 
-После команды установки окна временно не принимают ввод, и их черновики сохраняются. Core остаётся запущенным, пока Squirrel проверяет и подготавливает обновление; при ошибке staging или сохранения окна снова доступны. Только native-событие `before-quit-for-update` переключает обработчики окон в режим завершения без повторной блокировки close. Core получает запрос завершения без ожидания: если выход опередит остановку фоновой работы, следующий запуск применяет существующую политику interrupted без слепого повторения внешних эффектов. Живое обновление между подписанными версиями остаётся обязательной отдельной приёмкой.
+Feed: `https://github.com/mishankov/polka/releases/latest/download/appcast.xml`. Он содержит точный immutable URL ZIP вида `.../releases/download/vVERSION/everything-app-VERSION-arm64.zip`, версию, минимальную macOS и Ed25519 signature. GitHub latest должен указывать на новейший стабильный выпуск с appcast; не выбирайте старый выпуск вручную как latest. Приложение сверяет версии через Sparkle и не предлагает downgrade. DMG предназначен для первой установки; обновления используют ZIP. Squirrel `latest-mac.yml` и blockmap не используются (builder может создать неиспользуемый ZIP blockmap, он не публикуется).
+
+В `.github/workflows/release.yml` используется тот же hosted Apple silicon `xcode-27`, что в CI. Сначала `npm run verify`, затем `npm run release`, загрузка архивов, appcast и публикация черновика при ручном запуске. Защищённая environment `release` хранит ключ и может требовать approval владельца.
+
+## Поведение приложения
+
+Выпуск проверяет обновления при запуске и затем каждые шесть часов. Найденный ZIP загружается и проверяется в фоне; настройки показывают прогресс, затем «Сохранить и перезапустить». Сеть или неправильная подпись дают ошибку с возможностью повторной проверки и не мешают работе полки. Локальные/CI-сборки не обращаются к feed.
+
+Перед явной установкой окна блокируют ввод и подтверждают сохранение черновиков. Ошибка сохранения отменяет перезапуск, сохраняет готовое обновление и восстанавливает окна. При штатном выходе Electron также сохраняет документы и останавливает core. Данные живут в пользовательском профиле вне `.app` и не заменяются updater.
+
+Стандартный Sparkle может установить staged update при обычном выходе. Поэтому `scripts/sparkle-bridge.patch` добавляет native API отмены staging и событие готовности installer к pinned bridge. Событие запускает штатный Electron quit только после подготовки installer. `npm run sparkle:build` применяет патч идемпотентно и прекращает сборку, если исходник изменился. Обычный выход после сохранения вызывает отмену; явный update restart сохраняет staging. Автоустановка при обычном выходе не разрешена. При обновлении bridge этот патч и smoke необходимо пересмотреть.
+
+## Проверка настоящего обновления
+
+`npm run test:updates` собирает два реальных ad-hoc `.app` с отдельным appId, временным Ed25519 ключом и localhost feed. Проверяет отклонение неправильной подписи, автоматическую загрузку, отсутствие установки до подтверждения, отмену staging при обычном выходе, установку/перезапуск новой версии и сохранность пользовательской настройки. Тест ничего не публикует, не использует production ключи и удаляет свои bundles/profile. Нужна desktop-сессия macOS; в T3 при необходимости снять `ELECTRON_RUN_AS_NODE` (`env -u ELECTRON_RUN_AS_NODE npm run test:updates`).
+
+Отдельная приёмка перед первым production выпуском: две последовательные версии в GitHub, чистый Mac, первая установка в /Applications, обновление через настоящий HTTPS feed, сохранность истории и Accessibility-разрешений. Локальный smoke проверяет реальный native installer/relaunch, но не первый Gatekeeper launch, права администратора, сохранность системных разрешений или доставку GitHub. Старые установки без Sparkle требуют одного ручного обновления.

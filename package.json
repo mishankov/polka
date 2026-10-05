@@ -52,7 +52,9 @@
     "test:legacy:settings-shortcut": "tsx scripts/settings-shortcut-smoke.ts",
     "test:legacy:workflows": "npm run test:documents && npm run test:formats && npm run test:extensions && npm run test:packages && npm run test:provider && npm run test:streaming && npm run test:window-close && npm run test:auto-start && npm run test:tray && npm run test:window-settings && npm run test:legacy:launcher && npm run test:legacy:settings-shortcut",
     "test:shelf": "tsx scripts/shelf-smoke.ts",
-    "test:media": "tsx scripts/media-indicator-smoke.ts"
+    "test:media": "tsx scripts/media-indicator-smoke.ts",
+    "sparkle:build": "node scripts/build-sparkle.mjs",
+    "test:updates": "tsx scripts/updates-smoke.ts"
   },
   "build": {
     "appId": "app.everything.desktop",
@@ -62,7 +64,8 @@
     },
     "files": [
       "out/**/*",
-      "package.json"
+      "package.json",
+      "!**/node_modules/electron-sparkle-updater/native/**"
     ],
     "extraResources": [
       {
@@ -106,7 +109,8 @@
       "extendInfo": {
         "LSUIElement": true
       }
-    }
+    },
+    "npmRebuild": false
   },
   "dependencies": {
     "@codemirror/lang-json": "6.0.2",
@@ -117,7 +121,7 @@
     "@mantine/notifications": "9.6.3",
     "@tabler/icons-react": "3.48.0",
     "@uiw/react-codemirror": "4.25.12",
-    "electron-updater": "6.8.9",
+    "electron-sparkle-updater": "0.5.2",
     "esbuild": "0.28.2",
     "fast-xml-parser": "5.11.2",
     "fflate": "0.8.3",

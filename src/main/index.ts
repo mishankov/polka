@@ -14,7 +14,6 @@ import {
   powerMonitor,
   session,
   shell,
-  autoUpdater as nativeUpdater,
 } from 'electron';
 import { Worker } from 'node:worker_threads';
 import { promises as fs } from 'node:fs';
@@ -23,7 +22,8 @@ import { randomUUID, createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { autoUpdater } from 'electron-updater';
+import { loadSparkleBridgeForApp } from 'electron-sparkle-updater';
+import { SparkleUpdateAdapter } from './sparkle-updates';
 import { UpdateService } from './updates';
 import { chooseDocuments, openDroppedDocuments } from './documentFiles';
 import { createExtensionViews } from './extension-views';
@@ -57,6 +57,7 @@ let worker: Worker,
   quitting = false,
   quitPending = false,
   updateInstalling = false,
+  updateQuitRequested = false,
   pendingPackage: string | undefined;
 const root = app.getPath('userData');
 const mediaIndicator = createMediaIndicator({
@@ -924,17 +925,22 @@ app
           });
       }
     });
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = false;
-    autoUpdater.allowPrerelease = false;
-    autoUpdater.allowDowngrade = false;
     const metadata = JSON.parse(await fs.readFile(join(app.getAppPath(), 'package.json'), 'utf8'));
+    const release = metadata.release;
     const officialRelease =
       app.isPackaged &&
-      metadata.release?.signed === true &&
-      /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(metadata.release?.repository || '');
+      process.platform === 'darwin' &&
+      release?.updater === 'sparkle' &&
+      typeof release.feedUrl === 'string' &&
+      typeof release.publicKey === 'string' &&
+      Buffer.from(release.publicKey, 'base64').length === 32;
+    const updateAdapter = new SparkleUpdateAdapter(
+      () => loadSparkleBridgeForApp(),
+      release?.feedUrl || '',
+      release?.publicKey || '',
+    );
     updates = new UpdateService(
-      autoUpdater,
+      updateAdapter,
       app.getVersion(),
       officialRelease,
       (state) => broadcast({ type: 'updates.state', state }),
@@ -946,10 +952,18 @@ app
       },
       () => {
         updateInstalling = false;
+        updateQuitRequested = false;
         for (const { window } of windows.values())
           if (!window.isDestroyed()) window.setEnabled(true);
       },
     );
+    updateAdapter.on('before-quit-for-update', () => {
+      // Sparkle's native installer is staged; Electron owns orderly termination.
+      if (updateInstalling && updates.status().status === 'installing') {
+        updateQuitRequested = true;
+        app.quit();
+      }
+    });
     const settings = await call('settings.get');
     for (const [key, value] of Object.entries(settings || {})) {
       if (CUSTOM_APPS_ENABLED && key.startsWith('shortcut:') && typeof value === 'string')
@@ -964,6 +978,10 @@ app
         : DEFAULT_LAUNCHER_SHORTCUT,
     );
     await shelf.start();
+    if (officialRelease) {
+      // Update failures must not prevent the shelf or clipboard from starting.
+      void updates.handle('updates.check');
+    }
     if (!process.argv.includes('--hidden') && !app.getLoginItemSettings().wasOpenedAtLogin)
       await openWindow();
     mediaIndicator.start(settings?.mediaIndicatorEnabled !== false);
@@ -978,21 +996,6 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (worker) void openWindow();
 });
-// Squirrel emits this only when staging succeeded, immediately before closing windows.
-// A normal before-quit arrives too late for the updater's window-close sequence.
-nativeUpdater.on('before-quit-for-update', () => {
-  if (!updateInstalling) return;
-  quitting = true;
-  globalShortcut.unregisterAll();
-  void shelf.stop();
-  mediaIndicator.stop();
-  // Keep core alive during download/staging; persisted jobs recover if exit wins this flush.
-  try {
-    worker?.postMessage({ kind: 'shutdown' });
-  } catch {
-    /* Native install must still exit if core has already stopped. */
-  }
-});
 app.on('before-quit', (event) => {
   if (quitting) return;
   if (!worker) {
@@ -1002,8 +1005,12 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (quitPending) return;
   quitPending = true;
-  void Promise.all([...windows.values()].map(({ window }) => flushWindow(window)))
+  const saved = updateQuitRequested
+    ? Promise.resolve() // The install request already flushed and disabled all windows.
+    : Promise.all([...windows.values()].map(({ window }) => flushWindow(window)));
+  void saved
     .then(async () => {
+      updates?.cancelForQuit(updateQuitRequested);
       globalShortcut.unregisterAll();
       await shelf.stop();
       mediaIndicator.stop();

@@ -19,7 +19,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  group: macos-release
   cancel-in-progress: false
 
 jobs:
@@ -88,6 +88,10 @@ jobs:
   build:
     name: Verify and build macOS arm64 release
     needs: prepare
+    environment: release
+    env:
+      RELEASE_REPOSITORY: ${{ github.repository }}
+      SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
     runs-on: xcode-27
     timeout-minutes: 30
     permissions:
@@ -116,25 +120,17 @@ jobs:
       - name: Verify release source
         timeout-minutes: 10
         run: npm run verify
-      - name: Package arm64 DMG and ZIP
+      - name: Build and authenticate update archive, verify packaged app
         env:
-          CSC_FOR_PULL_REQUEST: 'true'
-        run: npm run package -- --publish never -c.mac.identity=-
-      - name: Verify packaged app and disk image
-        run: |
-          codesign --verify --deep --strict "release/mac-arm64/Everything App.app"
-          for image in release/*.dmg; do
-            hdiutil verify "$image"
-          done
-      - name: Test packaged app
-        timeout-minutes: 5
-        run: npm run test:packaged
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: npm run release
       - uses: actions/upload-artifact@v7
         with:
           name: release-asset-macos-arm64
           path: |
             release/*.dmg
             release/*.zip
+            release/appcast.xml
           if-no-files-found: error
           retention-days: 7
       - name: Upload desktop screenshots
@@ -165,7 +161,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+        run: |
+          upload_args=()
+          # Draft retries may replace staging assets; published archives are immutable.
+          if [[ "$(gh release view "$TAG" --json isDraft --jq '.isDraft' --repo "$GITHUB_REPOSITORY")" == "true" ]]; then
+            upload_args+=(--clobber)
+          fi
+          gh release upload "$TAG" release-assets/*.dmg release-assets/*.zip release-assets/checksums.txt "${upload_args[@]}" --repo "$GITHUB_REPOSITORY"
+          # Publish the feed only after every referenced archive is available.
+          gh release upload "$TAG" release-assets/appcast.xml "${upload_args[@]}" --repo "$GITHUB_REPOSITORY"
 
       - name: Publish manually created release
         if: github.event_name == 'workflow_dispatch' && needs.prepare.outputs.publish_after_upload == 'true'

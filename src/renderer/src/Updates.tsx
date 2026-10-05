@@ -27,6 +27,11 @@ export default function Updates() {
             {state.message}
           </Text>
         )}
+        {state && state.status !== 'unavailable' && (
+          <Text size="sm" c="dimmed">
+            Обновления проверяются и загружаются автоматически. Установка — после подтверждения.
+          </Text>
+        )}
         {state?.status === 'current' && <Text size="sm">Установлена последняя версия.</Text>}
         {state?.version && (
           <Text size="sm">
@@ -55,9 +60,6 @@ export default function Updates() {
             >
               Проверить обновления
             </Button>
-          )}
-          {state?.status === 'available' && (
-            <Button onClick={() => action('download')}>Загрузить обновление</Button>
           )}
           {state && ['ready', 'installing'].includes(state.status) && (
             <Button loading={state.status === 'installing'} onClick={() => action('install')}>
