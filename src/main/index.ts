@@ -128,7 +128,7 @@ async function refreshTrayMenu() {
         click: () => void shelf.show('keyboard', 'about').catch(console.error),
       },
       { type: 'separator' },
-      { label: 'Выйти из Everything App', click: () => app.quit() },
+      { label: 'Выйти из Полки', click: () => app.quit() },
     ]),
   );
 }
@@ -272,7 +272,7 @@ app
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([
         {
-          label: 'Everything App',
+          label: 'Полка',
           submenu: [
             {
               label: 'О приложении и обновления',
@@ -296,7 +296,7 @@ app
             },
             { type: 'separator' },
             { role: 'hide' },
-            { role: 'quit', label: 'Выйти из платформы' },
+            { role: 'quit', label: 'Выйти из Полки' },
           ],
         },
         {
@@ -328,7 +328,7 @@ app
     image.addRepresentation({ scaleFactor: 3, buffer: await fs.readFile(polkaTray3xPath) });
     image.setTemplateImage(true);
     tray = new Tray(image);
-    tray.setToolTip('Polka — полка');
+    tray.setToolTip('Полка');
     await refreshTrayMenu();
     powerMonitor.on('resume', () => {
       shelf.resume();
