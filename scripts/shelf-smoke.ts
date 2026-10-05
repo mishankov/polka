@@ -182,6 +182,14 @@ async function main() {
     // Reopening through macOS must reuse the shelf without adding a Dock icon.
     await app.evaluate(({ app }) => app.emit('activate'));
     await expect(page.getByRole('combobox', { name: 'Поиск по полке', exact: true })).toBeFocused();
+    // A fresh macOS runner can still be discovering apps and extracting their icons.
+    // Wait for the catalog before asserting an empty search; input focus alone does
+    // not mean the results are ready. Keep ordinary interaction assertions short.
+    await expect(page.getByRole('listbox', { name: 'Результаты поиска' })).toHaveAttribute(
+      'aria-busy',
+      'false',
+      { timeout: 120_000 },
+    );
     await page
       .getByRole('combobox', { name: 'Поиск по полке', exact: true })
       .fill('zz-no-results-zz');
