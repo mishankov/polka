@@ -56,9 +56,11 @@ Production: команда `npm run release` выбирает сертифика
 
 ## Полный поток выпуска и обновления
 
+`.github/workflows/release.yml` повторяет поток camunda-stub-worker: опубликованный GitHub Release запускает сборку его тега; ручной запуск с `tag` и `prerelease` создаёт или переиспользует выпуск и публикует черновик после загрузки. Все jobs выполняются на hosted Apple silicon/macOS 27 (`xcode-27`). Тег должен иметь вид `vVERSION` и совпадать с `package.json`. DMG, ZIP и SHA-256 `checksums.txt` загружаются в GitHub Release. Это ad-hoc сборки без notarization и канала автообновлений; подписанный поток описан ниже.
+
 `npm run release` проверяет обязательные `RELEASE_REPOSITORY=owner/repository`, `CSC_LINK`, `CSC_KEY_PASSWORD` и Apple credentials. Оно собирает с `forceCodeSigning` и notarize для .app, затем выполняет codesign/spctl/stapler, проверку целостности DMG и packaged smoke. Подписанное notarized .app поставляется внутри DMG/ZIP; архивы после создания не меняются, чтобы сохранить корректность updater checksums/blockmap. `npm run release -- --publish` после всех проверок загружает артефакты через `gh` в **черновик** GitHub Release. Требуются GH_TOKEN и установленный gh. Секреты не записываются в конфигурацию артефакта. Обычный `npm run package` продолжает создавать локальную неподписанную сборку без канала обновлений.
 
-`.github/workflows/release.yml` запускается вручную в защищённой среде `release` на собственном macOS ARM64 runner с целевой ОС, Node, Xcode Command Line Tools и gh. Runner должен иметь доступную desktop-сессию для Electron smoke. Версия должна совпадать с package.json; повышение версии и публикация черновика — явные действия владельца.
+`.github/workflows/signed-release.yml` запускается вручную в защищённой среде `release` на собственном macOS ARM64 runner с целевой ОС, Node, Xcode Command Line Tools и gh. Runner должен иметь доступную desktop-сессию для Electron smoke. Версия должна совпадать с package.json; повышение версии и публикация черновика — явные действия владельца.
 
 В настройках подписанного выпуска: «Проверить обновления» → «Загрузить обновление» (процент загрузки) → «Сохранить и перезапустить». Самопроизвольная загрузка/установка, prerelease и downgrade выключены. Перед рестартом все окна подтверждают сохранение черновиков; ошибка сохранения не разрешает установку. Данные находятся в пользовательском профиле вне bundle, package builder его не включает и updater его не заменяет. Локальная сборка показывает честное отсутствие канала вместо попытки обратиться к вымышленному репозиторию.
 
