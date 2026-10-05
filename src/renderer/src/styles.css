@@ -416,6 +416,14 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   flex: 1;
   min-width: 0;
 }
+.clipboard-result-shortcut {
+  min-width: 24px;
+  flex-shrink: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: right;
+}
 .clipboard-text {
   display: block;
   white-space: nowrap;

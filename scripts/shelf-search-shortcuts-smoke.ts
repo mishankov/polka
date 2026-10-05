@@ -37,7 +37,10 @@ async function main() {
     const actions = () => app.evaluate(() => (globalThis as any).fixture.actions);
     const lastAction = async (method: string, params: Record<string, unknown>) => {
       await expect.poll(async () => (await actions()).at(-1)).toEqual({ method, params });
-      await expect(page.locator('#launcher-results')).toHaveAttribute('aria-busy', 'false');
+      await expect(page.locator('[role="listbox"][aria-busy]')).toHaveAttribute(
+        'aria-busy',
+        'false',
+      );
     };
     await expect(input).toBeFocused();
     await expect(rows).toHaveCount(11);
@@ -170,9 +173,115 @@ async function main() {
       method: 'clipboardHistory.show',
       params: { query: 'пример' },
     });
-    const beforeHistory = (await actions()).length;
-    await page.getByRole('combobox', { name: 'Найти в истории' }).press('Meta+1');
-    assert.equal((await actions()).length, beforeHistory);
+    const historyInput = page.getByRole('combobox', { name: 'Найти в истории' });
+    const historyRows = page.locator('.clipboard-row');
+    await expect(historyInput).toBeFocused();
+    assert.deepEqual(await historyRows.locator('kbd').allTextContents(), ['⌘1', '⌘2', '⌘3', '⌘4']);
+    await historyInput.press('Meta+2');
+    await lastAction('clipboardHistory.select', { id: 'clip-2' });
+    await expect(historyRows.first().getByRole('option')).toHaveAttribute('aria-selected', 'true');
+
+    await app.evaluate(() => (globalThis as any).fixture.setClipCount(12));
+    await historyInput.fill('');
+    await expect(historyRows).toHaveCount(12);
+    assert.deepEqual(
+      await historyRows.locator('kbd').allTextContents(),
+      Array.from({ length: 9 }, (_, i) => `⌘${i + 1}`),
+    );
+    await expect(historyRows.nth(9).getByRole('option')).not.toHaveAttribute('aria-keyshortcuts');
+    await historyInput.press('Meta+9');
+    await lastAction('clipboardHistory.select', { id: 'clip-3' });
+    // Pinning changes the same displayed order that number shortcuts use.
+    await historyRows.last().hover();
+    await historyRows.last().getByRole('button', { name: 'Закрепить запись', exact: true }).click();
+    await expect(historyRows.first()).toContainText('Заметка 1:');
+    await historyInput.focus();
+    await historyInput.press('Meta+1');
+    await lastAction('clipboardHistory.select', { id: 'clip-0' });
+    await historyInput.fill('Заметка 12:');
+    await expect(historyRows).toHaveCount(1);
+    await expect(historyRows.first().getByRole('option')).toHaveAttribute(
+      'aria-keyshortcuts',
+      'Meta+1',
+    );
+    await historyInput.press('Meta+1');
+    await lastAction('clipboardHistory.select', { id: 'clip-11' });
+    // select also remains the existing copy action when automatic paste is disabled.
+    await app.evaluate(() => (globalThis as any).fixture.setPasteOnSelect(false));
+    await expect(page.locator('.clipboard-footer')).toContainText('копировать');
+    await historyInput.press('Meta+1');
+    await lastAction('clipboardHistory.select', { id: 'clip-11' });
+    await historyInput.press('Shift+Enter');
+    await lastAction('clipboardHistory.copy', { id: 'clip-11' });
+
+    const beforeHistoryIgnored = (await actions()).length;
+    await historyInput.press('Meta+9');
+    await historyInput.fill('no history matches');
+    await expect(historyRows).toHaveCount(0);
+    await historyInput.press('Meta+1');
+    await historyInput.fill('');
+    await expect(historyRows).toHaveCount(12);
+    await historyInput.press('Meta+Enter');
+    await expect(page.getByRole('region', { name: 'Просмотр записи' })).toBeVisible();
+    await page.keyboard.press('Meta+1');
+    await page.keyboard.press('Escape');
+    await expect(historyInput).toBeFocused();
+    const historyMenu = page.getByRole('button', { name: 'Действия с историей', exact: true });
+    await historyMenu.click();
+    // The history menu uses role=group; its explicit open state must guard the input too.
+    await historyInput.dispatchEvent('keydown', {
+      key: '1',
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await page.keyboard.press('Meta+1');
+    await page.getByRole('button', { name: 'Очистить историю…', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Удалить всю историю?' })).toBeVisible();
+    await page.keyboard.press('Meta+1');
+    await page.keyboard.press('Escape');
+    await expect(historyInput).toBeFocused();
+    for (const role of ['dialog', 'menu', 'listbox']) {
+      await page.evaluate((role) => {
+        const overlay = document.createElement('div');
+        overlay.id = 'test-history-overlay';
+        overlay.setAttribute('role', role);
+        document.body.append(overlay);
+      }, role);
+      await historyInput.press('Meta+1');
+      await page.evaluate(() => document.getElementById('test-history-overlay')!.remove());
+    }
+    await historyInput.dispatchEvent('keydown', {
+      key: '1',
+      metaKey: true,
+      isComposing: true,
+      bubbles: true,
+    });
+    await historyInput.dispatchEvent('keydown', {
+      key: '1',
+      metaKey: true,
+      repeat: true,
+      bubbles: true,
+    });
+    assert.equal((await actions()).length, beforeHistoryIgnored);
+
+    await app.evaluate(() => (globalThis as any).fixture.hold());
+    await historyInput.press('Meta+1');
+    await expect.poll(async () => (await actions()).length).toBe(beforeHistoryIgnored + 1);
+    await historyInput.press('Meta+2');
+    await historyInput.press('Enter');
+    await expect(historyRows.first().getByRole('option')).toBeDisabled();
+    assert.equal((await actions()).length, beforeHistoryIgnored + 1);
+    await app.evaluate(() => (globalThis as any).fixture.release());
+    await expect(historyRows.first().getByRole('option')).toBeEnabled();
+    for (let i = 0; i < 9; i++) await historyInput.press('ArrowDown');
+    await expect(historyRows.nth(9).getByRole('option')).toHaveAttribute('aria-selected', 'true');
+    await historyInput.press('Enter');
+    await lastAction('clipboardHistory.select', { id: 'clip-3' });
+    await historyInput.fill('пример');
+    await expect(historyRows.first().getByRole('option')).toHaveAttribute('aria-selected', 'true');
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path: '/tmp/everything-clipboard-number-shortcuts.png', scale: 'css' });
 
     await page.evaluate(() => window.platform.call('launcher.show'));
     await expect(input).toBeFocused();
@@ -185,7 +294,7 @@ async function main() {
     assert.equal((await actions()).length, beforeSettings);
     assert.deepEqual(errors, []);
     console.log(
-      'Shelf search shortcuts passed: displayed order, all result actions, query updates, pending actions, overlays, settings, history and existing navigation.',
+      'Shelf and clipboard history shortcuts passed: displayed order, all result actions, filtering, pinning, pending actions, overlays, settings and existing navigation.',
     );
   } finally {
     await app.close();

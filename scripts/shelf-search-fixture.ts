@@ -9,6 +9,20 @@ export function createShelfSearchFixture() {
   let release: (() => void) | undefined;
   let hold = false;
   let revision = 0;
+  const createClips = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      kind: 'text',
+      id: `clip-${i}`,
+      content: `Заметка ${i + 1}: 2+2 — пример`,
+      preview: `Заметка ${i + 1}: 2+2 — пример`,
+      createdAt: Date.UTC(2026, 9, 5, 10, i),
+      pinned: false,
+    }));
+  let clips = createClips(4);
+  let pasteOnSelect = true;
+  const changed = () => {
+    for (const listener of listeners) listener({ type: 'clipboardHistory.changed' });
+  };
   const presentation = {
     revision,
     destination: 'apps' as 'apps' | 'clipboard' | 'settings',
@@ -27,6 +41,14 @@ export function createShelfSearchFixture() {
   return {
     actions,
     navigate,
+    setClipCount: (count: number) => {
+      clips = createClips(count);
+      changed();
+    },
+    setPasteOnSelect: (enabled: boolean) => {
+      pasteOnSelect = enabled;
+      changed();
+    },
     hold: () => {
       hold = true;
     },
@@ -79,17 +101,10 @@ export function createShelfSearchFixture() {
           }));
         case 'clipboardHistory.state':
           return {
-            clips: Array.from({ length: 4 }, (_, i) => ({
-              kind: 'text',
-              id: `clip-${i}`,
-              content: `Заметка ${i + 1}: 2+2 — пример`,
-              preview: '',
-              createdAt: Date.UTC(2026, 9, 5, 10, i),
-              pinned: false,
-            })),
+            clips,
             preferences: {
               paused: false,
-              pasteOnSelect: true,
+              pasteOnSelect,
               hoverEnabled: false,
               retentionDays: 7,
               accelerator: 'CommandOrControl+Shift+V',
@@ -110,6 +125,13 @@ export function createShelfSearchFixture() {
         case 'shelf.settings':
           navigate('settings');
           return;
+        case 'clipboardHistory.pin': {
+          actions.push({ method, params });
+          const clip = clips.find((clip) => clip.id === params.id);
+          if (clip) clip.pinned = Boolean(params.pinned);
+          changed();
+          return;
+        }
         case 'launcher.openMac':
         case 'shelf.copyCalculation':
         case 'clipboardHistory.copy':
