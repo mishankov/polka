@@ -20,6 +20,7 @@ import {
   MAX_IMAGE_BYTES,
 } from './clipboard-history';
 import { ClipboardHover, contains, shelfGeometry, type Notch } from './clipboard-hover';
+import { ClipboardSync } from './clipboard-sync';
 import { ClipboardPaste } from './clipboard-paste';
 import { LauncherShortcut } from './launcher-shortcut';
 import type { ClipboardState } from '../shared/clipboard';
@@ -84,6 +85,22 @@ export function createShelf(
     },
     changed,
   );
+  const sync = new ClipboardSync({
+    path: join(root, 'clipboard-history', 'sync.enc'),
+    discoveryPath: app.isPackaged
+      ? join(process.resourcesPath, 'sync-discovery')
+      : join(app.getAppPath(), 'build/sync-discovery'),
+    history,
+    changed,
+    codec: {
+      encode: (value) => {
+        if (!safeStorage.isEncryptionAvailable())
+          throw Error('Защищённое хранилище macOS недоступно');
+        return safeStorage.encryptString(value);
+      },
+      decode: (value) => safeStorage.decryptString(value),
+    },
+  });
   const shortcut = new LauncherShortcut(
     globalShortcut,
     () => {
@@ -96,7 +113,7 @@ export function createShelf(
     changed();
   }
   function state(): ClipboardState {
-    const snapshot = history.snapshot();
+    const snapshot = history.snapshot(false);
     return {
       ...snapshot,
       // Image originals stay in the main process; only small thumbnails cross IPC.
@@ -104,6 +121,7 @@ export function createShelf(
         ...clip,
         content: clip.kind === 'image' ? '' : clip.content,
       })),
+      sync: sync.state(),
       registered: shortcut.getPreferences().registered,
       pasteAccess: paste.access,
       pasteReady: paste.ready,
@@ -388,6 +406,7 @@ export function createShelf(
     try {
       await history.initialize();
       initialized = true;
+      await sync.initialize().catch(failed);
       shortcut.initialize(history.getPreferences().accelerator);
       const probePath = app.isPackaged
         ? join(process.resourcesPath, 'clipboard-probe')
@@ -593,6 +612,44 @@ export function createShelf(
         })
         .toDataURL();
     }
+    if (method === 'clipboardHistory.syncEnabled') {
+      await sync.setEnabled(z.boolean().parse(params.enabled));
+      return state();
+    }
+    if (method === 'clipboardHistory.copyPairingCode') {
+      const code = sync.state().invitation?.code;
+      if (!code) throw Error('Получите новый код');
+      generation++;
+      await clipboard.write([
+        new ClipboardItem({
+          'text/plain': code,
+          'electron application/osclipboard;format="org.nspasteboard.ConcealedType"': new Blob([
+            '',
+          ]),
+        }),
+      ]);
+      return true;
+    }
+    if (method === 'clipboardHistory.syncInvite') {
+      sync.invite();
+      return state();
+    }
+    if (method === 'clipboardHistory.syncCancelInvite') {
+      sync.cancelInvite();
+      return state();
+    }
+    if (method === 'clipboardHistory.syncPair') {
+      await sync.pair(z.string().max(2048).parse(params.code));
+      return state();
+    }
+    if (method === 'clipboardHistory.syncForget') {
+      await sync.forget(z.string().uuid().parse(params.id));
+      return state();
+    }
+    if (method === 'clipboardHistory.syncNow') {
+      await sync.syncNow();
+      return state();
+    }
     if (method === 'clipboardHistory.preferences') {
       const patch = z
         .object({
@@ -651,6 +708,7 @@ export function createShelf(
     probe?.kill();
     screen.removeListener('display-removed', displayChanged);
     screen.removeListener('display-metrics-changed', displayMetricsChanged);
+    await sync.stop();
     await history.flush();
   }
   return {

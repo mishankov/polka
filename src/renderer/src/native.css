@@ -62,17 +62,17 @@ html[data-window-mode] body {
 html[data-window-mode='shelf'] body {
   background: transparent;
 }
-html[data-window-mode] :is(button, input, select) {
+html[data-window-mode] :is(button, input, textarea, select) {
   font: inherit;
 }
 html[data-window-mode] button {
   cursor: default;
 }
-html[data-window-mode] :is(button, input, select, [tabindex]):focus-visible {
+html[data-window-mode] :is(button, input, textarea, select, [tabindex]):focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
-html[data-window-mode] :is(button, input, select):disabled {
+html[data-window-mode] :is(button, input, textarea, select):disabled {
   opacity: 0.45;
   cursor: default;
 }
@@ -170,6 +170,7 @@ html[data-window-mode] h2 {
   position: relative;
 }
 .native-input-wrap input,
+.native-field textarea,
 .native-field select {
   width: 100%;
   min-width: 0;
@@ -190,7 +191,11 @@ html[data-window-mode] h2 {
 .native-input-icon + input {
   padding-left: 34px;
 }
-.native-input-wrap input::placeholder {
+.native-field textarea {
+  resize: vertical;
+}
+.native-input-wrap input::placeholder,
+.native-field textarea::placeholder {
   color: var(--muted);
   opacity: 1;
 }
