@@ -82,7 +82,7 @@ Swift-помощник пересобран. 12 нативных сценари�
 | Отзыв прав | Повторные проверки, отмена jobs/watchers/network | Все системные TCC сценарии ещё не проверены |
 | Системные индикаторы | Native helper перечисляет ограниченные сигналы активности устройств | Глобальный screen-sharing/mute unsupported; native acceptance — backlog |
 | Диагностика/настройка | История агента/шагов/заданий, ошибки без provider bodies, usage | Централизованные логи, support bundle, локализация и home customization — backlog |
-| Распространение | arm64 app/DMG/ZIP, association, updater UI, signed-release workflow и verification | Нужны credentials/repository владельца и реальное signed upgrade испытание |
+| Распространение | arm64 app/DMG/ZIP, association, updater UI, скрипты подписанного выпуска и verification | Нужны credentials/repository владельца и реальное signed upgrade испытание |
 
 ## Измерения и пределы
 
