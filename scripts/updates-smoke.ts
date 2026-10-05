@@ -1,6 +1,6 @@
 import { _electron as electron, expect, type ElectronApplication } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { readFile, writeFile, mkdtemp, mkdir, rm } from 'node:fs/promises';
@@ -55,6 +55,8 @@ async function main() {
   let running: ElectronApplication | undefined;
   const profile = join(directory, 'profile');
   const bootstrap = join(directory, 'bootstrap');
+  const relaunchReceipt = join(directory, 'relaunch.json');
+  const fixtureStorageKey = randomBytes(32).toString('base64');
   let executable = '';
   function run(command: string, args: string[]) {
     const result = spawnSync(command, args, { stdio: 'inherit', env });
@@ -77,7 +79,63 @@ async function main() {
     await mkdir(bootstrap);
     await writeFile(
       join(bootstrap, 'update-smoke-bootstrap.js'),
-      `process.env.EVERYTHING_PROFILE = ${JSON.stringify(profile)};\nrequire('./index.js');\n`,
+      `process.env.EVERYTHING_PROFILE = ${JSON.stringify(profile)};
+const { app, safeStorage } = require('electron');
+const { randomBytes, createCipheriv, createDecipheriv } = require('node:crypto');
+// Both disposable builds share a test-only encryption key. Real safeStorage uses
+// the login Keychain, whose trust changes with ad-hoc signing and can block CI
+// or prompt the developer. This fixture does not exercise Keychain permissions.
+const storageKey = Buffer.from(${JSON.stringify(fixtureStorageKey)}, 'base64');
+safeStorage.isEncryptionAvailable = () => true;
+safeStorage.encryptString = (text) => {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', storageKey, iv);
+  const bytes = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), bytes]);
+};
+safeStorage.decryptString = (bytes) => {
+  const decipher = createDecipheriv('aes-256-gcm', storageKey, bytes.subarray(0, 12));
+  decipher.setAuthTag(bytes.subarray(12, 28));
+  return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8');
+};
+const { writeFileSync, renameSync } = require('node:fs');
+const receiptPath = ${JSON.stringify(relaunchReceipt)};
+function report(value) {
+  writeFileSync(receiptPath + '.tmp', JSON.stringify(value));
+  renameSync(receiptPath + '.tmp', receiptPath);
+}
+// Observe the renderer in the process Sparkle actually relaunched. Starting a
+// second instance would race startup/shutdown and Electron's single-instance lock.
+app.on('browser-window-created', (_event, window) => {
+  if (app.getVersion() !== ${JSON.stringify(newPkg.version)}) return;
+  window.webContents.once('did-finish-load', async () => {
+    if (new URL(window.webContents.getURL()).searchParams.get('mode') !== 'shelf') return;
+    try {
+      const result = await window.webContents.executeJavaScript(\`
+        (async () => {
+          const deadline = Date.now() + 45000;
+          let status;
+          do {
+            status = await window.platform.call('updates.status');
+            if (status.status === 'current') break;
+            await new Promise(done => setTimeout(done, 100));
+          } while (Date.now() < deadline);
+          return {
+            status,
+            marker: await window.platform.call('settings.get', { key: 'updateSmokeMarker' }),
+          };
+        })()
+      \`);
+      report({
+        pid: process.pid, version: app.getVersion(), profile: app.getPath('userData'), ...result,
+      });
+    } catch (error) {
+      report({ error: String(error) });
+    }
+  });
+});
+require('./index.js');
+`,
     );
     for (const [fixture, folder, target] of [
       [pkg, 'old', 'dir'],
@@ -187,32 +245,38 @@ async function main() {
     ]);
     running = undefined;
     await expect.poll(() => version(bundle), { timeout: 45000 }).toBe(newPkg.version);
-    let relaunchedPid = 0;
+    let receipt:
+      | {
+          pid: number;
+          version: string;
+          profile: string;
+          status: { status: string; currentVersion: string };
+          marker: string;
+          error?: string;
+        }
+      | undefined;
     await expect
       .poll(
-        () => {
-          const output = spawnSync('pgrep', ['-f', executable], { encoding: 'utf8' }).stdout;
-          relaunchedPid =
-            output
-              .trim()
-              .split('\n')
-              .map(Number)
-              .find((pid) => pid !== oldPid && pid > 0) || 0;
-          return relaunchedPid > 0;
+        async () => {
+          try {
+            receipt = JSON.parse(await readFile(relaunchReceipt, 'utf8'));
+            return true;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+            throw error;
+          }
         },
-        { timeout: 45000 },
+        { timeout: 90000, message: 'Sparkle-relaunched app must load its renderer and saved data' },
       )
       .toBe(true);
-    process.kill(relaunchedPid, 'SIGTERM');
-    await new Promise((done) => setTimeout(done, 1000));
-    running = await launch();
-    page = await running.firstWindow();
-    await expect.poll(async () => (await status()).status, { timeout: 45000 }).toBe('current');
-    assert.equal((await status()).currentVersion, newPkg.version);
-    assert.equal(
-      await page.evaluate(() => window.platform.call('settings.get', { key: 'updateSmokeMarker' })),
-      'preserved',
-    );
+    assert(receipt);
+    assert.equal(receipt.error, undefined, 'Relaunched renderer must initialize successfully');
+    assert(receipt.pid > 0 && receipt.pid !== oldPid, 'Sparkle must start a new app process');
+    assert.equal(receipt.profile, profile);
+    assert.equal(receipt.version, newPkg.version);
+    assert.equal(receipt.status.status, 'current');
+    assert.equal(receipt.status.currentVersion, newPkg.version);
+    assert.equal(receipt.marker, 'preserved');
     console.log(
       'Packaged update passed: signature rejection, automatic download, ordinary quit cancellation, explicit install, relaunch and preserved data.',
     );
