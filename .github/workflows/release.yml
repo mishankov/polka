@@ -1,45 +1,175 @@
-name: Signed macOS release
+name: release
+
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
-      version:
-        description: Existing package version to release (must match package.json)
+      tag:
+        description: Release tag to create (for example, v1.1.0)
         required: true
         type: string
+      prerelease:
+        description: Mark the release as a prerelease
+        required: false
+        default: false
+        type: boolean
+
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
-  release:
-    runs-on: [self-hosted, macOS, ARM64]
-    environment: release
-    concurrency:
-      group: signed-release
-      cancel-in-progress: false
-    env:
-      RELEASE_REPOSITORY: ${{ github.repository }}
-      CSC_LINK: ${{ secrets.CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      EXPECTED_VERSION: ${{ inputs.version }}
+  prepare:
+    name: Prepare release
+    runs-on: xcode-27
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      safe_tag: ${{ steps.release.outputs.safe_tag }}
+      publish_after_upload: ${{ steps.release.outputs.publish_after_upload }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [[ "$EVENT_NAME" == "release" ]]; then
+            tag="$RELEASE_TAG"
+            publish_after_upload=false
+          else
+            tag="$REQUESTED_TAG"
+            git check-ref-format "refs/tags/$tag"
+
+            if release_is_draft=$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null); then
+              publish_after_upload="$release_is_draft"
+              echo "Reusing the existing release for $tag."
+            else
+              create_args=("$tag" --target "$DEFAULT_BRANCH" --generate-notes --draft)
+              if [[ "$PRERELEASE" == "true" ]]; then
+                create_args+=(--prerelease)
+              fi
+              gh release create "${create_args[@]}"
+              publish_after_upload=true
+            fi
+
+            # Draft releases can exist before their Git tag is created.
+            # Ensure checkout can resolve the tag before starting downstream jobs.
+            remote_tag=$(git ls-remote --refs origin "refs/tags/$tag")
+            if [[ -z "$remote_tag" ]]; then
+              if [[ "$publish_after_upload" != "true" ]]; then
+                echo "Published release $tag is missing its Git tag. Refusing to recreate it."
+                exit 1
+              fi
+              target=$(gh release view "$tag" --json targetCommitish --jq '.targetCommitish')
+              target_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$target" --jq '.sha')
+              gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                -f "ref=refs/tags/$tag" -f "sha=$target_sha"
+            fi
+          fi
+
+          safe_tag=$(printf '%s' "$tag" | sed 's/[^A-Za-z0-9._-]/-/g')
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "safe_tag=$safe_tag" >> "$GITHUB_OUTPUT"
+          echo "publish_after_upload=$publish_after_upload" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Verify and build macOS arm64 release
+    needs: prepare
+    runs-on: xcode-27
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: actions/setup-node@v7
         with:
           node-version: '24.18.0'
           cache: npm
-      - name: Validate release version
-        run: node -e 'if(require("./package.json").version!==process.env.EXPECTED_VERSION) process.exit(1)'
+
+      - name: Validate release version and runner
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
+          node -e 'const expected = "v" + require("./package.json").version; if (process.env.TAG !== expected) throw new Error("Release tag must match package.json: " + expected)'
+          xcodebuild -version
+
       - run: npm ci
-      - run: npm run verify
-      - run: npm run release -- --publish
-      - uses: actions/upload-artifact@v4
+      - name: Prepare Electron binary
+        run: node -e 'console.log(require("electron"))'
+      - name: Verify release source
+        timeout-minutes: 10
+        run: npm run verify
+      - name: Package arm64 DMG and ZIP
+        env:
+          CSC_FOR_PULL_REQUEST: 'true'
+        run: npm run package -- --publish never -c.mac.identity=-
+      - name: Verify packaged app and disk image
+        run: |
+          codesign --verify --deep --strict "release/mac-arm64/Everything App.app"
+          for image in release/*.dmg; do
+            hdiutil verify "$image"
+          done
+      - name: Test packaged app
+        timeout-minutes: 5
+        run: npm run test:packaged
+      - uses: actions/upload-artifact@v7
         with:
-          name: macOS-arm64-release
+          name: release-asset-macos-arm64
           path: |
             release/*.dmg
             release/*.zip
-            release/*.blockmap
-            release/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload desktop screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos-arm64-smoke-screenshots
+          path: /tmp/everything-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    name: Upload release assets
+    needs: [prepare, build]
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-asset-macos-arm64
+          path: release-assets
+
+      - name: Create checksums
+        working-directory: release-assets
+        run: shasum -a 256 *.dmg *.zip > checksums.txt
+
+      - name: Upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Publish manually created release
+        if: github.event_name == 'workflow_dispatch' && needs.prepare.outputs.publish_after_upload == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false --repo "$GITHUB_REPOSITORY"

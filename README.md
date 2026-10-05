@@ -72,6 +72,10 @@ npm run verify
 
 Проверка включает типы, сборку, тесты ядра и сохранённого кода, desktop-проверку полки, истории, анимации и индикатора камеры/микрофона. `npm run test:clipboard:paste` отдельно проверяет вставку в другую программу; ей нужен доступ «Универсальный доступ». Для готового `.app` доступны `npm run test:packaged` и `npm run test:packaged:workflows`.
 
+GitHub Actions (`.github/workflows/build.yml`) запускает `npm run verify`, упаковку и проверки готового `.app` для каждого pull request и push в `master`; доступен и ручной запуск. Все шаги выполняются на Apple silicon с macOS 27 и Xcode 27 (`xcode-27`, hosted runner в public preview). DMG и ZIP доступны в артефакте `Everything App-macos-arm64` в течение 7 дней, снимки desktop-проверок — в отдельном артефакте. CI-сборки используют ad-hoc подпись.
+
+Workflow `release.yml` собирает и загружает ARM64 DMG, ZIP и `checksums.txt` при публикации GitHub Release. Ручной запуск с `tag` (например, `v0.1.15`) создаёт или повторно использует выпуск и публикует черновик после успешных проверок и загрузки. Тег должен совпадать с версией `package.json` в выбранном коммите. Все jobs используют hosted Apple silicon runner `xcode-27`; сертификаты Apple не нужны, сборки имеют ad-hoc подпись и не проходят notarization.
+
 Для испытаний используйте отдельный профиль: `EVERYTHING_PROFILE=/absolute/test/profile`. Переключатель `CUSTOM_APPS_ENABLED` в `src/shared/features.ts` сохраняет возможность вернуть рабочее пространство. Старые desktop-сценарии сохранены как `test:legacy:desktop` и `test:legacy:workflows`; они предназначены для повторного включения этого режима. Тесты ядра, AI и расширений продолжают проверять сохранённую реализацию.
 
 [Архитектура](docs/architecture.md) · [Хранение данных](docs/data.md) · [Ограничения](docs/validation.md) · [MIT](LICENSE)
