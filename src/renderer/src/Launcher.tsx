@@ -7,6 +7,7 @@ import { shelfSearch, type ShelfSearchResult } from '../../shared/shelf-search';
 import SearchResult from './ShelfSearchResult';
 import { api, errorMessage, report } from './api';
 import ClipboardHistory from './ClipboardHistory';
+import EmojiPicker from './EmojiPicker';
 import ShelfSettings from './ShelfSettings';
 import ShelfWelcome from './ShelfWelcome';
 import type { ShelfDestination } from '../../shared/shelf';
@@ -19,7 +20,7 @@ export default function Launcher({
   // Apply the entry destination in this render. Mirroring it in an effect briefly
   // remounts clipboard history when a closed shelf reopens on the app list.
   const settings = entry.destination === 'settings' || entry.destination === 'about';
-  const builtin = entry.destination === 'clipboard';
+  const builtin = entry.destination === 'clipboard' || entry.destination === 'emoji';
   const navigation = useRef(0);
   const [apps, setApps] = useState<LauncherApp[]>([]);
   const [macApps, setMacApps] = useState<MacLauncherApp[]>([]);
@@ -141,7 +142,7 @@ export default function Launcher({
     setError('');
     try {
       if (app.kind === 'builtin') {
-        await api('clipboardHistory.show');
+        await api(app.id === 'builtin:emoji' ? 'shelf.showEmoji' : 'clipboardHistory.show');
         return;
       }
       if (app.kind === 'mac') {
@@ -207,6 +208,11 @@ export default function Launcher({
         <ShelfSettings
           key={entry.revision}
           initialTab={entry.destination === 'about' ? 'about' : 'general'}
+        />
+      ) : entry.destination === 'emoji' ? (
+        <EmojiPicker
+          key={entry.revision}
+          onBack={() => void api('launcher.show').catch((error) => setError(errorMessage(error)))}
         />
       ) : builtin ? (
         <ClipboardHistory

@@ -7,6 +7,8 @@
   "license": "MIT",
   "main": "out/main/index.js",
   "scripts": {
+    "emoji:generate": "node scripts/generate-emoji-data.mjs",
+    "test:emoji": "tsx scripts/emoji-smoke.ts",
     "dev": "electron-vite dev",
     "build": "node -e \"require('node:fs').rmSync('out', { recursive: true, force: true })\" && electron-vite build",
     "start": "electron-vite preview",
@@ -16,7 +18,7 @@
     "package": "npm run build && npm run native:build && electron-builder --mac dmg zip --arm64",
     "package:dir": "npm run build && npm run native:build && electron-builder --mac dir --arm64",
     "verify": "npm run typecheck && npm run build && npm run native:build && npm test && npm run test:desktop && npm run test:workflows && npm run test:media",
-    "test:desktop": "npm run test:shelf",
+    "test:desktop": "npm run test:shelf && npm run test:emoji",
     "test:packaged": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Polka.app/Contents/MacOS/Polka\" tsx scripts/shelf-smoke.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"tests/**/*.ts\" \"scripts/**/*.ts\" electron.vite.config.ts",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"tests/**/*.ts\" \"scripts/**/*.ts\" electron.vite.config.ts",
@@ -45,6 +47,7 @@
     },
     "files": [
       "out/**/*",
+      "docs/unicode-license.txt",
       "package.json"
     ],
     "extraResources": [

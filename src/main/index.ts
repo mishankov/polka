@@ -231,7 +231,10 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
   rpcSchema.parse([method, params]);
   if (!shelfMethodAllowed(method)) throw Error('Неизвестная операция');
   if (JSON.stringify(params).length > 48 * 1024 * 1024) throw Error('Запрос превышает лимит');
-  if (method === 'clipboardHistory.select' && sender.mode !== 'shelf')
+  if (
+    (method === 'clipboardHistory.select' || method === 'shelf.selectEmoji') &&
+    sender.mode !== 'shelf'
+  )
     throw Error('Вставка доступна только из истории на полке');
   if (method === 'mediaIndicator.getState') return mediaIndicator.state();
   if (method === 'mediaIndicator.setEnabled')

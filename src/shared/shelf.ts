@@ -1,4 +1,4 @@
-export type ShelfDestination = 'apps' | 'clipboard' | 'settings' | 'about';
+export type ShelfDestination = 'apps' | 'clipboard' | 'emoji' | 'settings' | 'about';
 
 export interface ShelfPresentation {
   revision: number;
