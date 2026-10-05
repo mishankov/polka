@@ -25,16 +25,31 @@ async function main() {
     const page = await app.firstWindow();
     page.on('pageerror', (error) => errors.push(error.message));
     await expect(page.getByRole('combobox', { name: 'Поиск по полке', exact: true })).toBeFocused();
+    if (process.argv.includes('--empty-clipboard-item')) {
+      // Exercise the CI pasteboard shape without clearing the user's clipboard.
+      await app.evaluate(({ clipboard, ClipboardItem }) => {
+        const read = clipboard.read.bind(clipboard);
+        clipboard.read = async () => [
+          { types: [], getType: ClipboardItem.prototype.getType },
+          ...(await read()),
+        ];
+      });
+    }
     await app.evaluate(async ({ clipboard, ClipboardItem }) => {
+      // An empty native pasteboard can expose an item with no readable MIME types.
       (globalThis as any).__emojiClipboardBackup = await Promise.all(
-        (await clipboard.read()).map(
-          async (item) =>
-            new ClipboardItem(
-              Object.fromEntries(
-                await Promise.all(item.types.map(async (type) => [type, await item.getType(type)])),
+        (await clipboard.read())
+          .filter((item) => item.types.length > 0)
+          .map(
+            async (item) =>
+              new ClipboardItem(
+                Object.fromEntries(
+                  await Promise.all(
+                    item.types.map(async (type) => [type, await item.getType(type)]),
+                  ),
+                ),
               ),
-            ),
-        ),
+          ),
       );
     });
     backedUp = true;
@@ -45,6 +60,17 @@ async function main() {
       }),
     );
     const mainSearch = page.getByRole('combobox', { name: 'Поиск по полке', exact: true });
+    const launcherReady = async () => {
+      await expect(mainSearch).toBeFocused();
+      // Focus commits before the launcher's navigation reset runs in a passive effect.
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+    };
+    await launcherReady();
     await mainSearch.fill('emoji');
     await expect(page.getByRole('option', { name: /^Эмодзи / })).toHaveAttribute(
       'aria-selected',
@@ -126,7 +152,7 @@ async function main() {
     const readClipboard = () => app.evaluate(({ clipboard }) => clipboard.readText());
     const openPicker = async () => {
       await page.evaluate(() => window.platform.call('launcher.show'));
-      await expect(mainSearch).toBeFocused();
+      await launcherReady();
       await mainSearch.fill('эмодзи');
       await expect(page.getByRole('option', { name: /^Эмодзи / })).toHaveAttribute(
         'aria-selected',
@@ -171,7 +197,7 @@ async function main() {
     await expect.poll(visible).toBe(false);
     await openPicker();
     await search.press('Backspace');
-    await expect(mainSearch).toBeFocused();
+    await launcherReady();
     await mainSearch.fill('2 + 2');
     await expect(page.locator('.launcher-calculation strong')).toHaveText('4');
     await mainSearch.press('Enter');
@@ -257,7 +283,9 @@ async function main() {
     if (backedUp)
       await app
         .evaluate(async ({ clipboard }) => {
-          await clipboard.write((globalThis as any).__emojiClipboardBackup);
+          const items = (globalThis as any).__emojiClipboardBackup;
+          if (items.length) await clipboard.write(items);
+          else clipboard.clear();
         })
         .catch(() => {});
     await app.close();
