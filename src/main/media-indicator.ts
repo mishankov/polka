@@ -4,6 +4,9 @@ import { mediaIndicatorGeometry } from './media-indicator-geometry';
 import { MediaMonitor } from './media-monitor';
 import {
   mediaIndicatorVisible,
+  trackedMediaActivity,
+  type MediaDevice,
+  type MediaTracking,
   type MediaIndicatorPresentation,
   type MediaIndicatorState,
 } from '../shared/media-indicator';
@@ -12,28 +15,33 @@ export function createMediaIndicator(options: {
   preload: string;
   page: string;
   devURL?: string;
-  read: () => Promise<unknown>;
-  saveEnabled: (enabled: boolean) => Promise<unknown>;
+  read: (tracking: MediaTracking) => Promise<unknown>;
+  saveTracking: (tracking: MediaTracking) => Promise<unknown>;
   changed: (state: MediaIndicatorState) => void;
 }) {
   const overlays = new Map<number, { window: BrowserWindow; ready: boolean }>();
   const suspensions = new Set<string>();
   let notches: Notch[] = [];
-  let enabled = false;
+  let tracking: MediaTracking = { cameraEnabled: false, microphoneEnabled: false };
+  const enabled = () => tracking.cameraEnabled || tracking.microphoneEnabled;
+  const activity = () => trackedMediaActivity(monitor.activity, tracking);
   let sampled = false;
   let stopped = false;
   let listening = false;
   let saving = Promise.resolve();
-  const monitor = new MediaMonitor(options.read, () => {
-    sampled = true;
-    render();
-    options.changed(state());
-  });
-  const state = (): MediaIndicatorState => ({ enabled, ...monitor.activity });
+  const monitor = new MediaMonitor(
+    () => options.read({ ...tracking }),
+    () => {
+      sampled = true;
+      render();
+      options.changed(state());
+    },
+  );
+  const state = (): MediaIndicatorState => ({ enabled: enabled(), ...tracking, ...activity() });
   function presentation(displayId: number): MediaIndicatorPresentation {
     const display = screen.getAllDisplays().find((item) => item.id === displayId)!;
     return {
-      ...monitor.activity,
+      ...activity(),
       ...mediaIndicatorGeometry(
         display.bounds,
         notches.find((item) => item.id === displayId),
@@ -49,11 +57,7 @@ export function createMediaIndicator(options: {
       }
     }
     const visible =
-      !stopped &&
-      enabled &&
-      sampled &&
-      !suspensions.size &&
-      mediaIndicatorVisible(monitor.activity);
+      !stopped && enabled() && sampled && !suspensions.size && mediaIndicatorVisible(activity());
     if (!visible) {
       for (const { window } of overlays.values()) window.hide();
       return;
@@ -134,40 +138,50 @@ export function createMediaIndicator(options: {
     render();
   }
 
-  function applyEnabled(value: boolean) {
-    enabled = value;
+  function applyTracking(value: MediaTracking) {
+    tracking = { ...value };
     sampled = false;
     monitor.stop();
-    if (!enabled) {
+    if (!enabled()) {
       for (const { window } of overlays.values()) window.destroy();
       overlays.clear();
     }
-    if (enabled && !suspensions.size && !stopped) monitor.start();
+    if (enabled() && !suspensions.size && !stopped) monitor.start();
     render();
     options.changed(state());
   }
+  function saveTracking(update: () => MediaTracking) {
+    const operation = saving.then(async () => {
+      const value = update();
+      await options.saveTracking(value);
+      if (!stopped) applyTracking(value);
+      return state();
+    });
+    saving = operation.then(
+      () => {},
+      () => {},
+    );
+    return operation;
+  }
   return {
     state,
-    start(value: boolean) {
+    start(value: MediaTracking) {
       if (!listening) {
         screen.on('display-added', displayChanged);
         screen.on('display-removed', displayChanged);
         screen.on('display-metrics-changed', displayChanged);
         listening = true;
       }
-      applyEnabled(value);
+      applyTracking(value);
     },
     setEnabled(value: boolean) {
-      const operation = saving.then(async () => {
-        await options.saveEnabled(value);
-        if (!stopped) applyEnabled(value);
-        return state();
-      });
-      saving = operation.then(
-        () => {},
-        () => {},
-      );
-      return operation;
+      return saveTracking(() => ({ cameraEnabled: value, microphoneEnabled: value }));
+    },
+    setTracking(device: MediaDevice, value: boolean) {
+      return saveTracking(() => ({ ...tracking, [`${device}Enabled`]: value }));
+    },
+    setPreferences(value: MediaTracking) {
+      return saveTracking(() => ({ ...value }));
     },
     setNotches(value: Notch[]) {
       notches = value;
@@ -181,7 +195,7 @@ export function createMediaIndicator(options: {
     },
     resume(reason = 'sleep') {
       suspensions.delete(reason);
-      if (enabled && !suspensions.size && !stopped) monitor.start();
+      if (enabled() && !suspensions.size && !stopped) monitor.start();
     },
     stop() {
       stopped = true;

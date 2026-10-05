@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // @ts-expect-error Pure build-time JavaScript shared with the release command.
-import { releaseConfig, releaseArtifactNames } from '../scripts/release-config.mjs';
+import { releasePackage, releaseConfig, releaseArtifactNames } from '../scripts/release-config.mjs';
 // @ts-expect-error Pure build-time JavaScript.
 import { appcastXml, verifyReleaseMetadata } from '../scripts/release-metadata.mjs';
 
@@ -60,6 +60,48 @@ test('release config embeds public update trust and retains ad-hoc signing witho
   assert.equal(cfg.dmg.writeUpdateInfo, false);
   assert(!cfg.files.includes('!**/node_modules/electron-sparkle-updater/native/**'));
   assert(!JSON.stringify(cfg).includes('secret'));
+});
+
+test('release tags drive bundle versions, asset names and exact feed URLs without editing package.json', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'polka-tag-release-'));
+  try {
+    assert.equal(releasePackage(pkg, {}).releaseTag, 'v0.2.0');
+    for (const tag of ['v1.4.0', '1.4.0', 'v1.4.0-beta.1']) {
+      const release = releasePackage(pkg, { RELEASE_TAG: tag });
+      const version = tag.replace(/^v/, '');
+      assert.equal(release.version, version);
+      assert.equal(pkg.version, '0.2.0');
+      const config = releaseConfig(release, env);
+      assert.equal(config.extraMetadata.version, version);
+      assert.equal(config.buildVersion, version);
+      const bytes = Buffer.from('tagged release fixture');
+      const signature = sign(null, bytes, keys.privateKey).toString('base64');
+      const names = releaseArtifactNames(release);
+      const zip = `polka-${version}-arm64.zip`;
+      assert(names.includes(zip));
+      for (const name of names) await writeFile(join(directory, name), bytes);
+      const xml = appcastXml(release, 'owner/app', signature, bytes.length);
+      assert(xml.includes(`/releases/download/${tag}/${zip}`));
+      await writeFile(join(directory, 'appcast.xml'), xml);
+      assert.deepEqual(
+        await verifyReleaseMetadata(release, directory, 'owner/app', publicKey),
+        names,
+      );
+      await assert.rejects(
+        verifyReleaseMetadata(
+          { ...release, releaseTag: 'v9.9.9' },
+          directory,
+          'owner/app',
+          publicKey,
+        ),
+        /ZIP asset/,
+      );
+    }
+    for (const tag of ['latest', 'v1.4', 'v1.4.0/path', 'v01.4.0'])
+      assert.throws(() => releasePackage(pkg, { RELEASE_TAG: tag }), /RELEASE_TAG/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('appcast authenticates exact ZIP bytes, version, platform requirements and GitHub asset URL', async () => {

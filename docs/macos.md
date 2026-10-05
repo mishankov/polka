@@ -63,16 +63,18 @@ node_modules/electron-sparkle-updater/native/vendor/bin/generate_keys -x /secure
 
 Sparkle создаёт ключ в login Keychain; при наличии ключа использует его. Сохраните защищённую резервную копию. Публичный ключ из вывода `generate_keys` задайте как **variable** `SPARKLE_PUBLIC_KEY` в GitHub environment `release`. Содержимое экспортированного файла задайте как **secret** `SPARKLE_PRIVATE_KEY` в той же среде. Приватный ключ нельзя помещать в Git, артефакты, командные аргументы или логи. Потеря ключа для ad-hoc выпуска может потребовать ручной переустановки пользователями; не генерируйте новый ключ для очередной версии.
 
-Для локального выпуска передайте через окружение `RELEASE_REPOSITORY=mishankov/polka`, `SPARKLE_PUBLIC_KEY`, `SPARKLE_PRIVATE_KEY` и, только для загрузки черновика, `GH_TOKEN`. Apple credentials не нужны. Переменные не сохраняются в конфигурацию сборки; приватный ключ передаётся `sign_update` через stdin.
+Workflow берёт версию приложения и имена архивов из тега GitHub Release (с необязательным префиксом `v`); appcast ссылается на исходный тег. Менять `package.json` для выпуска не требуется.
+
+Для локального выпуска передайте через окружение `RELEASE_REPOSITORY=mishankov/polka`, `SPARKLE_PUBLIC_KEY`, `SPARKLE_PRIVATE_KEY` и, только для загрузки черновика, `GH_TOKEN`. Необязательный `RELEASE_TAG` задаёт тег и версию; без него используется `v` + версия `package.json`. Apple credentials не нужны. Переменные не сохраняются в конфигурацию сборки; приватный ключ передаётся `sign_update` через stdin.
 
 ## Полный поток выпуска
 
-1. Повысить `package.json` version и обновить lockfile. Уже опубликованные версии и архивы не заменять.
+1. Выбрать новый тег версии (`vVERSION` или `VERSION`). Уже опубликованные версии и архивы не заменять.
 2. Запустить `.github/workflows/release.yml` вручную с тегом `vVERSION` или `npm run release -- --publish` локально.
 3. Команда собирает приложение, Swift helpers и Sparkle bridge, упаковывает DMG/ZIP, подписывает готовый ZIP, создаёт `appcast.xml`, проверяет signature/размер/URL/версию, codesign, целостность DMG и packaged shelf smoke.
 4. Workflow загружает ZIP, DMG и checksums, затем appcast. При ручном запуске выпуск остаётся черновиком до завершения загрузки, затем workflow публикует его. `npm run release -- --publish` локально только создаёт черновик: его следует опубликовать вручную после проверки. Предпочитайте ручной запуск workflow с черновиком; при событии `release: published` feed временно недоступен, пока сборка и загрузка не завершены. Пререлизы и черновики не попадают в stable latest. Уже публичные assets не перезаписываются; повторная загрузка staging assets разрешена только для черновиков.
 
-Feed: `https://github.com/mishankov/polka/releases/latest/download/appcast.xml`. Он содержит точный immutable URL ZIP вида `.../releases/download/vVERSION/polka-VERSION-arm64.zip`, версию, минимальную macOS и Ed25519 signature. GitHub latest должен указывать на новейший стабильный выпуск с appcast; не выбирайте старый выпуск вручную как latest. Приложение сверяет версии через Sparkle и не предлагает downgrade. DMG предназначен для первой установки; обновления используют ZIP. Squirrel `latest-mac.yml` и blockmap не используются (builder может создать неиспользуемый ZIP blockmap, он не публикуется).
+Feed: `https://github.com/mishankov/polka/releases/latest/download/appcast.xml`. Он содержит точный immutable URL ZIP вида `.../releases/download/TAG/polka-VERSION-arm64.zip`, версию, минимальную macOS и Ed25519 signature. GitHub latest должен указывать на новейший стабильный выпуск с appcast; не выбирайте старый выпуск вручную как latest. Приложение сверяет версии через Sparkle и не предлагает downgrade. DMG предназначен для первой установки; обновления используют ZIP. Squirrel `latest-mac.yml` и blockmap не используются (builder может создать неиспользуемый ZIP blockmap, он не публикуется).
 
 В `.github/workflows/release.yml` используется тот же hosted Apple silicon `xcode-27`, что в CI. Сначала `npm run verify`, затем `npm run release`, загрузка архивов, appcast и публикация черновика при ручном запуске. Защищённая environment `release` хранит ключ и может требовать approval владельца.
 

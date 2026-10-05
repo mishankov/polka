@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Alert, Stack, Switch, Text } from './NativeControls';
 import { api, errorMessage } from './api';
-import { mediaActivityLabel, type MediaIndicatorState } from '../../shared/media-indicator';
+import {
+  mediaActivityLabel,
+  type MediaDevice,
+  type MediaIndicatorState,
+} from '../../shared/media-indicator';
 
 export default function MediaIndicatorSettings() {
   const [state, setState] = useState<MediaIndicatorState>();
@@ -28,29 +32,40 @@ export default function MediaIndicatorSettings() {
       unsubscribe();
     };
   }, []);
+  async function save(device: MediaDevice, enabled: boolean) {
+    setSaving(true);
+    setError('');
+    try {
+      setState(await api<MediaIndicatorState>('mediaIndicator.setTracking', { device, enabled }));
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setSaving(false);
+    }
+  }
   return (
     <Stack gap="xs" mt="md">
-      <Switch
-        label="Показывать активность камеры и микрофона"
-        aria-label="Показывать активность камеры и микрофона"
-        description="Индикатор у выреза виден всё время, пока используется камера или микрофон. На экране без выреза — в центре верхнего края."
-        checked={state?.enabled ?? false}
-        disabled={!state || saving}
-        onChange={async (event) => {
-          const value = event.currentTarget.checked;
-          setSaving(true);
-          setError('');
-          try {
-            setState(
-              await api<MediaIndicatorState>('mediaIndicator.setEnabled', { enabled: value }),
-            );
-          } catch (reason) {
-            setError(errorMessage(reason));
-          } finally {
-            setSaving(false);
-          }
-        }}
-      />
+      <Text size="sm" fw={500}>
+        Индикаторы активности
+      </Text>
+      <Text size="sm" c="dimmed">
+        Индикатор у выреза виден всё время, пока используется выбранное устройство. На экране без
+        выреза — в центре верхнего края.
+      </Text>
+      <div className="native-setting-group" role="group" aria-label="Индикаторы активности">
+        <Switch
+          label="Показывать активность камеры"
+          checked={state?.cameraEnabled ?? false}
+          disabled={!state || saving}
+          onChange={(event) => void save('camera', event.currentTarget.checked)}
+        />
+        <Switch
+          label="Показывать активность микрофона"
+          checked={state?.microphoneEnabled ?? false}
+          disabled={!state || saving}
+          onChange={(event) => void save('microphone', event.currentTarget.checked)}
+        />
+      </div>
       {state?.enabled && (
         <Text size="sm" c="dimmed">
           {mediaActivityLabel(state)}
@@ -58,7 +73,7 @@ export default function MediaIndicatorSettings() {
       )}
       <Text size="xs" c="dimmed">
         Индикатор может быть виден при демонстрации экрана. Чтобы скрыть его наверняка, выключите
-        эту настройку.
+        оба индикатора.
       </Text>
       {error && <Alert color="red">{error}</Alert>}
     </Stack>

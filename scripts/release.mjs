@@ -1,9 +1,12 @@
 import { readFile, access, mkdir, writeFile, stat } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
-import { releaseConfig, releaseArtifactNames } from './release-config.mjs';
+import { releasePackage, releaseConfig, releaseArtifactNames } from './release-config.mjs';
 import { appcastXml } from './release-metadata.mjs';
 import { join } from 'node:path';
-const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+const pkg = releasePackage(
+  JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')),
+  process.env,
+);
 const config = releaseConfig(pkg, process.env);
 if (process.platform !== 'darwin' || process.arch !== 'arm64')
   throw Error('Build releases on an Apple silicon Mac.');
@@ -57,7 +60,7 @@ if (process.argv.includes('--publish')) {
   run('gh', [
     'release',
     'create',
-    `v${pkg.version}`,
+    pkg.releaseTag,
     ...artifacts,
     '--draft',
     '--repo',

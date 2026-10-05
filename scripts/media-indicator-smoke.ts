@@ -76,6 +76,25 @@ async function main() {
     await app.evaluate(() => (globalThis as any).mediaTest.setActivity('inactive', 'active'));
     await expect(indicator).toHaveAttribute('data-mode', 'microphone');
     await expect(overlay.locator('.media-camera')).toHaveCount(0);
+    await app.evaluate(() => (globalThis as any).mediaTest.setActivity('active', 'active'));
+    await app.evaluate(() => (globalThis as any).mediaTest.indicator.setTracking('camera', false));
+    await expect(indicator).toHaveAttribute('data-mode', 'microphone');
+    await expect(overlay.locator('.media-camera')).toHaveCount(0);
+    await app.evaluate(() => (globalThis as any).mediaTest.setActivity('active', 'inactive'));
+    await expect.poll(visible).toBe(false);
+    await app.evaluate(() => (globalThis as any).mediaTest.indicator.setTracking('camera', true));
+    await app.evaluate(() =>
+      (globalThis as any).mediaTest.indicator.setTracking('microphone', false),
+    );
+    await app.evaluate(() => (globalThis as any).mediaTest.setActivity('active', 'unknown'));
+    await expect(indicator).toHaveAttribute('data-mode', 'camera');
+    await expect(overlay.locator('.media-microphone')).toHaveCount(0);
+    await expect(indicator).not.toHaveAttribute('data-unknown');
+    await app.evaluate(() => (globalThis as any).mediaTest.setActivity('inactive', 'active'));
+    await expect.poll(visible).toBe(false);
+    await app.evaluate(() =>
+      (globalThis as any).mediaTest.indicator.setTracking('microphone', true),
+    );
     await app.evaluate(() => (globalThis as any).mediaTest.setActivity('inactive', 'inactive'));
     await expect.poll(visible).toBe(false);
     await app.evaluate(() =>
@@ -208,6 +227,36 @@ async function main() {
     assert.equal(await visible(), false);
     await app.evaluate(() => (globalThis as any).mediaTest.indicator.setEnabled(true));
     await expect.poll(visible).toBe(true);
+    // Concurrent updates must preserve the other device's most recently saved choice.
+    await app.evaluate(async () => {
+      const indicator = (globalThis as any).mediaTest.indicator;
+      await Promise.all([
+        indicator.setTracking('camera', false),
+        indicator.setTracking('microphone', false),
+      ]);
+      await indicator.setTracking('microphone', true);
+    });
+    await app.close();
+    app = await launch();
+    await expect
+      .poll(() =>
+        app.evaluate(() => (globalThis as any).mediaTest?.indicator.state().cameraEnabled),
+      )
+      .toBe(false);
+    assert.equal(
+      await app.evaluate(() => (globalThis as any).mediaTest.indicator.state().microphoneEnabled),
+      true,
+    );
+    await app.evaluate(() => (globalThis as any).mediaTest.setActivity('active', 'active'));
+    await expect.poll(visible).toBe(true);
+    const reopenedOverlay = app
+      .windows()
+      .find((page) => page.url().includes('media-indicator.html'))!;
+    await expect(reopenedOverlay.locator('.media-indicator')).toHaveAttribute(
+      'data-mode',
+      'microphone',
+    );
+    await expect(reopenedOverlay.locator('.media-camera')).toHaveCount(0);
     assert.deepEqual(errors, []);
     console.log(
       `Media smoke passed: transitions, unknown/recovery, focus, protection flags, shelf independence, no-notch fallback, sleep/lock, fullscreen window visibility and persisted preference. OS capture: ${protectedCapture ? 'cropped comparison saved for inspection' : 'not tested; screen permission unavailable'}.`,

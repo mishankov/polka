@@ -1,8 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
-import { releaseConfig } from './release-config.mjs';
+import { releasePackage, releaseConfig } from './release-config.mjs';
 import { verifyReleaseMetadata } from './release-metadata.mjs';
-const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+const pkg = releasePackage(
+  JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')),
+  process.env,
+);
 const config = releaseConfig(pkg, process.env);
 const bundle = `release/mac-arm64/${pkg.build.productName}.app`;
 const image = `release/${pkg.name}-${pkg.version}-arm64.dmg`;

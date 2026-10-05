@@ -23,7 +23,7 @@ export function appcastXml(pkg, repository, signature, size, date = new Date()) 
             'sparkle:shortVersionString': pkg.version,
             'sparkle:minimumSystemVersion': pkg.build.mac.minimumSystemVersion,
             enclosure: {
-              '@_url': `https://github.com/${repository}/releases/download/v${pkg.version}/${zip}`,
+              '@_url': `https://github.com/${repository}/releases/download/${encodeURIComponent(pkg.releaseTag || `v${pkg.version}`)}/${zip}`,
               '@_length': String(size),
               '@_type': 'application/octet-stream',
               '@_sparkle:edSignature': signature,
@@ -53,7 +53,7 @@ export async function verifyReleaseMetadata(pkg, directory, repository, publicKe
     throw Error('Appcast version or minimum system version does not match this release.');
   const zip = names.find((name) => name.endsWith('.zip'));
   const enclosure = item.enclosure;
-  const expectedUrl = `https://github.com/${repository}/releases/download/v${pkg.version}/${zip}`;
+  const expectedUrl = `https://github.com/${repository}/releases/download/${encodeURIComponent(pkg.releaseTag || `v${pkg.version}`)}/${zip}`;
   if (!enclosure || enclosure['@_url'] !== expectedUrl)
     throw Error('Appcast URL does not match the uploaded ZIP asset.');
   const bytes = await readFile(join(directory, zip));

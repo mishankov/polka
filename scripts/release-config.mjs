@@ -1,5 +1,18 @@
 import { sparkleBuilderConfig } from 'electron-sparkle-updater/builder';
 
+/** Keep bundle version, archive names and feed URL aligned with the selected release tag. */
+export function releasePackage(pkg, env) {
+  const tag = env.RELEASE_TAG || `v${pkg.version}`;
+  const version = tag.replace(/^v/, '');
+  if (
+    !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(
+      version,
+    )
+  )
+    throw Error('RELEASE_TAG must be a semantic version with an optional v prefix.');
+  return { ...pkg, version, releaseTag: tag };
+}
+
 export function releaseArtifactNames(pkg) {
   const base = `${pkg.name}-${pkg.version}-arm64`;
   if (!/^[A-Za-z0-9._-]+$/.test(base))
@@ -28,6 +41,7 @@ export function releaseConfig(pkg, env) {
   });
   return {
     ...pkg.build,
+    buildVersion: pkg.version,
     npmRebuild: false, // The N-API bridge is built explicitly for the target Electron version.
     files: [
       ...(pkg.build.files || []).filter(
@@ -57,7 +71,10 @@ export function releaseConfig(pkg, env) {
         SUVerifyUpdateBeforeExtraction: true,
       },
     },
-    extraMetadata: { release: { repository, updater: 'sparkle', feedUrl, publicKey } },
+    extraMetadata: {
+      version: pkg.version,
+      release: { repository, updater: 'sparkle', feedUrl, publicKey },
+    },
     publish: null,
   };
 }

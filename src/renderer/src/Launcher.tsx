@@ -7,6 +7,7 @@ import { shelfSearch, type ShelfSearchResult } from '../../shared/shelf-search';
 import SearchResult from './ShelfSearchResult';
 import { api, errorMessage, report } from './api';
 import ClipboardHistory from './ClipboardHistory';
+import EmojiPicker from './EmojiPicker';
 import ShelfSettings from './ShelfSettings';
 import ShelfWelcome from './ShelfWelcome';
 import type { ShelfDestination } from '../../shared/shelf';
@@ -19,7 +20,7 @@ export default function Launcher({
   // Apply the entry destination in this render. Mirroring it in an effect briefly
   // remounts clipboard history when a closed shelf reopens on the app list.
   const settings = entry.destination === 'settings' || entry.destination === 'about';
-  const builtin = entry.destination === 'clipboard';
+  const builtin = entry.destination === 'clipboard' || entry.destination === 'emoji';
   const navigation = useRef(0);
   const [apps, setApps] = useState<LauncherApp[]>([]);
   const [macApps, setMacApps] = useState<MacLauncherApp[]>([]);
@@ -141,7 +142,7 @@ export default function Launcher({
     setError('');
     try {
       if (app.kind === 'builtin') {
-        await api('clipboardHistory.show');
+        await api(app.id === 'builtin:emoji' ? 'shelf.showEmoji' : 'clipboardHistory.show');
         return;
       }
       if (app.kind === 'mac') {
@@ -208,6 +209,11 @@ export default function Launcher({
           key={entry.revision}
           initialTab={entry.destination === 'about' ? 'about' : 'general'}
         />
+      ) : entry.destination === 'emoji' ? (
+        <EmojiPicker
+          key={entry.revision}
+          onBack={() => void api('launcher.show').catch((error) => setError(errorMessage(error)))}
+        />
       ) : builtin ? (
         <ClipboardHistory
           key={entry.revision}
@@ -238,6 +244,25 @@ export default function Launcher({
               aria-activedescendant={selection ? `launcher-app-${selection.id}` : undefined}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing) return;
+                if (
+                  event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.altKey &&
+                  !event.shiftKey &&
+                  /^[1-9]$/.test(event.key)
+                ) {
+                  if (
+                    event.defaultPrevented ||
+                    document.querySelector(
+                      '[role="dialog"], [role="menu"], [role="listbox"]:not(#launcher-results)',
+                    )
+                  )
+                    return;
+                  event.preventDefault();
+                  const result = results[Number(event.key) - 1];
+                  if (result && !event.repeat) void activate(result);
+                  return;
+                }
                 if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                   event.preventDefault();
                   if (results.length)
@@ -325,6 +350,7 @@ export default function Launcher({
                     busy={opening}
                     copied={copied === result.id}
                     canPaste={canPaste}
+                    shortcut={position < 9 ? position + 1 : undefined}
                     onSelect={() => setSelected(result.id)}
                     onActivate={(copyOnly) => void activate(result, copyOnly)}
                   />
