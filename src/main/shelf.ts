@@ -174,7 +174,7 @@ export function createShelf(
         fullscreenable: false,
         alwaysOnTop: true,
         skipTaskbar: true,
-        title: 'Полка Everything App',
+        title: 'Полка',
         transparent: true,
         enableLargerThanScreen: true,
         hasShadow: false,

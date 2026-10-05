@@ -13,7 +13,7 @@ import {
   autoUpdater as nativeUpdater,
 } from 'electron';
 import { Worker } from 'node:worker_threads';
-import { promises as fs } from 'node:fs';
+import { mkdirSync, promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -34,7 +34,12 @@ import polkaTray3xPath from './assets/polkaTemplate@3x.png?asset';
 import { shelfMethodAllowed } from '../shared/features';
 protectTerminalOutput();
 const execFileAsync = promisify(execFile);
-if (process.env.EVERYTHING_PROFILE) app.setPath('userData', process.env.EVERYTHING_PROFILE);
+// Keep the pre-rebrand profile so existing settings and clipboard history remain available.
+const profilePath =
+  process.env.EVERYTHING_PROFILE ||
+  join(app.getPath('appData'), app.isPackaged ? 'Everything App' : 'everything-app');
+mkdirSync(profilePath, { recursive: true });
+app.setPath('userData', profilePath);
 const windows = new Map<number, { window: BrowserWindow; mode: string }>(),
   pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
 let updates: UpdateService;

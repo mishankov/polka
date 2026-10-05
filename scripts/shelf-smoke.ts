@@ -120,7 +120,7 @@ async function main() {
     ).toBeEnabled();
     await page.screenshot({ path: '/tmp/everything-shelf-clipboard-settings.png' });
     await page.getByRole('tab', { name: 'О приложении', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Everything App', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Полка', exact: true })).toBeVisible();
     await expect(page.getByText('Подключение AI', { exact: true })).toHaveCount(0);
     await page.screenshot({ path: '/tmp/everything-shelf-about.png' });
     await page.getByRole('button', { name: 'Назад к приложениям', exact: true }).click();
