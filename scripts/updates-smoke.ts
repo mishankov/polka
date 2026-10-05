@@ -53,7 +53,8 @@ async function main() {
   ) as Record<string, string>;
   env.CSC_FOR_PULL_REQUEST = 'true'; // Fixture signing uses no certificate or release secret.
   let running: ElectronApplication | undefined;
-  let profile: string | undefined;
+  const profile = join(directory, 'profile');
+  const bootstrap = join(directory, 'bootstrap');
   let executable = '';
   function run(command: string, args: string[]) {
     const result = spawnSync(command, args, { stdio: 'inherit', env });
@@ -70,6 +71,14 @@ async function main() {
     run('npm', ['run', 'build']);
     run('npm', ['run', 'native:build']);
     run('npm', ['run', 'sparkle:build']);
+    // The rebranded app deliberately keeps the legacy user-data location. Bake a
+    // fixture-only entry point into both bundles so Sparkle's native relaunch
+    // also uses our temporary profile, even if launch environment is discarded.
+    await mkdir(bootstrap);
+    await writeFile(
+      join(bootstrap, 'update-smoke-bootstrap.js'),
+      `process.env.EVERYTHING_PROFILE = ${JSON.stringify(profile)};\nrequire('./index.js');\n`,
+    );
     for (const [fixture, folder, target] of [
       [pkg, 'old', 'dir'],
       [newPkg, 'new', 'zip'],
@@ -82,6 +91,8 @@ async function main() {
       config.productName = productName;
       config.buildVersion = fixture.version;
       config.directories.output = join(directory, folder);
+      config.extraMetadata.main = 'out/main/update-smoke-bootstrap.js';
+      config.files.push({ from: bootstrap, to: 'out/main', filter: ['update-smoke-bootstrap.js'] });
       config.extraMetadata.version = fixture.version;
       config.extraMetadata.productName = productName;
       config.extraMetadata.release.feedUrl = `${origin}/appcast.xml`;
@@ -139,7 +150,7 @@ async function main() {
     };
     console.log('Starting packaged update fixture');
     running = await launch();
-    profile = await running.evaluate(({ app }) => app.getPath('userData'));
+    assert.equal(await running.evaluate(({ app }) => app.getPath('userData')), profile);
     let page = await running.firstWindow();
     const status = () => page.evaluate(() => window.platform.call('updates.status'));
     await expect.poll(async () => (await status()).status, { timeout: 90000 }).toBe('error');
@@ -216,7 +227,7 @@ async function main() {
     // Terminate only disposable fixture helpers before removing their staged files.
     spawnSync('pkill', ['-f', directory]);
     spawnSync('pkill', ['-f', appId]);
-    if (profile) await rm(profile, { recursive: true, force: true });
+    await rm(profile, { recursive: true, force: true });
     await rm(join(homedir(), 'Library/Caches', appId), { recursive: true, force: true });
     await rm(join(homedir(), 'Library/Preferences', `${appId}.plist`), { force: true });
     await rm(directory, { recursive: true, force: true });

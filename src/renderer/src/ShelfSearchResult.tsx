@@ -31,7 +31,7 @@ export default function SearchResult({
         ? calculation.value
         : 'Показать все записи';
   const description = app
-    ? app.description || 'Everything App'
+    ? app.description || 'Полка'
     : clip
       ? `${clip.pinned ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
       : calculation

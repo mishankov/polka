@@ -10,10 +10,10 @@ import { releaseConfig, releaseArtifactNames } from '../scripts/release-config.m
 import { appcastXml, verifyReleaseMetadata } from '../scripts/release-metadata.mjs';
 
 const pkg = {
-  name: 'everything-app',
+  name: 'polka',
   version: '0.2.0',
   build: {
-    productName: 'Everything App',
+    productName: 'Polka',
     files: ['out/**/*', '!**/node_modules/electron-sparkle-updater/native/**'],
     mac: {
       target: ['dmg', 'zip'],

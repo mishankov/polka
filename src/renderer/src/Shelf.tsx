@@ -53,7 +53,7 @@ export default function Shelf() {
   return (
     <main
       className={`clipboard-shelf ${presentation.visible ? 'is-open' : hasOpened.current ? 'is-closed' : 'is-idle'}`}
-      aria-label="Полка Everything App"
+      aria-label="Полка"
       data-notched={presentation.topInset > 0 || undefined}
       style={
         {

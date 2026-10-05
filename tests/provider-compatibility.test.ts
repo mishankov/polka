@@ -44,7 +44,7 @@ function strictHeaders(init?: RequestInit) {
   const headers = new Headers(init?.headers),
     ua = headers.get('user-agent'),
     session = headers.get('x-opencode-session');
-  return !!ua && /everything/i.test(ua) && !!session;
+  return !!ua && /^polka\//.test(ua) && !!session;
 }
 function fixture(fetcher: typeof fetch) {
   const state = new Map<string, any>(),
@@ -118,7 +118,7 @@ test('strict OpenCode models and connection probe accept authentic UA and genera
     received[1].headers.get('x-opencode-session'),
   );
   for (const request of received) {
-    assert.match(request.headers.get('user-agent')!, /everything/i);
+    assert.match(request.headers.get('user-agent')!, /^polka\//);
     assert(request.headers.get('x-opencode-session'));
     assert.equal(request.headers.get('authorization'), 'Bearer mock-key');
   }
@@ -164,7 +164,7 @@ test('OpenCode-specific session header is never sent to unrelated or lookalike h
     const adapter = new ProviderAdapter(async (_url, init) => {
       const headers = new Headers(init?.headers);
       assert.equal(headers.has('x-opencode-session'), false);
-      assert.match(headers.get('user-agent')!, /everything/i);
+      assert.match(headers.get('user-agent')!, /^polka\//);
       return sse([{ content: 'Done' }]);
     });
     await adapter.complete(

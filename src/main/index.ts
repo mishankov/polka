@@ -16,7 +16,7 @@ import {
   shell,
 } from 'electron';
 import { Worker } from 'node:worker_threads';
-import { promises as fs } from 'node:fs';
+import { mkdirSync, promises as fs } from 'node:fs';
 import { extname, join } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -47,7 +47,12 @@ import {
 } from '../shared/features';
 protectTerminalOutput();
 const execFileAsync = promisify(execFile);
-if (process.env.EVERYTHING_PROFILE) app.setPath('userData', process.env.EVERYTHING_PROFILE);
+// Keep the pre-rebrand profile so existing settings and clipboard history remain available.
+const profilePath =
+  process.env.EVERYTHING_PROFILE ||
+  join(app.getPath('appData'), app.isPackaged ? 'Everything App' : 'everything-app');
+mkdirSync(profilePath, { recursive: true });
+app.setPath('userData', profilePath);
 const windows = new Map<number, { window: BrowserWindow; appId?: string; mode: string }>(),
   pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
 let updates: UpdateService;
@@ -171,7 +176,7 @@ async function host(method: string, p: any): Promise<any> {
   if (method === 'notifications.show') {
     if (Notification.isSupported())
       new Notification({
-        title: String(p.title || 'Everything App'),
+        title: String(p.title || 'Полка'),
         body: String(p.body || ''),
       }).show();
     return true;
@@ -222,7 +227,7 @@ async function refreshTrayMenu() {
           click: () => void shelf.show('keyboard', 'about').catch(console.error),
         },
         { type: 'separator' },
-        { label: 'Выйти из Everything App', click: () => app.quit() },
+        { label: 'Выйти из Полки', click: () => app.quit() },
       ]),
     );
     return;
@@ -243,7 +248,7 @@ async function refreshTrayMenu() {
     if (key === trayAppsKey) return;
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: 'Открыть Everything App', click: () => void openWindow() },
+        { label: 'Открыть Полку', click: () => void openWindow() },
         { label: 'Запуск приложений', click: () => void shelf.show().catch(console.error) },
         {
           label: 'История буфера обмена',
@@ -334,7 +339,7 @@ async function openWindow(appId?: string, page?: 'settings') {
     ...(visible ? { x: geometry.x, y: geometry.y } : {}),
     minWidth: 560,
     minHeight: 420,
-    title: instance?.name || 'Everything App',
+    title: instance?.name || 'Полка',
     titleBarStyle: 'hiddenInset',
     // Center the 14px macOS controls in the standalone renderer's 48px title bar.
     ...(appId && process.platform === 'darwin' ? { trafficLightPosition: { x: 12, y: 17 } } : {}),
@@ -553,7 +558,7 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
   if (method === 'packages.chooseImport') {
     const r = await dialog.showOpenDialog(sender.window, {
       properties: ['openFile'],
-      filters: [{ name: 'Приложение Everything', extensions: ['everyapp'] }],
+      filters: [{ name: 'Приложение Полки', extensions: ['everyapp'] }],
     });
     return r.canceled
       ? null
@@ -562,7 +567,7 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
   if (method === 'packages.chooseUpdate') {
     const r = await dialog.showOpenDialog(sender.window, {
       properties: ['openFile'],
-      filters: [{ name: 'Приложение Everything', extensions: ['everyapp'] }],
+      filters: [{ name: 'Приложение Полки', extensions: ['everyapp'] }],
     });
     return r.canceled
       ? null
@@ -576,7 +581,7 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     const preview = await call('packages.preview', params);
     const r = await dialog.showSaveDialog(sender.window, {
       defaultPath: `${String(preview.name || 'Приложение').replace(/[\\/:]/g, '-')}.everyapp`,
-      filters: [{ name: 'Приложение Everything', extensions: ['everyapp'] }],
+      filters: [{ name: 'Приложение Полки', extensions: ['everyapp'] }],
     });
     return r.canceled ? null : packageOperation('packages.export', { ...params, path: r.filePath });
   }
@@ -808,7 +813,7 @@ app
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([
         {
-          label: 'Everything App',
+          label: 'Полка',
           submenu: [
             {
               label: 'О приложении и обновления',
@@ -847,7 +852,7 @@ app
               click: async () => {
                 const r = await dialog.showOpenDialog({
                   properties: ['openFile'],
-                  filters: [{ name: 'Everything App', extensions: ['everyapp'] }],
+                  filters: [{ name: 'Полка', extensions: ['everyapp'] }],
                 });
                 if (!r.canceled) {
                   await openWindow();
@@ -886,7 +891,7 @@ app
     image.addRepresentation({ scaleFactor: 3, buffer: await fs.readFile(polkaTray3xPath) });
     image.setTemplateImage(true);
     tray = new Tray(image);
-    tray.setToolTip('Polka — полка');
+    tray.setToolTip('Полка');
     await refreshTrayMenu();
     powerMonitor.on('resume', () => {
       shelf.resume();

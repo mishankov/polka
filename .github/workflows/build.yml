@@ -50,7 +50,7 @@ jobs:
 
       - name: Verify packaged app signature and disk image
         run: |
-          codesign --verify --deep --strict --verbose=2 "release/mac-arm64/Everything App.app"
+          codesign --verify --deep --strict --verbose=2 "release/mac-arm64/Polka.app"
           for image in release/*.dmg; do
             hdiutil verify "$image"
           done
@@ -65,7 +65,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: Everything App-macos-arm64
+          name: Polka-macos-arm64
           path: |
             release/*.dmg
             release/*.zip

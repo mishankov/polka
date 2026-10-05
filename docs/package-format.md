@@ -1,6 +1,6 @@
-# Everything App portable package, version 1
+# Polka portable package, version 1
 
-Extension: **`.everyapp`**, media type `application/vnd.everything-app`. The desktop package associates this extension with Everything App. A package is a ZIP archive, never an executable or standalone macOS app. Opening a package stages a preview; it does not execute its source code.
+Extension: **`.everyapp`**, media type `application/vnd.everything-app`. The desktop package associates this extension with Polka. The format identifier and media type retain their original names for compatibility with existing packages. A package is a ZIP archive, never an executable or standalone macOS app. Opening a package stages a preview; it does not execute its source code.
 
 ## Contents
 

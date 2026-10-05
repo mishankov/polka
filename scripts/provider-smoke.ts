@@ -42,7 +42,7 @@ async function main() {
   const failures: string[] = [];
   const server = createServer(async (req, res) => {
     try {
-      assert.match(String(req.headers['user-agent']), /^everything-app\//);
+      assert.match(String(req.headers['user-agent']), /^polka\//);
       assert.equal(req.headers.authorization, 'Bearer mock-only');
       if (req.url === '/v1/models') {
         res.setHeader('content-type', 'application/json');

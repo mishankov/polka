@@ -70,7 +70,7 @@ function headers(
           'anthropic-version': '2023-06-01',
         }
       : { 'content-type': 'application/json', authorization: `Bearer ${secret}` };
-  result['user-agent'] = `everything-app/${version}`;
+  result['user-agent'] = `polka/${version}`;
   // Go routes coding-agent conversations by this header. Do not expose local IDs or
   // send provider-specific routing metadata to unrelated endpoints.
   if (new URL(config.endpoint).hostname === 'opencode.ai')
