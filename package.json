@@ -76,9 +76,6 @@
     }
   },
   "dependencies": {
-    "@mantine/core": "9.6.3",
-    "@mantine/hooks": "9.6.3",
-    "@mantine/notifications": "9.6.3",
     "@tabler/icons-react": "3.48.0",
     "electron-updater": "6.8.9",
     "react": "19.3.0",

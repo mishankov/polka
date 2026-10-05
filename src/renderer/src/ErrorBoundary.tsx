@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Button, Group, Stack, Text } from '@mantine/core';
+import { Alert, Button, Group, Stack, Text } from './NativeControls';
 export class ErrorBoundary extends React.Component<React.PropsWithChildren, { error?: Error }> {
   state: { error?: Error } = {};
   static getDerivedStateFromError(error: Error) {
