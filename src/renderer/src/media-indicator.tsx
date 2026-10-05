@@ -51,13 +51,13 @@ function Indicator() {
       }
     >
       <div className="media-rim" />
-      {camera !== 'inactive' && (
+      {(camera === 'active' || camera === 'unknown') && (
         <span className="media-device media-camera" data-state={camera}>
           <IconVideo size={25} stroke={2.2} />
           {camera === 'unknown' && <IconQuestionMark className="media-question" size={13} />}
         </span>
       )}
-      {microphone !== 'inactive' && (
+      {(microphone === 'active' || microphone === 'unknown') && (
         <span className="media-device media-microphone" data-state={microphone}>
           <IconMicrophone size={25} stroke={2.2} />
           {microphone === 'unknown' && <IconQuestionMark className="media-question" size={13} />}

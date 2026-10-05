@@ -102,19 +102,35 @@ async function main() {
     );
     await expect(settings.locator('[class*="mantine-"]')).toHaveCount(0);
     await settings.getByRole('tab', { name: 'Полка и сочетания', exact: true }).click();
-    const mediaSwitch = settings.getByRole('switch', {
-      name: 'Показывать активность камеры и микрофона',
+    const cameraSwitch = settings.getByRole('switch', {
+      name: 'Показывать активность камеры',
       exact: true,
     });
-    await expect(mediaSwitch).not.toBeChecked();
-    await mediaSwitch.click();
-    await expect(mediaSwitch).toBeChecked();
-    assert.equal(
-      (await settings.evaluate(() => window.platform.call('mediaIndicator.getState'))).enabled,
-      true,
-    );
-    await mediaSwitch.click();
-    await expect(mediaSwitch).not.toBeChecked();
+    const microphoneSwitch = settings.getByRole('switch', {
+      name: 'Показывать активность микрофона',
+      exact: true,
+    });
+    await expect(cameraSwitch).not.toBeChecked();
+    await expect(microphoneSwitch).not.toBeChecked();
+    await cameraSwitch.click();
+    await expect(cameraSwitch).toBeChecked();
+    await expect(microphoneSwitch).not.toBeChecked();
+    let mediaState = await settings.evaluate(() => window.platform.call('mediaIndicator.getState'));
+    assert.equal(mediaState.cameraEnabled, true);
+    assert.equal(mediaState.microphoneEnabled, false);
+    assert.equal(mediaState.microphone, 'disabled');
+    await cameraSwitch.click();
+    await expect(cameraSwitch).not.toBeChecked();
+    await microphoneSwitch.click();
+    await expect(microphoneSwitch).toBeChecked();
+    await expect(cameraSwitch).not.toBeChecked();
+    mediaState = await settings.evaluate(() => window.platform.call('mediaIndicator.getState'));
+    assert.equal(mediaState.cameraEnabled, false);
+    assert.equal(mediaState.microphoneEnabled, true);
+    assert.equal(mediaState.camera, 'disabled');
+    await settings.screenshot({ path: '/tmp/everything-settings-media.png' });
+    await microphoneSwitch.click();
+    await expect(microphoneSwitch).not.toBeChecked();
     const shortcut = settings.getByRole('textbox', { name: 'Сочетание для запуска', exact: true });
     await shortcut.click();
     await settings.keyboard.press('Escape');
@@ -209,6 +225,10 @@ async function main() {
     await app.close();
     const after = new SettingsStore(profile);
     assert.equal(await after.handle('settings.get', { key: 'mediaIndicatorEnabled' }), false);
+    assert.deepEqual(await after.handle('settings.get', { key: 'mediaIndicatorTracking' }), {
+      cameraEnabled: false,
+      microphoneEnabled: false,
+    });
     after.close();
     app = await launch(true);
     // Wait for readiness through the menu, without creating or displaying a window.
