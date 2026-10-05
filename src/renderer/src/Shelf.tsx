@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { flushSync } from 'react-dom';
 import type { ShelfDestination, ShelfPresentation } from '../../shared/shelf';
 import { api, report } from './api';
 import Launcher from './Launcher';
@@ -35,7 +36,10 @@ export default function Shelf() {
   useEffect(() => {
     const unsubscribe = window.platform.onEvent((event) => {
       if (event.type === 'shelf.presentation') apply(event.presentation);
-      if (event.type === 'shelf.shown') apply(event.presentation, true);
+      if (event.type === 'shelf.shown') {
+        flushSync(() => apply(event.presentation, true));
+        void api('shelf.didShow', { revision: event.presentation.revision }).catch(report);
+      }
     });
     void api<ShelfPresentation>('shelf.presentation')
       .then((next) => apply(next, true))
