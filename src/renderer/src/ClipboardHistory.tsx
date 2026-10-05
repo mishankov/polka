@@ -10,6 +10,7 @@ import {
   IconEye,
   IconArrowLeft,
   IconTextSize,
+  IconLock,
 } from '@tabler/icons-react';
 import { clipboardResults, type ClipboardState, type ClipboardClip } from '../../shared/clipboard';
 import { api, errorMessage } from './api';
@@ -264,6 +265,26 @@ export default function ClipboardHistory({
             aria-activedescendant={selection ? `clip-${selection.id}` : undefined}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return;
+              if (
+                event.metaKey &&
+                !event.ctrlKey &&
+                !event.altKey &&
+                !event.shiftKey &&
+                /^[1-9]$/.test(event.key)
+              ) {
+                if (
+                  event.defaultPrevented ||
+                  menuOpen ||
+                  document.querySelector(
+                    '[role="dialog"], [role="menu"], [role="listbox"]:not(#clipboard-results)',
+                  )
+                )
+                  return;
+                event.preventDefault();
+                const clip = results[Number(event.key) - 1];
+                if (clip && !event.repeat) void run('select', { id: clip.id });
+                return;
+              }
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault();
                 const next =
@@ -285,14 +306,25 @@ export default function ClipboardHistory({
         </div>
       )}
       {state?.preferences.pasteOnSelect && state.pasteAccess !== 'granted' && (
-        <div className="clipboard-paste-hint">
-          <span>
-            {state.pasteAccess === 'required'
-              ? 'Для вставки в предыдущее поле нужен доступ «Универсальный доступ». Пока запись только копируется.'
-              : 'Автовставка пока недоступна. Запись будет скопирована; вставьте её сочетанием ⌘ V.'}
-          </span>
+        <div
+          className={`clipboard-paste-hint${state.pasteAccess === 'required' ? ' clipboard-paste-permission' : ''}`}
+          role="status"
+        >
           {state.pasteAccess === 'required' && (
-            <button onClick={() => void run('requestPasteAccess')}>Разрешить…</button>
+            <IconLock className="clipboard-paste-permission-icon" size={20} aria-hidden="true" />
+          )}
+          <div className="clipboard-paste-hint-text">
+            {state.pasteAccess === 'required' && <strong>Автовставке нужен доступ</strong>}
+            <p>
+              {state.pasteAccess === 'required'
+                ? 'Разрешите «Универсальный доступ» в macOS. Пока запись только копируется — вставьте её ⌘ V.'
+                : 'Автовставка пока недоступна. Запись будет скопирована; вставьте её сочетанием ⌘ V.'}
+            </p>
+          </div>
+          {state.pasteAccess === 'required' && (
+            <Button variant="default" loading={busy} onClick={() => void run('requestPasteAccess')}>
+              Разрешить…
+            </Button>
           )}
         </div>
       )}
@@ -369,7 +401,7 @@ export default function ClipboardHistory({
               </p>
             </div>
           ) : (
-            results.map((clip) => (
+            results.map((clip, position) => (
               <div
                 key={clip.id}
                 className={`clipboard-row${selection?.id === clip.id ? ' selected' : ''}`}
@@ -378,6 +410,7 @@ export default function ClipboardHistory({
                   id={`clip-${clip.id}`}
                   role="option"
                   aria-selected={selection?.id === clip.id}
+                  aria-keyshortcuts={position < 9 ? `Meta+${position + 1}` : undefined}
                   className="clipboard-copy"
                   disabled={busy}
                   onFocus={() => setSelected(clip.id)}
@@ -452,6 +485,9 @@ export default function ClipboardHistory({
                     </ActionIcon>
                   </Tooltip>
                 </div>
+                <span className="clipboard-result-shortcut">
+                  {position < 9 && <kbd>⌘{position + 1}</kbd>}
+                </span>
               </div>
             ))
           )}

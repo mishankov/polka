@@ -6,6 +6,10 @@ import {
   parseMediaActivity,
   mediaIndicatorVisible,
   UNKNOWN_MEDIA,
+  mediaTrackingFromSettings,
+  trackedMediaActivity,
+  mediaActivityLabel,
+  type DeviceActivity,
 } from '../src/shared/media-indicator';
 
 const snapshot = (camera: string, microphone: string) => ({
@@ -16,6 +20,55 @@ const flush = async () => {
   await Promise.resolve();
   await Promise.resolve();
 };
+
+test('independent preferences preserve defaults and migrate the combined switch', () => {
+  assert.deepEqual(mediaTrackingFromSettings(), { cameraEnabled: true, microphoneEnabled: true });
+  for (const enabled of [true, false]) {
+    assert.deepEqual(mediaTrackingFromSettings({ mediaIndicatorEnabled: enabled }), {
+      cameraEnabled: enabled,
+      microphoneEnabled: enabled,
+    });
+  }
+  for (const cameraEnabled of [true, false])
+    for (const microphoneEnabled of [true, false]) {
+      const tracking = { cameraEnabled, microphoneEnabled };
+      assert.deepEqual(
+        mediaTrackingFromSettings({
+          mediaIndicatorEnabled: false,
+          mediaIndicatorTracking: tracking,
+        }),
+        tracking,
+      );
+    }
+});
+
+test('disabled devices cannot show active or unavailable indicators', () => {
+  const states: DeviceActivity[] = ['active', 'inactive', 'unknown'];
+  for (const cameraEnabled of [true, false])
+    for (const microphoneEnabled of [true, false])
+      for (const camera of states)
+        for (const microphone of states) {
+          const activity = trackedMediaActivity(
+            { camera, microphone },
+            { cameraEnabled, microphoneEnabled },
+          );
+          assert.equal(activity.camera, cameraEnabled ? camera : 'disabled');
+          assert.equal(activity.microphone, microphoneEnabled ? microphone : 'disabled');
+          assert.equal(
+            mediaIndicatorVisible(activity),
+            (cameraEnabled && camera !== 'inactive') ||
+              (microphoneEnabled && microphone !== 'inactive'),
+          );
+        }
+  assert.match(
+    mediaActivityLabel({ camera: 'disabled', microphone: 'active' }),
+    /Камера: отслеживание выключено/,
+  );
+  assert.deepEqual(parseMediaActivity(snapshot('disabled', 'active')), {
+    camera: 'disabled',
+    microphone: 'active',
+  });
+});
 
 test('unavailable and malformed measurements are never treated as inactive', () => {
   assert.deepEqual(parseMediaActivity(null), UNKNOWN_MEDIA);

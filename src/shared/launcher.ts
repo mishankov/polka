@@ -14,7 +14,7 @@ export interface MacLauncherApp {
 }
 export interface BuiltinLauncherApp {
   kind: 'builtin';
-  id: 'builtin:clipboard';
+  id: 'builtin:clipboard' | 'builtin:emoji';
   name: string;
   icon: string;
   description: string;
@@ -28,6 +28,14 @@ export const BUILTIN_APPS: BuiltinLauncherApp[] = [
     icon: 'clipboard',
     description: 'Скопированный текст и изображения',
     searchTerms: ['clipboard', 'history', 'буфер', 'копировать'],
+  },
+  {
+    kind: 'builtin',
+    id: 'builtin:emoji',
+    name: 'Эмодзи',
+    icon: 'emoji',
+    description: 'Смайлы, жесты и символы — найти и вставить',
+    searchTerms: ['emoji', 'emojis', 'эмоджи', 'смайлик', 'смайлики'],
   },
 ];
 export type LauncherApp = MacLauncherApp | BuiltinLauncherApp;
