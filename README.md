@@ -74,7 +74,7 @@ npm run verify
 
 GitHub Actions (`.github/workflows/build.yml`) запускает `npm run verify`, упаковку и проверки готового `.app` для каждого pull request и push в `master`; доступен и ручной запуск. Все шаги выполняются на Apple silicon с macOS 27 и Xcode 27 (`xcode-27`, hosted runner в public preview). DMG и ZIP доступны в артефакте `Polka-macos-arm64` в течение 7 дней, снимки desktop-проверок — в отдельном артефакте. CI-сборки используют ad-hoc подпись.
 
-Workflow `release.yml` собирает и загружает ARM64 DMG, ZIP и `checksums.txt` при публикации GitHub Release. Ручной запуск с `tag` (например, `v0.1.15`) создаёт или повторно использует выпуск и публикует черновик после успешных проверок и загрузки. Тег должен совпадать с версией `package.json` в выбранном коммите. Все jobs используют hosted Apple silicon runner `xcode-27`; сертификаты Apple не нужны, сборки имеют ad-hoc подпись и не проходят notarization.
+Workflow `release.yml` собирает и загружает ARM64 DMG, ZIP и `checksums.txt` при публикации GitHub Release. Ручной запуск с `tag` (например, `v0.1.15`) создаёт или повторно использует выпуск и публикует черновик после успешных проверок и загрузки. Версия приложения и имена артефактов берутся из тега GitHub Release (без префикса `v`); менять версию в `package.json` не требуется. Все jobs используют hosted Apple silicon runner `xcode-27`; сертификаты Apple не нужны, сборки имеют ad-hoc подпись и не проходят notarization.
 
 Для испытаний используйте отдельный профиль: `EVERYTHING_PROFILE=/absolute/test/profile`.
 
