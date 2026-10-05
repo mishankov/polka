@@ -122,7 +122,7 @@ jobs:
         run: npm run package -- --publish never -c.mac.identity=-
       - name: Verify packaged app and disk image
         run: |
-          codesign --verify --deep --strict "release/mac-arm64/Everything App.app"
+          codesign --verify --deep --strict "release/mac-arm64/Polka.app"
           for image in release/*.dmg; do
             hdiutil verify "$image"
           done

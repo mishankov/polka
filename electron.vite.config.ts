@@ -9,8 +9,6 @@ export default defineConfig({
         input: {
           index: resolve('src/main/index.ts'),
           worker: resolve('src/main/worker.ts'),
-          transformWorker: resolve('src/main/transformWorker.ts'),
-          'package-worker': resolve('src/core/package-worker.ts'),
         },
       },
     },
@@ -21,7 +19,6 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/preload/index.ts'),
-          extension: resolve('src/preload/extension.ts'),
           'media-indicator': resolve('src/preload/media-indicator.ts'),
         },
       },

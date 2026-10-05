@@ -43,7 +43,7 @@ export default function Updates() {
         )}
         {state?.status === 'ready' && (
           <Text size="sm" c="dimmed">
-            Документы будут сохранены. Приложение перезапустится для установки.
+            Приложение перезапустится для установки обновления.
           </Text>
         )}
         <Group>
@@ -61,7 +61,7 @@ export default function Updates() {
           )}
           {state && ['ready', 'installing'].includes(state.status) && (
             <Button loading={state.status === 'installing'} onClick={() => action('install')}>
-              Сохранить и перезапустить
+              Установить и перезапустить
             </Button>
           )}
         </Group>
