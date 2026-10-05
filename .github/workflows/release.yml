@@ -101,13 +101,10 @@ jobs:
           node-version: '24.18.0'
           cache: npm
 
-      - name: Validate release version and runner
-        env:
-          TAG: ${{ needs.prepare.outputs.tag }}
+      - name: Validate runner
         run: |
           test "$(uname -m)" = arm64
           test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
-          node -e 'const expected = "v" + require("./package.json").version; if (process.env.TAG !== expected) throw new Error("Release tag must match package.json: " + expected)'
           xcodebuild -version
 
       - run: npm ci
@@ -119,7 +116,8 @@ jobs:
       - name: Package arm64 DMG and ZIP
         env:
           CSC_FOR_PULL_REQUEST: 'true'
-        run: npm run package -- --publish never -c.mac.identity=-
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: npm run package -- --publish never -c.mac.identity=- -c.extraMetadata.version="${TAG#v}"
       - name: Verify packaged app and disk image
         run: |
           codesign --verify --deep --strict "release/mac-arm64/Polka.app"
