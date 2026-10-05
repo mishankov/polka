@@ -1,5 +1,5 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { ActionIcon, Alert, Button, Loader, Text, TextInput, Tooltip } from '@mantine/core';
+import { lazy, Suspense, Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { ActionIcon, Alert, Button, Loader, Text, TextInput, Tooltip } from './NativeControls';
 import {
   IconSettings,
   IconArrowLeft,
@@ -14,12 +14,13 @@ import SearchResult from './ShelfSearchResult';
 import type { AppInstance } from '../../shared/types';
 import { api, errorMessage, report } from './api';
 import { flushDocuments } from './documentFlush';
-import Runtime from './Runtime';
 import ClipboardHistory from './ClipboardHistory';
 import ShelfSettings from './ShelfSettings';
 import ShelfWelcome from './ShelfWelcome';
 import type { ShelfDestination } from '../../shared/shelf';
 import { CUSTOM_APPS_ENABLED } from '../../shared/features';
+
+const Runtime = lazy(() => import('./Runtime'));
 
 export default function Launcher({
   entry,
@@ -322,17 +323,19 @@ export default function Launcher({
             </Alert>
           )}
           <div className="launcher-content">
-            <Runtime
-              key={current.id}
-              app={current}
-              standalone
-              surface="shelf"
-              screenId={screen}
-              onScreenChange={(id) => {
-                setScreen(id);
-                localStorage.setItem('screen:' + current.id, id);
-              }}
-            />
+            <Suspense fallback={<Loader />}>
+              <Runtime
+                key={current.id}
+                app={current}
+                standalone
+                surface="shelf"
+                screenId={screen}
+                onScreenChange={(id) => {
+                  setScreen(id);
+                  localStorage.setItem('screen:' + current.id, id);
+                }}
+              />
+            </Suspense>
           </div>
         </>
       ) : (

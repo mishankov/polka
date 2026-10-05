@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Stack, Switch, Text } from '@mantine/core';
+import { Alert, Stack, Switch, Text } from './NativeControls';
 import { api, errorMessage } from './api';
 import { mediaActivityLabel, type MediaIndicatorState } from '../../shared/media-indicator';
 

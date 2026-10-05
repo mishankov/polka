@@ -1,125 +1,137 @@
-import { useEffect, useRef, useState } from 'react';
-import { ActionIcon, Alert, Button, Group, Stack, Switch, Tabs, Text, Title } from '@mantine/core';
-import { IconArrowLeft, IconX } from '@tabler/icons-react';
+import { useEffect, useState } from 'react';
+import { IconAdjustments, IconCommand, IconClipboard, IconInfoCircle } from '@tabler/icons-react';
+import { Alert, Stack, Switch, Text } from './NativeControls';
 import LauncherSettings from './LauncherSettings';
 import ClipboardSettings from './ClipboardSettings';
 import Updates from './Updates';
 import { api, errorMessage, report } from './api';
 
-export default function ShelfSettings({ initialTab }: { initialTab: 'general' | 'about' }) {
-  const [tab, setTab] = useState<string | null>(initialTab);
+const panes = [
+  { id: 'general', label: 'Основные', icon: IconAdjustments },
+  { id: 'shelf', label: 'Полка и сочетания', icon: IconCommand },
+  { id: 'clipboard', label: 'Буфер обмена', icon: IconClipboard },
+  { id: 'about', label: 'О приложении', icon: IconInfoCircle },
+];
+export default function ShelfSettings({ initialTab }: { initialTab?: 'general' | 'about' }) {
+  const [tab, setTab] = useState(
+    () => initialTab || localStorage.getItem('settingsPane') || 'general',
+  );
   const [login, setLogin] = useState<boolean>();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const back = useRef<HTMLButtonElement>(null);
+  const active = panes.find((pane) => pane.id === tab) || panes[0];
   useEffect(() => {
-    back.current?.focus();
     void api<{ login: boolean }>('system.status')
       .then((state) => setLogin(state.login))
       .catch((reason) => setError(errorMessage(reason)));
+    return window.platform.onEvent((event) => {
+      if (event.type === 'settings.navigate' && event.pane === 'about') setTab('about');
+    });
   }, []);
-  async function changeLogin(enabled: boolean) {
-    setSaving(true);
-    setError('');
-    try {
-      setLogin(await api<boolean>('system.login', { enabled }));
-    } catch (reason) {
-      setError(errorMessage(reason));
-    } finally {
-      setSaving(false);
-    }
-  }
+  useEffect(() => {
+    localStorage.setItem('settingsPane', active.id);
+    document.title = `${active.label} — Everything App`;
+  }, [active.id, active.label]);
   return (
-    <section className="shelf-settings" aria-label="Настройки полки">
-      <header className="clipboard-header">
-        <Group gap="sm">
-          <ActionIcon
-            ref={back}
-            aria-label="Назад к приложениям"
-            variant="subtle"
-            onClick={() => void api('launcher.show').catch(report)}
-          >
-            <IconArrowLeft size={20} />
-          </ActionIcon>
-          <Title order={1} size="md">
-            Настройки
-          </Title>
-        </Group>
-        <ActionIcon
-          className="clipboard-header-actions"
-          aria-label="Закрыть настройки"
-          variant="subtle"
-          onClick={() => void api('launcher.hide').catch(report)}
+    <main className="native-settings shelf-settings">
+      <nav className="native-settings-sidebar" aria-label="Разделы настроек">
+        <div className="native-settings-brand">Everything App</div>
+        <div role="tablist" aria-label="Разделы настроек" aria-orientation="vertical">
+          {panes.map((pane, index) => (
+            <button
+              key={pane.id}
+              id={`tab-${pane.id}`}
+              role="tab"
+              aria-selected={active.id === pane.id}
+              aria-controls={`pane-${pane.id}`}
+              tabIndex={active.id === pane.id ? 0 : -1}
+              onClick={() => setTab(pane.id)}
+              onKeyDown={(event) => {
+                const next =
+                  event.key === 'ArrowDown'
+                    ? (index + 1) % panes.length
+                    : event.key === 'ArrowUp'
+                      ? (index + panes.length - 1) % panes.length
+                      : event.key === 'Home'
+                        ? 0
+                        : event.key === 'End'
+                          ? panes.length - 1
+                          : -1;
+                if (next >= 0) {
+                  event.preventDefault();
+                  setTab(panes[next].id);
+                  document.getElementById(`tab-${panes[next].id}`)?.focus();
+                }
+              }}
+            >
+              <pane.icon size={18} stroke={1.7} />
+              {pane.label}
+            </button>
+          ))}
+        </div>
+        <button
+          className="native-settings-open"
+          onClick={() => void api('launcher.show').catch(report)}
         >
-          <IconX size={18} />
-        </ActionIcon>
-      </header>
-      <Tabs value={tab} onChange={setTab} keepMounted={false} className="shelf-settings-tabs">
-        <Tabs.List aria-label="Разделы настроек">
-          <Tabs.Tab value="general">Основные</Tabs.Tab>
-          <Tabs.Tab value="shelf">Полка и сочетания</Tabs.Tab>
-          <Tabs.Tab value="clipboard">Буфер обмена</Tabs.Tab>
-          <Tabs.Tab value="about">О приложении</Tabs.Tab>
-        </Tabs.List>
-        <div className="shelf-settings-scroll">
-          {error && (
-            <Alert color="red" mb="md">
-              {error}
-            </Alert>
-          )}
-          <Tabs.Panel value="general">
+          Открыть полку <span>↗</span>
+        </button>
+      </nav>
+      <section
+        className="native-settings-pane"
+        role="tabpanel"
+        id={`pane-${active.id}`}
+        aria-labelledby={`tab-${active.id}`}
+        tabIndex={0}
+      >
+        <header>
+          <h1>{active.label}</h1>
+        </header>
+        <div className="native-settings-content">
+          {error && <Alert>{error}</Alert>}
+          {active.id === 'general' && (
             <Stack gap="lg">
-              <Title order={2} size="lg">
-                Всегда под рукой
-              </Title>
-              <Text c="dimmed" size="sm">
-                Откройте полку через значок Everything App в строке меню. Приложение работает без
-                значка в Dock. Закрытие полки оставляет быстрый запуск и историю буфера доступными.
+              <Text c="dimmed">
+                Приложения и история буфера обмена — всегда под рукой. Открывайте полку через значок
+                в строке меню, наведением к вырезу камеры или сочетанием клавиш.
               </Text>
               <Switch
                 label="Запускать при входе в macOS"
-                description="Запуск в фоне, без открытия полки."
+                description="В фоне, без открытия полки."
                 checked={login || false}
                 disabled={login === undefined || saving}
-                onChange={(event) => void changeLogin(event.currentTarget.checked)}
+                onChange={async (event) => {
+                  const enabled = event.currentTarget.checked;
+                  setSaving(true);
+                  setError('');
+                  try {
+                    setLogin(await api<boolean>('system.login', { enabled }));
+                  } catch (reason) {
+                    setError(errorMessage(reason));
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
               />
-              <Text c="dimmed" size="sm">
-                Полку можно открыть наведением к вырезу камеры или сочетанием клавиш. Escape
-                возвращает из настроек к поиску. Щелчок вне полки скрывает её.
+              <Text c="dimmed">
+                Закрытие полки и настроек оставляет историю и сочетания доступными. Для выхода
+                выберите «Выйти из Everything App» в строке меню.
               </Text>
-              <Group>
-                <Button variant="default" onClick={() => setTab('shelf')}>
-                  Настроить открытие полки
-                </Button>
-              </Group>
             </Stack>
-          </Tabs.Panel>
-          <Tabs.Panel value="shelf">
-            <LauncherSettings />
-          </Tabs.Panel>
-          <Tabs.Panel value="clipboard">
-            <ClipboardSettings />
-          </Tabs.Panel>
-          <Tabs.Panel value="about">
+          )}
+          {active.id === 'shelf' && <LauncherSettings />}
+          {active.id === 'clipboard' && <ClipboardSettings />}
+          {active.id === 'about' && (
             <Stack gap="lg">
-              <div>
-                <Title order={2} size="lg">
-                  Everything App
-                </Title>
-                <Text c="dimmed" size="sm" mt="xs">
-                  Приложения и история буфера обмена — на одной полке.
-                </Text>
+              <div className="native-about">
+                <h2>Everything App</h2>
+                <Text c="dimmed">Приложения и история буфера обмена — на одной полке.</Text>
               </div>
               <Updates />
-              <Text size="sm" c="dimmed">
-                История хранится локально в зашифрованном виде. AI-помощник и пользовательские
-                приложения временно приостановлены; их данные сохранены, фоновые задания не
-                запускаются.
-              </Text>
+              <Text c="dimmed">История хранится локально в зашифрованном виде.</Text>
             </Stack>
-          </Tabs.Panel>
+          )}
         </div>
-      </Tabs>
-    </section>
+      </section>
+    </main>
   );
 }

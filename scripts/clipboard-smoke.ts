@@ -416,11 +416,11 @@ async function main() {
     await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
     panel = await reopened;
     await panel.getByRole('button', { name: 'Действия с историей' }).click();
-    await panel.getByRole('menuitem', { name: 'Очистить историю…' }).click();
+    await panel.getByRole('button', { name: 'Очистить историю…' }).click();
     await panel.getByRole('button', { name: 'Отмена', exact: true }).click();
     await expect(panel.getByRole('option')).toHaveCount(3);
     await panel.getByRole('button', { name: 'Действия с историей' }).click();
-    await panel.getByRole('menuitem', { name: 'Очистить историю…' }).click();
+    await panel.getByRole('button', { name: 'Очистить историю…' }).click();
     await panel.getByRole('button', { name: 'Удалить всю историю', exact: true }).click();
     await expect.poll(async () => (await clips()).length).toBe(0);
     await panel.getByText('Здесь появится скопированное').waitFor();

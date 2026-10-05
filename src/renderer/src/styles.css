@@ -1180,8 +1180,8 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: max(12px, var(--notch-inset)) 18px 12px;
-  border-bottom: 1px solid #222;
+  padding: calc(var(--notch-inset) + 12px) 18px 12px;
+  border-bottom: 1px solid var(--line);
 }
 .launcher-search > .mantine-TextInput-root {
   flex: 1;
@@ -1194,7 +1194,7 @@ kbd {
 }
 .launcher-result-group {
   padding: 10px 12px 6px;
-  color: #aaa;
+  color: var(--muted);
   font-size: 11px;
   font-weight: 550;
 }
@@ -1210,7 +1210,7 @@ kbd {
 }
 .launcher-calculation-status {
   padding: 20px;
-  color: #aaa;
+  color: var(--muted);
   font-size: 14px;
 }
 .launcher .sr-only {
@@ -1238,13 +1238,13 @@ kbd {
   text-align: left;
 }
 .launcher-result.selected {
-  background: #242424;
+  background: var(--soft);
 }
 .launcher-result:hover {
-  background: #181818;
+  background: var(--soft);
 }
 .launcher-result.selected:hover {
-  background: #2b2b2b;
+  background: var(--selection);
 }
 .launcher-result:disabled {
   cursor: wait;
@@ -1332,8 +1332,8 @@ html[data-window-mode='shelf'] body {
   background: transparent;
 }
 html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
-  background: #242424;
-  color: #f5f5f5;
+  background: var(--soft);
+  color: var(--ink);
 }
 .clipboard-shelf {
   --notch-width: 96px;
@@ -1343,8 +1343,8 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  color: #f5f5f5;
-  background: #000;
+  color: var(--ink);
+  background: var(--workspace-bg);
   border: 0;
   border-radius: 0 0 22px 22px;
   transform-origin: top center;
@@ -1417,31 +1417,31 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   margin: 0;
 }
 .clipboard-heading > span {
-  color: #aaa;
+  color: var(--muted);
   font-size: 11px;
   line-height: 12px;
 }
 .clipboard-search {
   padding: 0 14px 8px;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid var(--line);
 }
 .clipboard-search input {
   background: transparent;
   border-color: transparent;
-  color: #f5f5f5;
+  color: var(--ink);
   height: 36px;
   border-radius: 5px;
   font-size: 13px;
 }
 .clipboard-search input:focus {
-  border-color: #555;
+  border-color: var(--line);
 }
 .clipboard-results {
   flex: 1;
   overflow: auto;
   padding: 6px 8px;
   scrollbar-width: thin;
-  scrollbar-color: #444 transparent;
+  scrollbar-color: var(--line) transparent;
   min-height: 0;
 }
 .clipboard-row {
@@ -1452,13 +1452,13 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   transition: background 100ms ease;
 }
 .clipboard-row.selected {
-  background: #252525;
+  background: var(--selection);
 }
 .clipboard-row:hover {
-  background: #191919;
+  background: var(--surface-raised);
 }
 .clipboard-row.selected:hover {
-  background: #2b2b2b;
+  background: var(--soft);
 }
 .clipboard-copy {
   display: flex;
@@ -1480,7 +1480,7 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   justify-content: center;
   flex: 0 0 52px;
   height: 40px;
-  color: #999;
+  color: var(--muted);
 }
 .clipboard-thumbnail img {
   display: block;
@@ -1505,7 +1505,7 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   display: flex;
   align-items: center;
   gap: 5px;
-  color: #999;
+  color: var(--muted);
   font-size: 11px;
   line-height: 16px;
   margin-top: 2px;
@@ -1528,15 +1528,15 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   }
 }
 .clipboard-menu {
-  background: #191919;
-  border-color: #333;
-  color: #eee;
+  background: var(--surface-raised);
+  border-color: var(--line);
+  color: var(--ink);
 }
 .clipboard-menu .mantine-Menu-item {
-  color: #eee;
+  color: var(--ink);
 }
 .clipboard-menu .mantine-Menu-item:hover {
-  background: #303030;
+  background: var(--soft);
 }
 .clipboard-preview {
   flex: 1;
@@ -1549,11 +1549,11 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   align-items: center;
   gap: 12px;
   padding: 10px 18px;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid var(--line);
 }
 .clipboard-preview-toolbar > span {
   flex: 1;
-  color: #999;
+  color: var(--muted);
   font-size: 11px;
 }
 .clipboard-back {
@@ -1564,7 +1564,7 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   border-radius: 4px;
   padding: 5px 0;
   background: none;
-  color: #eee;
+  color: var(--ink);
   font-size: 12px;
 }
 .clipboard-preview-content {
@@ -1596,11 +1596,11 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   align-items: center;
   justify-content: center;
   text-align: center;
-  color: #969696;
+  color: var(--muted);
   padding: 28px 48px;
 }
 .clipboard-empty strong {
-  color: #f5f5f5;
+  color: var(--ink);
   font-weight: 500;
   font-size: 16px;
 }
@@ -1613,12 +1613,12 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   padding: 9px 18px 12px;
   flex-shrink: 0;
   flex-wrap: wrap;
-  border-top: 1px solid #222222;
+  border-top: 1px solid var(--line);
   display: flex;
   gap: 8px;
   align-items: center;
   justify-content: space-between;
-  color: #969696;
+  color: var(--muted);
   font-size: 11px;
 }
 .clipboard-shortcuts {
@@ -1633,13 +1633,13 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   gap: 4px;
 }
 .clipboard-shortcuts kbd {
-  color: #b5b5b5;
+  color: var(--muted);
   font: inherit;
 }
 .clipboard-footer button {
   background: none;
   border: none;
-  color: #b5b5b5;
+  color: var(--muted);
   padding: 4px;
   font-size: 12px;
 }
@@ -1655,7 +1655,7 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   font-size: 18px;
 }
 .clipboard-confirm p {
-  color: #969696;
+  color: var(--muted);
   line-height: 1.6;
 }
 .clipboard-error {
@@ -1665,52 +1665,52 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
 }
 
 .clipboard-shelf .mantine-ActionIcon-root {
-  color: #999;
+  color: var(--muted);
   border-radius: 8px;
 }
 .clipboard-shelf .mantine-ActionIcon-root:hover {
-  color: #fff;
-  background: #292929;
+  color: var(--ink);
+  background: var(--soft);
 }
 .clipboard-shelf .mantine-ActionIcon-root[data-active] {
-  color: #f5f5f5;
-  background: #303030;
+  color: var(--ink);
+  background: var(--soft);
 }
 .clipboard-shelf .mantine-ActionIcon-root:disabled {
-  color: #666;
+  color: var(--muted);
   background: transparent;
 }
 .clipboard-shelf button:focus-visible {
-  outline-color: #ddd;
+  outline-color: var(--ink);
   outline-offset: -2px;
 }
 .clipboard-search input::placeholder {
-  color: #8c8c8c;
+  color: var(--muted);
 }
 .clipboard-search .mantine-Input-section {
-  color: #999;
+  color: var(--muted);
 }
 .clipboard-footer button {
   border-radius: 5px;
   white-space: nowrap;
 }
 .clipboard-footer button:hover:not(:disabled) {
-  color: #fff;
-  background: #222;
+  color: var(--ink);
+  background: var(--line);
 }
 .clipboard-confirm .clipboard-delete-confirm {
-  background: #eee;
-  color: #111;
-  border-color: #eee;
+  background: var(--ink);
+  color: var(--workspace-bg);
+  border-color: var(--ink);
 }
 .clipboard-confirm .clipboard-delete-confirm:hover {
-  background: #fff;
+  background: var(--ink);
 }
 .clipboard-confirm .mantine-Button-root[data-variant='default'],
 .clipboard-preview .mantine-Button-root[data-variant='default'] {
-  background: #191919;
-  border-color: #444;
-  color: #eee;
+  background: var(--surface-raised);
+  border-color: var(--line);
+  color: var(--ink);
 }
 
 .clipboard-app-heading {
@@ -1730,12 +1730,12 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
 }
 .launcher-results {
   scrollbar-width: thin;
-  scrollbar-color: #333 transparent;
+  scrollbar-color: var(--line) transparent;
 }
 .launcher-icon:has(svg) {
-  background: #202020;
+  background: var(--soft);
   border-radius: 9px;
-  color: #ddd;
+  color: var(--ink);
 }
 
 .clipboard-paste-hint {
@@ -1743,17 +1743,17 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   align-items: center;
   gap: 12px;
   margin: 8px 14px;
-  color: #aaa;
+  color: var(--muted);
   font-size: 11px;
   line-height: 1.4;
 }
 .clipboard-paste-hint button {
   flex-shrink: 0;
-  border: 1px solid #444;
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 5px 8px;
-  background: #191919;
-  color: #eee;
+  background: var(--surface-raised);
+  color: var(--ink);
 }
 
 .shelf-settings {
@@ -1779,11 +1779,11 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
 }
 .shelf-settings .settings-section {
   grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr);
-  border-color: #262626;
+  border-color: var(--line);
 }
 .shelf-welcome {
   padding: 14px 18px;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 @media (max-width: 620px) {

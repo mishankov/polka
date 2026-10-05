@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Group, Progress, Stack, Text, Title } from '@mantine/core';
+import { Button, Group, Progress, Stack, Text, Title } from './NativeControls';
 import type { UpdateState } from '../../main/updates';
 import { api, report } from './api';
 export default function Updates() {
