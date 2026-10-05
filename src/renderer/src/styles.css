@@ -227,6 +227,17 @@ canvas:focus-visible {
 .launcher-result-text > span {
   margin-top: 3px;
 }
+.launcher-result-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.launcher-result-hint kbd {
+  min-width: 24px;
+  font: inherit;
+  text-align: right;
+}
 .launcher-message {
   padding: 32px 20px;
   text-align: center;
