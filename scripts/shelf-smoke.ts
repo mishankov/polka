@@ -58,7 +58,7 @@ async function main() {
     const apps = await page.evaluate(() => window.platform.call('launcher.apps'));
     assert.deepEqual(
       apps.map((item: any) => item.id),
-      ['builtin:clipboard'],
+      ['builtin:clipboard', 'builtin:emoji'],
     );
     for (const method of [
       'apps.list',
@@ -87,6 +87,15 @@ async function main() {
       page.getByRole('button', { name: 'Настройки', exact: true }).click(),
     ]);
     settings.on('pageerror', (error) => errors.push(error.message));
+    const emojiPasteDenied = await settings.evaluate(async () => {
+      try {
+        await window.platform.call('shelf.selectEmoji', { id: '2764-fe0f' });
+        return '';
+      } catch (error) {
+        return String(error);
+      }
+    });
+    assert.match(emojiPasteDenied, /Вставка доступна только/);
     await expect(settings.getByRole('tab', { name: 'Основные', exact: true })).toHaveAttribute(
       'aria-selected',
       'true',

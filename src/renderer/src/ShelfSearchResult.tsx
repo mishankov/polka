@@ -1,4 +1,10 @@
-import { IconCalculator, IconClipboard, IconArrowRight, IconTextSize } from '@tabler/icons-react';
+import {
+  IconCalculator,
+  IconClipboard,
+  IconArrowRight,
+  IconTextSize,
+  IconMoodSmile,
+} from '@tabler/icons-react';
 import { clipboardSnippet, type ShelfSearchResult } from '../../shared/shelf-search';
 
 export default function SearchResult({
@@ -83,7 +89,11 @@ export default function SearchResult({
           )
         ) : app ? (
           app.kind === 'builtin' ? (
-            <IconClipboard size={22} stroke={1.5} />
+            app.id === 'builtin:emoji' ? (
+              <IconMoodSmile size={22} stroke={1.5} />
+            ) : (
+              <IconClipboard size={22} stroke={1.5} />
+            )
           ) : app.kind === 'mac' && app.icon ? (
             <img src={app.icon} alt="" />
           ) : (

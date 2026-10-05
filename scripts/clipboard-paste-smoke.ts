@@ -22,14 +22,18 @@ async function main() {
     await shell.locator('.launcher').waitFor();
     await app.evaluate(async ({ clipboard, ClipboardItem }) => {
       (globalThis as any).__clipboardBackup = await Promise.all(
-        (await clipboard.read()).map(
-          async (item) =>
-            new ClipboardItem(
-              Object.fromEntries(
-                await Promise.all(item.types.map(async (type) => [type, await item.getType(type)])),
+        (await clipboard.read())
+          .filter((item) => item.types.length > 0)
+          .map(
+            async (item) =>
+              new ClipboardItem(
+                Object.fromEntries(
+                  await Promise.all(
+                    item.types.map(async (type) => [type, await item.getType(type)]),
+                  ),
+                ),
               ),
-            ),
-        ),
+          ),
       );
     });
     backedUp = true;
@@ -244,7 +248,9 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
     if (backedUp)
       await app
         .evaluate(async ({ clipboard }) => {
-          await clipboard.write((globalThis as any).__clipboardBackup);
+          const items = (globalThis as any).__clipboardBackup;
+          if (items.length) await clipboard.write(items);
+          else clipboard.clear();
         })
         .catch(() => {});
     await app.close();

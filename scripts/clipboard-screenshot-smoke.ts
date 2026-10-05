@@ -20,14 +20,18 @@ async function main() {
     // Materialize the backup before changing the clipboard: read() items can be lazy.
     await app.evaluate(async ({ clipboard, ClipboardItem }) => {
       (globalThis as any).__clipboardBackup = await Promise.all(
-        (await clipboard.read()).map(
-          async (item) =>
-            new ClipboardItem(
-              Object.fromEntries(
-                await Promise.all(item.types.map(async (type) => [type, await item.getType(type)])),
+        (await clipboard.read())
+          .filter((item) => item.types.length > 0)
+          .map(
+            async (item) =>
+              new ClipboardItem(
+                Object.fromEntries(
+                  await Promise.all(
+                    item.types.map(async (type) => [type, await item.getType(type)]),
+                  ),
+                ),
               ),
-            ),
-        ),
+          ),
       );
     });
     await new Promise((resolve) => setTimeout(resolve, 700));

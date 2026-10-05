@@ -44,16 +44,18 @@ async function main() {
     // Back up all formats in memory and restore on exit; never print the user's clipboard.
     savedClipboard = await app.evaluate(async ({ clipboard }) => {
       return Promise.all(
-        (await clipboard.read()).map((item) =>
-          Promise.all(
-            item.types.map(async (type) => {
-              const data = await item.getType(type);
-              return data instanceof Blob
-                ? { type, bytes: Buffer.from(await data.arrayBuffer()).toString('base64') }
-                : { type, bookmark: data };
-            }),
+        (await clipboard.read())
+          .filter((item) => item.types.length > 0)
+          .map((item) =>
+            Promise.all(
+              item.types.map(async (type) => {
+                const data = await item.getType(type);
+                return data instanceof Blob
+                  ? { type, bytes: Buffer.from(await data.arrayBuffer()).toString('base64') }
+                  : { type, bookmark: data };
+              }),
+            ),
           ),
-        ),
       );
     });
     originalClipboardSaved = true;
