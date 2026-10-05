@@ -21,23 +21,3 @@ export async function perform<T>(
     return undefined;
   }
 }
-export const labels = {
-  brand: 'everything',
-  home: 'Рабочее пространство',
-  apps: 'Мои приложения',
-  inbox: 'Входящие',
-  settings: 'Настройки',
-  agent: 'Помощник',
-  search: 'Найти приложение или запись…',
-  create: 'Создать приложение',
-  import: 'Открыть файл приложения',
-  empty: 'Здесь появится ваша работа',
-  local: 'Данные на этом Mac',
-};
-export function useStorageValue<T>(key: string, fallback: T): T {
-  try {
-    return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback;
-  } catch {
-    return fallback;
-  }
-}

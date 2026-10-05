@@ -30,12 +30,12 @@ export default function ShelfSettings({ initialTab }: { initialTab?: 'general' |
   }, []);
   useEffect(() => {
     localStorage.setItem('settingsPane', active.id);
-    document.title = `${active.label} — Everything App`;
+    document.title = `${active.label} — Полка`;
   }, [active.id, active.label]);
   return (
     <main className="native-settings shelf-settings">
       <nav className="native-settings-sidebar" aria-label="Разделы настроек">
-        <div className="native-settings-brand">Everything App</div>
+        <div className="native-settings-brand">Полка</div>
         <div role="tablist" aria-label="Разделы настроек" aria-orientation="vertical">
           {panes.map((pane, index) => (
             <button
@@ -114,7 +114,7 @@ export default function ShelfSettings({ initialTab }: { initialTab?: 'general' |
               />
               <Text c="dimmed">
                 Закрытие полки и настроек оставляет историю и сочетания доступными. Для выхода
-                выберите «Выйти из Everything App» в строке меню.
+                выберите «Выйти из Полки» в строке меню.
               </Text>
             </Stack>
           )}
@@ -123,7 +123,7 @@ export default function ShelfSettings({ initialTab }: { initialTab?: 'general' |
           {active.id === 'about' && (
             <Stack gap="lg">
               <div className="native-about">
-                <h2>Everything App</h2>
+                <h2>Полка</h2>
                 <Text c="dimmed">Приложения и история буфера обмена — на одной полке.</Text>
               </div>
               <Updates />

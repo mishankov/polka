@@ -3,34 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { CoreService } from '../src/core/service';
+import { SettingsStore } from '../src/main/settings-store';
 import { pressSettingsShortcut, pressAssistantShortcut } from './native-shortcuts';
 
 async function main() {
   const profile = await mkdtemp(join(tmpdir(), 'everything-shelf-'));
-  const core = new CoreService(profile);
+  const settings = new SettingsStore(profile);
   // This workflow tests the shelf in isolation; media transitions have their own smoke test.
-  await core.handle('settings.set', { key: 'mediaIndicatorEnabled', value: false });
-  const definition = {
-    schemaVersion: 1,
-    name: 'Dormant app',
-    entities: [],
-    screens: [],
-    actions: [],
-    automations: [],
-    extensions: [],
-    permissions: [],
-  };
-  const saved = await core.handle('apps.create', { definition });
-  const jobs = [{ id: 'saved-queued-job', appId: saved.id, actionId: 'later', status: 'queued' }];
-  const runs = [{ id: 'saved-run', status: 'waiting_approval' }];
-  await core.handle('state.set', { key: 'runtime.jobs', value: jobs });
-  await core.handle('state.set', { key: 'runtime.runs', value: runs });
-  await core.handle('settings.set', {
-    key: `shortcut:${saved.id}`,
-    value: 'CommandOrControl+Alt+9',
-  });
-  core.close();
+  await settings.handle('settings.set', { key: 'mediaIndicatorEnabled', value: false });
+  settings.close();
   const launch = (hidden = false) =>
     electron.launch({
       ...(process.env.EVERYTHING_EXECUTABLE
@@ -53,6 +34,12 @@ async function main() {
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
       1,
     );
+    assert.equal(
+      await app.evaluate(({ Menu }) =>
+        Menu.getApplicationMenu()!.items.some((item) => item.label === 'Файл'),
+      ),
+      false,
+    );
     assert.equal(await app.evaluate(({ app }) => app.dock?.isVisible()), false);
     assert.equal(
       await app.evaluate(({ globalShortcut }) =>
@@ -60,6 +47,8 @@ async function main() {
       ),
       false,
     );
+    await page.evaluate(() => window.platform.call('launcher.show'));
+    await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
     await page.getByRole('button', { name: 'Понятно', exact: true }).click();
     await expect(page.locator('.shelf-welcome')).toHaveCount(0);
     assert.equal(
@@ -89,13 +78,14 @@ async function main() {
           return String(error);
         }
       }, method);
-      assert.match(failure, /временно приостановлены/);
+      assert.match(failure, /Неизвестная операция/);
     }
     await pressAssistantShortcut(app, page);
     await expect(page.locator('.agent-panel')).toHaveCount(0);
-    const settingsCreated = app.waitForEvent('window');
-    await page.getByRole('button', { name: 'Настройки', exact: true }).click();
-    let settings = await settingsCreated;
+    let [settings] = await Promise.all([
+      app.waitForEvent('window'),
+      page.getByRole('button', { name: 'Настройки', exact: true }).click(),
+    ]);
     settings.on('pageerror', (error) => errors.push(error.message));
     await expect(settings.getByRole('tab', { name: 'Основные', exact: true })).toHaveAttribute(
       'aria-selected',
@@ -142,9 +132,7 @@ async function main() {
       await settings.screenshot({ path: `/tmp/everything-settings-${appearance}.png` });
     }
     await settings.getByRole('tab', { name: 'О приложении', exact: true }).click();
-    await expect(
-      settings.getByRole('heading', { name: 'Everything App', exact: true }),
-    ).toBeVisible();
+    await expect(settings.getByRole('heading', { name: 'Полка', exact: true })).toBeVisible();
     await settings.getByRole('button', { name: 'Открыть полку' }).click();
     // Switching to the transient shelf must not dismiss the settings window.
     assert.equal(
@@ -165,25 +153,32 @@ async function main() {
     await expect(actions).toBeFocused();
     await expect(actions).toHaveAttribute('aria-expanded', 'false');
     await pressSettingsShortcut(app, page);
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()
-        .find((w) => w.webContents.getURL().includes('mode=settings'))!
-        .close(),
-    );
-    const recreated = app.waitForEvent('window');
-    await app.evaluate(({ Menu }) =>
-      Menu.getApplicationMenu()!.getMenuItemById('settings')!.click(),
-    );
-    settings = await recreated;
+    await Promise.all([
+      settings.waitForEvent('close'),
+      app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((w) => w.webContents.getURL().includes('mode=settings'))!
+          .close(),
+      ),
+    ]);
+    [settings] = await Promise.all([
+      app.waitForEvent('window'),
+      app.evaluate(({ Menu }) => {
+        Menu.getApplicationMenu()!.getMenuItemById('settings')!.click();
+      }),
+    ]);
     await expect(settings.getByRole('tab', { name: 'О приложении', exact: true })).toHaveAttribute(
       'aria-selected',
       'true',
     );
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()
-        .find((w) => w.webContents.getURL().includes('mode=settings'))!
-        .close(),
-    );
+    await Promise.all([
+      settings.waitForEvent('close'),
+      app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((w) => w.webContents.getURL().includes('mode=settings'))!
+          .close(),
+      ),
+    ]);
     // Reopening through macOS must reuse the shelf without adding a Dock icon.
     await app.evaluate(({ app }) => app.emit('activate'));
     await expect(page.getByRole('combobox', { name: 'Поиск по полке', exact: true })).toBeFocused();
@@ -201,18 +196,11 @@ async function main() {
       await page.screenshot({ path: `/tmp/everything-launcher-${appearance}.png` });
     }
     await expect(page.locator('[class*="mantine-"]')).toHaveCount(0);
-    const hiddenMenu = await app.evaluate(
-      ({ Menu }) => Menu.getApplicationMenu()!.items.find((item) => item.label === 'Файл')!.visible,
-    );
-    assert.equal(hiddenMenu, false);
     assert.equal(await app.evaluate(({ app }) => app.dock?.isVisible()), false);
     assert.deepEqual(errors, []);
     await app.close();
-    const after = new CoreService(profile);
+    const after = new SettingsStore(profile);
     assert.equal(await after.handle('settings.get', { key: 'mediaIndicatorEnabled' }), false);
-    assert.deepEqual(await after.handle('apps.get', { appId: saved.id }), saved);
-    assert.deepEqual(await after.handle('state.get', { key: 'runtime.jobs' }), jobs);
-    assert.deepEqual(await after.handle('state.get', { key: 'runtime.runs' }), runs);
     after.close();
     app = await launch(true);
     // Wait for readiness through the menu, without creating or displaying a window.
@@ -236,8 +224,22 @@ async function main() {
     await expect(reopened.locator('.shelf-welcome')).toHaveCount(0);
     assert.equal(await app.evaluate(({ app }) => app.dock?.isVisible()), false);
     console.log(
-      'Shelf smoke passed: hidden Dock icon, quiet startup, settings, native shortcuts, clipboard navigation, frozen entry points and preserved app/job data.',
+      'Shelf smoke passed: hidden Dock icon, quiet startup, settings, native shortcuts, clipboard navigation, removed workspace entry points and persisted settings.',
     );
+  } catch (error) {
+    console.error('Shelf smoke failed:', error);
+    const failedPage = app.windows()[0];
+    console.error(
+      'Shelf state at failure:',
+      await failedPage
+        ?.evaluate(() => ({
+          focused: document.hasFocus(),
+          className: document.querySelector('.clipboard-shelf')?.className,
+        }))
+        .catch(() => 'Renderer unavailable'),
+    );
+    await failedPage?.screenshot({ path: '/tmp/polka-shelf-failure.png' }).catch(() => {});
+    throw error;
   } finally {
     await app.close();
     await rm(profile, { recursive: true, force: true });
