@@ -652,12 +652,20 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
 
 .clipboard-paste-hint {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 12px;
   margin: 8px 14px;
   color: var(--muted);
   font-size: 11px;
   line-height: 1.4;
+}
+.clipboard-paste-hint-text {
+  flex: 1;
+  min-width: 0;
+}
+.clipboard-paste-hint-text p {
+  margin: 0;
 }
 .clipboard-paste-hint button {
   flex-shrink: 0;
@@ -666,6 +674,43 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   padding: 5px 8px;
   background: var(--surface-raised);
   color: var(--ink);
+}
+.clipboard-paste-permission {
+  align-items: flex-start;
+  gap: 10px;
+  margin: 8px 14px 12px;
+  padding: 14px;
+  border: 1px solid #80602d;
+  border-radius: 10px;
+  background: #2b2112;
+  color: #f2dfbd;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.clipboard-paste-permission-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: #ffd18a;
+}
+.clipboard-paste-permission strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #ffd18a;
+  font-size: 14px;
+  font-weight: 650;
+}
+html[data-window-mode='shelf'] .clipboard-paste-permission button {
+  align-self: center;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-color: #ffd18a;
+  background: #ffd18a;
+  color: #2b2112;
+  font-weight: 600;
+}
+.clipboard-paste-permission button:hover:not(:disabled) {
+  background: #ffe0ac;
+  border-color: #ffe0ac;
 }
 
 .shelf-settings {
