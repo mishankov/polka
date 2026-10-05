@@ -217,6 +217,21 @@ export const TextInput = forwardRef<HTMLInputElement, InputProps>(function TextI
     </div>
   );
 });
+export function Textarea({
+  label,
+  id,
+  className = '',
+  ...props
+}: ComponentProps<'textarea'> & { label: string }) {
+  const generated = useId();
+  const inputId = id || generated;
+  return (
+    <div className={`native-field ${className}`}>
+      <label htmlFor={inputId}>{label}</label>
+      <textarea {...props} id={inputId} />
+    </div>
+  );
+}
 export function Switch({
   label,
   description,

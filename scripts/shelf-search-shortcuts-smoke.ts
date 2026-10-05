@@ -192,7 +192,7 @@ async function main() {
     await historyInput.press('Meta+9');
     await lastAction('clipboardHistory.select', { id: 'clip-3' });
     // Pinning changes the same displayed order that number shortcuts use.
-    await historyRows.last().hover();
+    await historyRows.last().getByRole('option').focus();
     await historyRows.last().getByRole('button', { name: 'Закрепить запись', exact: true }).click();
     await expect(historyRows.first()).toContainText('Заметка 1:');
     await historyInput.focus();
@@ -236,8 +236,12 @@ async function main() {
       cancelable: true,
     });
     await page.keyboard.press('Meta+1');
-    await page.getByRole('button', { name: 'Очистить историю…', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Удалить всю историю?' })).toBeVisible();
+    await page
+      .getByRole('button', { name: 'Очистить историю на всех связанных Mac…', exact: true })
+      .click();
+    await expect(
+      page.getByRole('heading', { name: 'Удалить историю на всех связанных Mac?' }),
+    ).toBeVisible();
     await page.keyboard.press('Meta+1');
     await page.keyboard.press('Escape');
     await expect(historyInput).toBeFocused();

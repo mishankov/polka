@@ -173,7 +173,9 @@ async function main() {
     await expect(page.getByRole('combobox', { name: 'Найти в истории' })).toBeFocused();
     const actions = page.getByRole('button', { name: 'Действия с историей' });
     await actions.click();
-    await expect(page.getByRole('button', { name: 'Очистить историю…' })).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: 'Очистить историю на всех связанных Mac…' }),
+    ).toBeDisabled();
     await page.keyboard.press('Escape');
     await expect(actions).toBeFocused();
     await expect(actions).toHaveAttribute('aria-expanded', 'false');

@@ -8,3 +8,5 @@ build/media-probe
 !.env.example
 artifacts/
 build/clipboard-probe
+
+build/sync-discovery
