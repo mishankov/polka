@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Group, Select, Stack, Switch, Text, TextInput } from '@mantine/core';
+import { Alert, Button, Group, Select, Stack, Switch, Text, TextInput } from './NativeControls';
 import type { ClipboardState } from '../../shared/clipboard';
 import { shortcutLabel } from '../../shared/launcher';
 import { api, errorMessage } from './api';

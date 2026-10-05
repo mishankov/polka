@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Group, Progress, Stack, Text, Title } from '@mantine/core';
+import { Button, Group, Progress, Stack, Text, Title } from './NativeControls';
 import type { UpdateState } from '../../main/updates';
 import { api, report } from './api';
 export default function Updates() {
@@ -48,7 +48,7 @@ export default function Updates() {
         )}
         {state?.status === 'ready' && (
           <Text size="sm" c="dimmed">
-            Документы будут сохранены. Приложение перезапустится для установки.
+            Приложение перезапустится для установки обновления.
           </Text>
         )}
         <Group>
@@ -63,7 +63,7 @@ export default function Updates() {
           )}
           {state && ['ready', 'installing'].includes(state.status) && (
             <Button loading={state.status === 'installing'} onClick={() => action('install')}>
-              Сохранить и перезапустить
+              Установить и перезапустить
             </Button>
           )}
         </Group>

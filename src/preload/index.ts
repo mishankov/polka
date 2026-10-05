@@ -1,11 +1,5 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('platform', {
-  openDropped: (appId: string, files: File[]) =>
-    ipcRenderer.invoke(
-      'docs:drop',
-      { appId },
-      files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
-    ),
   call: (method: string, params: unknown = {}) =>
     ipcRenderer.invoke('platform:call', method, params),
   onEvent: (callback: (event: unknown) => void) => {

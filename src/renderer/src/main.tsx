@@ -1,27 +1,55 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { MantineProvider } from '@mantine/core';
-import { Notifications } from '@mantine/notifications';
-import '@mantine/core/styles.css';
-import '@mantine/notifications/styles.css';
 import './styles.css';
-import App from './App';
+import './native.css';
 import { ErrorBoundary } from './ErrorBoundary';
-import { workspaceTheme, workspaceVariables, shelfTheme, shelfVariables } from './theme';
-const mode = new URLSearchParams(location.search).get('mode');
-if (mode === 'shelf') document.documentElement.dataset.windowMode = mode;
+import Shelf from './Shelf';
+import ShelfSettings from './ShelfSettings';
+import DesktopNotifications from './DesktopNotifications';
+import { api } from './api';
+const params = new URLSearchParams(location.search);
+const mode = params.get('mode');
+document.documentElement.dataset.windowMode = mode === 'settings' ? 'settings' : 'shelf';
+function Desktop() {
+  useEffect(() => {
+    const apply = (appearance: {
+      dark: boolean;
+      contrast: boolean;
+      reducedTransparency: boolean;
+    }) => {
+      document.documentElement.dataset.appearance = appearance.dark ? 'dark' : 'light';
+      document.documentElement.dataset.contrast = String(appearance.contrast);
+      document.documentElement.dataset.reducedTransparency = String(appearance.reducedTransparency);
+    };
+    let changed = false;
+    const unsubscribe = window.platform.onEvent((event) => {
+      if (event.type === 'appearance.changed') {
+        changed = true;
+        apply(event.appearance);
+      }
+    });
+    void api('shelf.appearance')
+      .then((value) => {
+        if (!changed) apply(value);
+      })
+      .catch(() => {});
+    return unsubscribe;
+  }, []);
+  return (
+    <>
+      {mode === 'settings' ? (
+        <ShelfSettings initialTab={params.get('pane') === 'about' ? 'about' : undefined} />
+      ) : (
+        <Shelf />
+      )}
+    </>
+  );
+}
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <MantineProvider
-      theme={mode === 'shelf' ? shelfTheme : workspaceTheme}
-      cssVariablesResolver={mode === 'shelf' ? shelfVariables : workspaceVariables}
-      defaultColorScheme="auto"
-      forceColorScheme={mode === 'shelf' ? 'dark' : undefined}
-    >
-      <Notifications position="bottom-right" />
-      <ErrorBoundary>
-        <App />
-      </ErrorBoundary>
-    </MantineProvider>
+    <ErrorBoundary>
+      <DesktopNotifications />
+      <Desktop />
+    </ErrorBoundary>
   </React.StrictMode>,
 );

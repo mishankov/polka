@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Group, Text } from '@mantine/core';
+import { Button, Group, Text } from './NativeControls';
 import { DEFAULT_LAUNCHER_SHORTCUT, shortcutLabel } from '../../shared/launcher';
 import { api, report } from './api';
 

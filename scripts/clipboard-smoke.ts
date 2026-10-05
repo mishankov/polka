@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { shelfGeometry } from '../src/main/clipboard-hover';
 
 async function main() {
   const profile = await mkdtemp(join(tmpdir(), 'everything-clipboard-'));
@@ -266,17 +267,43 @@ async function main() {
     await expect(search).toHaveValue('Обсудить макет');
     await search.fill('');
     await expect(panel.getByRole('option')).toHaveCount(7);
-    const rowHeight = await panel
-      .locator('.clipboard-row')
-      .first()
-      .evaluate((el) => el.getBoundingClientRect().height);
-    const availableHeight = await panel
-      .locator('.clipboard-results')
-      .evaluate((el) => el.clientHeight);
-    assert(
-      rowHeight <= 64 && Math.floor((availableHeight - 12) / rowHeight) >= 6,
-      'Shelf must fit at least six compact entries',
-    );
+    const shelf = panel.locator('.clipboard-shelf');
+    const originalLayout = await shelf.evaluate((el) => ({
+      style: el.getAttribute('style')!,
+      notched: el.hasAttribute('data-notched'),
+    }));
+    try {
+      // Cover the CI runner's notchless layout even when running on a MacBook.
+      for (const topInset of [0, 32]) {
+        const geometry = shelfGeometry(
+          { x: 0, y: 0, width: 1440, height: 900 },
+          { id: 1, x: 620, width: 200, height: topInset },
+        );
+        await shelf.evaluate((el, geometry) => {
+          const element = el as HTMLElement;
+          element.style.height = `${geometry.panel.height}px`;
+          element.style.setProperty('--notch-inset', `${geometry.topInset}px`);
+          element.style.setProperty('--notch-width', `${geometry.target.width}px`);
+          element.toggleAttribute('data-notched', geometry.topInset > 0);
+        }, geometry);
+        const rowHeight = await panel
+          .locator('.clipboard-row')
+          .first()
+          .evaluate((el) => el.getBoundingClientRect().height);
+        const availableHeight = await panel
+          .locator('.clipboard-results')
+          .evaluate((el) => el.clientHeight);
+        assert(
+          rowHeight <= 64 && Math.floor((availableHeight - 12) / rowHeight) >= 6,
+          `Shelf must fit at least six compact entries (inset=${topInset}, row=${rowHeight}, results=${availableHeight})`,
+        );
+      }
+    } finally {
+      await shelf.evaluate((el, original) => {
+        el.setAttribute('style', original.style);
+        el.toggleAttribute('data-notched', original.notched);
+      }, originalLayout);
+    }
     await search.hover();
     await expect(panel.locator('.mantine-Tooltip-tooltip')).toHaveCount(0);
     await mkdir('artifacts', { recursive: true });
@@ -416,11 +443,11 @@ async function main() {
     await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
     panel = await reopened;
     await panel.getByRole('button', { name: 'Действия с историей' }).click();
-    await panel.getByRole('menuitem', { name: 'Очистить историю…' }).click();
+    await panel.getByRole('button', { name: 'Очистить историю…' }).click();
     await panel.getByRole('button', { name: 'Отмена', exact: true }).click();
     await expect(panel.getByRole('option')).toHaveCount(3);
     await panel.getByRole('button', { name: 'Действия с историей' }).click();
-    await panel.getByRole('menuitem', { name: 'Очистить историю…' }).click();
+    await panel.getByRole('button', { name: 'Очистить историю…' }).click();
     await panel.getByRole('button', { name: 'Удалить всю историю', exact: true }).click();
     await expect.poll(async () => (await clips()).length).toBe(0);
     await panel.getByText('Здесь появится скопированное').waitFor();

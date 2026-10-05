@@ -20,7 +20,7 @@ class Adapter extends EventEmitter {
     this.installed = true;
   }
 }
-test('updates download automatically, report progress, and flush documents before explicit installation', async () => {
+test('updates download automatically, report progress, and flush clipboard history before explicit installation', async () => {
   const adapter = new Adapter();
   const states: string[] = [];
   let saved = false;
@@ -59,7 +59,7 @@ test('unsigned/local builds never call the update feed', async () => {
   await assert.rejects(service.handle('updates.check'));
   assert.equal(adapter.checks, 0);
 });
-test('failed document flush preserves a downloaded update and prevents restart', async () => {
+test('failed clipboard flush preserves a downloaded update and prevents restart', async () => {
   const adapter = new Adapter();
   const service = new UpdateService(
     adapter,
@@ -258,7 +258,7 @@ test('ordinary quit cancels staging, explicit update quit retains staging', asyn
   assert.equal(cancellations, 1);
 });
 
-test('ordinary quit during document saving prevents a late native install request', async () => {
+test('ordinary quit during clipboard saving prevents a late native install request', async () => {
   const adapter = new Adapter();
   let saved!: () => void;
   const service = new UpdateService(
