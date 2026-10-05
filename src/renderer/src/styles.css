@@ -1510,6 +1510,12 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   line-height: 16px;
   margin-top: 2px;
 }
+.clipboard-origin {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .clipboard-row-actions {
   display: flex;
   padding-right: 8px;

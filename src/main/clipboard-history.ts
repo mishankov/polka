@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { dirname } from 'node:path';
 import { z } from 'zod';
@@ -20,18 +20,39 @@ const preferencesSchema = z.object({
   retentionDays: z.union([z.literal(1), z.literal(7), z.literal(30)]),
   accelerator: z.string().max(80),
 });
-const clipSchema = z.object({
+export const clipSchema = z.object({
   id: z.string().regex(/^[a-f0-9]{64}$/),
   kind: z.enum(['text', 'image']),
   content: z.string().max(MAX_CLIP_BYTES * 2),
   preview: z.string().max(200000),
   createdAt: z.number().finite(),
   pinned: z.boolean(),
+  sourceDevice: z.string().max(100).optional(),
+});
+import {
+  compareStamp,
+  newest,
+  liveEntry,
+  manifestSchema,
+  stampSchema,
+  syncEntrySchema,
+  type Stamp,
+  type SyncManifest,
+} from './clipboard-sync-model';
+const syncSchema = z.object({
+  device: z.string().uuid(),
+  counter: z.number().int().nonnegative(),
+  clear: stampSchema.optional(),
+  entries: z.record(
+    z.string().regex(/^[a-f0-9]{64}$/),
+    syncEntrySchema.extend({ seen: stampSchema.optional() }),
+  ),
 });
 const savedSchema = z.object({
   version: z.literal(1),
   preferences: preferencesSchema,
   clips: z.array(clipSchema).max(MAX_HISTORY_ITEMS),
+  sync: syncSchema.optional(),
 });
 type Saved = z.infer<typeof savedSchema>;
 
@@ -103,22 +124,50 @@ export class ClipboardHistory {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
     if (data) this.state = savedSchema.parse(JSON.parse(this.codec.decode(data)));
+    if (!this.state.sync) {
+      this.state.sync = { device: randomUUID(), counter: 0, entries: {} };
+      for (const clip of this.state.clips) {
+        const stamp = this.stamp(this.state);
+        this.state.sync.entries[clip.id] = {
+          added: stamp,
+          seen: stamp,
+          pin: { stamp, value: clip.pinned },
+        };
+      }
+    }
     this.ready = true;
     await this.prune();
+  }
+  private stamp(next: Saved): Stamp {
+    const sync = next.sync!;
+    sync.counter = Math.max(sync.counter + 1, Math.floor(this.now()));
+    return { counter: sync.counter, device: sync.device };
+  }
+  persistIdentity() {
+    return this.update(() => {}, true);
+  }
+  get deviceId() {
+    return this.state.sync!.device;
   }
   getPreferences() {
     return { ...this.state.preferences };
   }
-  snapshot() {
-    return structuredClone(this.state);
+  snapshot(includeImageContent = true) {
+    return structuredClone({
+      version: this.state.version,
+      preferences: this.state.preferences,
+      clips: includeImageContent
+        ? this.state.clips
+        : this.state.clips.map((clip) => (clip.kind === 'image' ? { ...clip, content: '' } : clip)),
+    });
   }
-  private update(operation: (next: Saved) => void) {
+  private update(operation: (next: Saved) => void, force = false) {
     const result = this.queue.then(async () => {
       if (!this.ready) throw Error('Хранилище истории недоступно');
       const next = structuredClone(this.state);
       operation(next);
       trimHistory(next, this.now());
-      if (JSON.stringify(next) === JSON.stringify(this.state)) return;
+      if (!force && JSON.stringify(next) === JSON.stringify(this.state)) return;
       const encoded = this.codec.encode(JSON.stringify(next));
       await fs.mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
       const temporary = this.path + '.tmp';
@@ -138,6 +187,13 @@ export class ClipboardHistory {
       const id = clipId(kind, content);
       const existing = next.clips.find((clip) => clip.id === id);
       next.clips = next.clips.filter((clip) => clip.id !== id);
+      const stamp = this.stamp(next);
+      next.sync!.entries[id] = {
+        ...next.sync!.entries[id],
+        added: stamp,
+        seen: stamp,
+        pin: { stamp, value: existing?.pinned || false },
+      };
       next.clips.unshift({
         id,
         kind,
@@ -158,19 +214,143 @@ export class ClipboardHistory {
       const clip = next.clips.find((item) => item.id === id);
       if (!clip) throw Error('Запись уже удалена');
       clip.pinned = pinned;
+      next.sync!.entries[id] = {
+        ...next.sync!.entries[id],
+        pin: { stamp: this.stamp(next), value: pinned },
+      };
     });
   }
   remove(id: string) {
     return this.update((next) => {
       next.clips = next.clips.filter((clip) => clip.id !== id);
+      next.sync!.entries[id] = { ...next.sync!.entries[id], deleted: this.stamp(next) };
     });
   }
   clear() {
     return this.update((next) => {
       next.clips = [];
+      next.sync!.clear = this.stamp(next);
+    });
+  }
+  manifest(): SyncManifest {
+    const sync = this.state.sync!;
+    return structuredClone({
+      version: 1,
+      clear: sync.clear,
+      entries: Object.fromEntries(
+        Object.entries(sync.entries).map(([id, { seen: _seen, ...entry }]) => [id, entry]),
+      ),
+      available: this.state.clips.map((clip) => clip.id),
+    });
+  }
+  // Advance deletion/pin metadata before requesting content. Seen versions survive
+  // local expiry, so an unchanged remote copy cannot undo local retention.
+  async mergeManifest(input: unknown) {
+    const remote = manifestSchema.parse(input);
+    const current = this.state.sync!;
+    const changed =
+      compareStamp(remote.clear, current.clear) > 0 ||
+      Object.entries(remote.entries).some(([id, entry]) => {
+        const local = current.entries[id];
+        return (
+          !local ||
+          compareStamp(entry.added, local.added) > 0 ||
+          compareStamp(entry.deleted, local.deleted) > 0 ||
+          compareStamp(entry.pin?.stamp, local.pin?.stamp) > 0
+        );
+      });
+    if (changed)
+      await this.update((next) => {
+        const sync = next.sync!;
+        if (compareStamp(remote.clear, sync.clear) > 0) {
+          // A clear also removes entries accumulated on an offline Mac before it
+          // receives the command. Record their exact versions, so newer copies
+          // made on another Mac after clearing can still be retained.
+          for (const entry of Object.values(sync.entries))
+            entry.deleted = newest(entry.deleted, newest(entry.added, remote.clear));
+        }
+        sync.clear = newest(sync.clear, remote.clear);
+        if (remote.clear) sync.counter = Math.max(sync.counter, remote.clear.counter);
+        for (const [id, incoming] of Object.entries(remote.entries)) {
+          const local = sync.entries[id] || {};
+          for (const stamp of [incoming.added, incoming.deleted, incoming.pin?.stamp])
+            if (stamp) sync.counter = Math.max(sync.counter, stamp.counter);
+          if (
+            incoming.pin?.value &&
+            compareStamp(incoming.pin.stamp, local.pin?.stamp) > 0 &&
+            !next.clips.some((clip) => clip.id === id)
+          )
+            local.seen = undefined;
+          sync.entries[id] = {
+            ...local,
+            added: newest(local.added, incoming.added),
+            deleted: newest(local.deleted, incoming.deleted),
+            pin: compareStamp(incoming.pin?.stamp, local.pin?.stamp) > 0 ? incoming.pin : local.pin,
+          };
+        }
+        next.clips = next.clips.filter((clip) => liveEntry(sync.entries[clip.id], sync.clear));
+        for (const clip of next.clips) clip.pinned = sync.entries[clip.id].pin?.value ?? false;
+      });
+    return remote.available.filter((id) => {
+      const entry = this.state.sync!.entries[id];
+      return (
+        entry &&
+        liveEntry(entry, this.state.sync!.clear) &&
+        compareStamp(entry.added, entry.seen) > 0
+      );
+    });
+  }
+  transfer(id: string) {
+    const clip = this.state.clips.find((item) => item.id === id);
+    const stamp = this.state.sync!.entries[id]?.seen;
+    return clip && stamp ? structuredClone({ clip, stamp }) : undefined;
+  }
+  async receive(input: unknown, sourceDevice: string) {
+    const { clip, stamp } = z.object({ clip: clipSchema, stamp: stampSchema }).parse(input);
+    if (
+      !clip.content ||
+      Buffer.byteLength(clip.content) > MAX_CLIP_BYTES ||
+      clipId(clip.kind, clip.content) !== clip.id
+    )
+      throw Error('Некорректная запись буфера');
+    if (clip.kind === 'image') {
+      const png = Buffer.from(clip.content, 'base64');
+      if (
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(clip.content) ||
+        png.length > MAX_IMAGE_BYTES ||
+        !png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+        !/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(clip.preview)
+      )
+        throw Error('Некорректное изображение буфера');
+    } else clip.preview = clip.content.slice(0, 400);
+    await this.update((next) => {
+      const sync = next.sync!;
+      const entry = sync.entries[clip.id];
+      if (
+        !entry ||
+        compareStamp(stamp, entry.added) !== 0 ||
+        !liveEntry(entry, sync.clear) ||
+        compareStamp(stamp, entry.seen) <= 0
+      )
+        return;
+      entry.seen = stamp;
+      next.clips = next.clips.filter((item) => item.id !== clip.id);
+      next.clips.push({
+        ...clip,
+        pinned: entry.pin?.value ?? false,
+        sourceDevice: clip.sourceDevice || sourceDevice,
+      });
     });
   }
   prune() {
+    if (
+      !this.state.clips.some(
+        (clip) =>
+          !clip.pinned &&
+          this.now() - clip.createdAt >= this.state.preferences.retentionDays * 86400000,
+      )
+    )
+      return Promise.resolve();
     return this.update(() => {});
   }
   flush() {

@@ -214,7 +214,7 @@ export default function ClipboardHistory({
                   setConfirmClear(true);
                 }}
               >
-                Очистить историю…
+                Очистить историю на всех связанных Mac…
               </Menu.Item>
             </Menu.Dropdown>
           </Menu>
@@ -279,8 +279,11 @@ export default function ClipboardHistory({
       )}
       {confirmClear ? (
         <div className="clipboard-confirm">
-          <h2>Удалить всю историю?</h2>
-          <p>Закреплённые записи тоже будут удалены. Текущий буфер обмена останется на месте.</p>
+          <h2>Удалить историю на всех связанных Mac?</h2>
+          <p>
+            Закреплённые записи тоже будут удалены. Удаление передастся связанным Mac, в том числе
+            после их подключения. Текущий буфер обмена останется на месте.
+          </p>
           <Group>
             <Button
               className="clipboard-delete-confirm"
@@ -291,7 +294,7 @@ export default function ClipboardHistory({
                 })
               }
             >
-              Удалить всю историю
+              Удалить на всех связанных Mac
             </Button>
             <Button variant="default" onClick={closeConfirmation} autoFocus>
               Отмена
@@ -380,7 +383,10 @@ export default function ClipboardHistory({
                     </span>
                     <span className="clipboard-meta">
                       {clip.pinned && <IconPin size={12} aria-label="Закреплено" />}
-                      {clipDate(clip.createdAt)}
+                      <span className="clipboard-origin" title={clip.sourceDevice}>
+                        {clipDate(clip.createdAt)}
+                        {clip.sourceDevice && ` · ${clip.sourceDevice}`}
+                      </span>
                     </span>
                   </span>
                 </button>

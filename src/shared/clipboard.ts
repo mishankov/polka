@@ -13,6 +13,7 @@ export interface ClipboardClip {
   preview: string;
   createdAt: number;
   pinned: boolean;
+  sourceDevice?: string;
 }
 export interface ClipboardState {
   clips: ClipboardClip[];
@@ -21,6 +22,7 @@ export interface ClipboardState {
   pasteAccess: 'granted' | 'required' | 'unavailable';
   pasteReady: boolean;
   error?: string;
+  sync?: ClipboardSyncState;
 }
 export const DEFAULT_CLIPBOARD_PREFERENCES: ClipboardPreferences = {
   paused: false,
@@ -38,4 +40,19 @@ export function clipboardResults(clips: ClipboardClip[], query: string) {
       ),
     )
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt - a.createdAt);
+}
+
+export interface ClipboardSyncState {
+  enabled: boolean;
+  deviceName: string;
+  nearby: { id: string; name: string }[];
+  peers: {
+    id: string;
+    name: string;
+    status: 'offline' | 'syncing' | 'connected';
+    lastSync?: number;
+    error?: string;
+  }[];
+  invitation?: { code: string; expiresAt: number };
+  error?: string;
 }

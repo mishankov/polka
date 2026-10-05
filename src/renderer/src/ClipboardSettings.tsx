@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Group, Select, Stack, Switch, Text, TextInput } from '@mantine/core';
 import type { ClipboardState } from '../../shared/clipboard';
 import { shortcutLabel } from '../../shared/launcher';
+import ClipboardSyncSettings from './ClipboardSyncSettings';
 import { api, errorMessage } from './api';
 
 export default function ClipboardSettings() {
@@ -36,8 +37,10 @@ export default function ClipboardSettings() {
     setRecording(false);
     try {
       setState(await api(`clipboardHistory.${method}`, params));
+      return true;
     } catch (reason) {
       setError(errorMessage(reason));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -154,6 +157,12 @@ export default function ClipboardSettings() {
           Отключить сочетание
         </Button>
       </Group>
+      <ClipboardSyncSettings
+        state={state?.sync}
+        paused={state?.preferences.paused ?? false}
+        save={save}
+        saving={saving}
+      />
       <Text size="xs" c="dimmed">
         История хранится локально в зашифрованном виде: до 200 записей и 128 МБ. Закреплённые записи
         сохраняются дольше выбранного срока. Данные, помеченные программой как конфиденциальные или

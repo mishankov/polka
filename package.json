@@ -12,7 +12,7 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "native:build": "swiftc -O native/MediaProbe.swift -o build/media-probe -framework CoreAudio -framework CoreMediaIO -framework AVFoundation && swiftc -O native/ClipboardProbe.swift -o build/clipboard-probe -framework AppKit",
+    "native:build": "swiftc -O native/MediaProbe.swift -o build/media-probe -framework CoreAudio -framework CoreMediaIO -framework AVFoundation && swiftc -O native/ClipboardProbe.swift -o build/clipboard-probe -framework AppKit && swiftc -O native/SyncDiscovery.swift -o build/sync-discovery",
     "package": "npm run build && npm run native:build && electron-builder --mac dmg zip --arm64",
     "package:dir": "npm run build && npm run native:build && electron-builder --mac dir --arm64",
     "verify": "npm run typecheck && npm run build && npm run native:build && npm test && npm run test:desktop && npm run test:workflows && npm run test:media",
@@ -43,6 +43,8 @@
     "test:packaged:auto-start": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Everything App.app/Contents/MacOS/Everything App\" tsx scripts/auto-start-smoke.ts",
     "build:extensions": "tsx scripts/build-extension-runtime.ts",
     "test:formats": "tsx scripts/formats-smoke.ts",
+    "test:clipboard:sync:desktop": "tsx scripts/clipboard-sync-smoke.ts",
+    "test:clipboard:sync": "tsx --test tests/clipboard-sync.test.ts",
     "test:clipboard": "tsx scripts/clipboard-smoke.ts",
     "test:clipboard:paste": "tsx scripts/clipboard-paste-smoke.ts",
     "test:clipboard:images": "tsx scripts/clipboard-screenshot-smoke.ts",
@@ -68,6 +70,10 @@
       {
         "from": "build/media-probe",
         "to": "media-probe"
+      },
+      {
+        "from": "build/sync-discovery",
+        "to": "sync-discovery"
       },
       {
         "from": "build/clipboard-probe",
@@ -104,7 +110,11 @@
       "notarize": false,
       "icon": "build/Everything.icon",
       "extendInfo": {
-        "LSUIElement": true
+        "LSUIElement": true,
+        "NSLocalNetworkUsageDescription": "Everything App синхронизирует историю буфера обмена между связанными Mac в вашей локальной сети.",
+        "NSBonjourServices": [
+          "_everyclip._tcp"
+        ]
       }
     }
   },
@@ -128,6 +138,7 @@
     "react-markdown": "10.1.0",
     "recharts": "3.10.1",
     "remark-gfm": "4.0.1",
+    "selfsigned": "5.5.0",
     "yaml": "2.9.1",
     "zod": "4.6.5"
   },
