@@ -1,69 +1,140 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { generateKeyPairSync, sign } from 'node:crypto';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 // @ts-expect-error Pure build-time JavaScript shared with the release command.
-import { releaseConfig } from '../scripts/release-config.mjs';
-test('release builds require explicit owner, signing and notarization, with draft publishing', () => {
-  const pkg = {
-    build: {
-      mac: { target: ['dmg', 'zip'], identity: '-', hardenedRuntime: false, notarize: false },
+import { releasePackage, releaseConfig, releaseArtifactNames } from '../scripts/release-config.mjs';
+// @ts-expect-error Pure build-time JavaScript.
+import { appcastXml, verifyReleaseMetadata } from '../scripts/release-metadata.mjs';
+
+const pkg = {
+  name: 'polka',
+  version: '0.2.0',
+  build: {
+    productName: 'Polka',
+    files: ['out/**/*', '!**/node_modules/electron-sparkle-updater/native/**'],
+    mac: {
+      target: ['dmg', 'zip'],
+      minimumSystemVersion: '27.0',
+      extendInfo: { LSUIElement: true },
     },
-  };
+  },
+};
+const keys = generateKeyPairSync('ed25519');
+const publicKey = keys.publicKey
+  .export({ format: 'der', type: 'spki' })
+  .subarray(-32)
+  .toString('base64');
+const env = {
+  RELEASE_REPOSITORY: 'owner/app',
+  SPARKLE_PUBLIC_KEY: publicKey,
+  SPARKLE_PRIVATE_KEY: 'secret',
+};
+
+test('release config embeds public update trust and retains ad-hoc signing without Apple credentials', () => {
   assert.throws(() => releaseConfig(pkg, {}), /RELEASE_REPOSITORY/);
-  assert.throws(() => releaseConfig(pkg, { RELEASE_REPOSITORY: 'owner/app' }), /certificate/);
-  const env = {
-    RELEASE_REPOSITORY: 'owner/app',
-    CSC_LINK: 'secret',
-    CSC_KEY_PASSWORD: 'secret',
-    APPLE_ID: 'owner',
-    APPLE_APP_SPECIFIC_PASSWORD: 'secret',
-    APPLE_TEAM_ID: 'TEAM',
-  };
+  assert.throws(
+    () => releaseConfig(pkg, { RELEASE_REPOSITORY: 'owner/app' }),
+    /SPARKLE_PUBLIC_KEY/,
+  );
+  assert.throws(
+    () => releaseConfig(pkg, { ...env, SPARKLE_PUBLIC_KEY: 'placeholder' }),
+    /SPARKLE_PUBLIC_KEY/,
+  );
   const cfg = releaseConfig(pkg, env);
-  assert(cfg.forceCodeSigning);
-  assert(cfg.mac.notarize);
-  assert.equal(cfg.mac.identity, undefined);
-  assert(cfg.mac.hardenedRuntime);
-  assert.equal(cfg.mac.artifactName, '${name}-${version}-${arch}.${ext}');
-  assert.equal(cfg.publish[0].releaseType, 'draft');
-  assert.equal(cfg.extraMetadata.release.repository, 'owner/app');
+  assert.equal(cfg.mac.identity, '-');
+  assert.equal(cfg.mac.notarize, false);
+  assert.equal(cfg.mac.hardenedRuntime, false);
+  assert.equal(cfg.mac.extendInfo.LSUIElement, true);
+  assert.equal(cfg.mac.extendInfo.SUPublicEDKey, publicKey);
+  assert.equal(cfg.mac.extendInfo.SUVerifyUpdateBeforeExtraction, true);
+  assert.equal(cfg.mac.extendInfo.SUEnableAutomaticChecks, true);
+  assert.equal(cfg.mac.extendInfo.SUAutomaticallyUpdate, false);
+  assert.equal(
+    cfg.extraMetadata.release.feedUrl,
+    'https://github.com/owner/app/releases/latest/download/appcast.xml',
+  );
+  assert.equal(cfg.extraMetadata.release.updater, 'sparkle');
+  assert.equal(cfg.dmg.writeUpdateInfo, false);
+  assert(!cfg.files.includes('!**/node_modules/electron-sparkle-updater/native/**'));
   assert(!JSON.stringify(cfg).includes('secret'));
 });
 
-test('signed release filenames match GitHub-safe update URLs and uploaded assets', async () => {
-  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const { createHash } = await import('node:crypto');
-  // @ts-expect-error Pure build-time JavaScript.
-  const { releaseArtifactNames } = await import('../scripts/release-config.mjs');
-  // @ts-expect-error Pure build-time JavaScript.
-  const { verifyReleaseMetadata } = await import('../scripts/release-metadata.mjs');
-  const pkg = { name: 'polka', version: '0.2.0' };
+test('release tags drive bundle versions, asset names and exact feed URLs without editing package.json', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'polka-tag-release-'));
+  try {
+    assert.equal(releasePackage(pkg, {}).releaseTag, 'v0.2.0');
+    for (const tag of ['v1.4.0', '1.4.0', 'v1.4.0-beta.1']) {
+      const release = releasePackage(pkg, { RELEASE_TAG: tag });
+      const version = tag.replace(/^v/, '');
+      assert.equal(release.version, version);
+      assert.equal(pkg.version, '0.2.0');
+      const config = releaseConfig(release, env);
+      assert.equal(config.extraMetadata.version, version);
+      assert.equal(config.buildVersion, version);
+      const bytes = Buffer.from('tagged release fixture');
+      const signature = sign(null, bytes, keys.privateKey).toString('base64');
+      const names = releaseArtifactNames(release);
+      const zip = `polka-${version}-arm64.zip`;
+      assert(names.includes(zip));
+      for (const name of names) await writeFile(join(directory, name), bytes);
+      const xml = appcastXml(release, 'owner/app', signature, bytes.length);
+      assert(xml.includes(`/releases/download/${tag}/${zip}`));
+      await writeFile(join(directory, 'appcast.xml'), xml);
+      assert.deepEqual(
+        await verifyReleaseMetadata(release, directory, 'owner/app', publicKey),
+        names,
+      );
+      await assert.rejects(
+        verifyReleaseMetadata(
+          { ...release, releaseTag: 'v9.9.9' },
+          directory,
+          'owner/app',
+          publicKey,
+        ),
+        /ZIP asset/,
+      );
+    }
+    for (const tag of ['latest', 'v1.4', 'v1.4.0/path', 'v01.4.0'])
+      assert.throws(() => releasePackage(pkg, { RELEASE_TAG: tag }), /RELEASE_TAG/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('appcast authenticates exact ZIP bytes, version, platform requirements and GitHub asset URL', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'everything-release-'));
   try {
     const names: string[] = releaseArtifactNames(pkg);
     assert(names.every((name) => /^[A-Za-z0-9._-]+$/.test(name)));
-    const data = Buffer.from('release fixture');
-    const files = names
-      .filter((name) => name.endsWith('.zip') || name.endsWith('.dmg'))
-      .map((url) => ({
-        url,
-        size: data.length,
-        sha512: createHash('sha512').update(data).digest('base64'),
-      }));
-    const zip = files.find((file) => file.url.endsWith('.zip'))!;
-    for (const name of names) await writeFile(join(directory, name), data);
-    const metadata = { version: pkg.version, files, path: zip.url, sha512: zip.sha512 };
-    await writeFile(join(directory, 'latest-mac.yml'), JSON.stringify(metadata));
-    assert.deepEqual(await verifyReleaseMetadata(pkg, directory), names);
-    await writeFile(
-      join(directory, 'latest-mac.yml'),
-      JSON.stringify({ ...metadata, path: 'Polka 0.2.0-arm64.zip' }),
-    );
-    await assert.rejects(verifyReleaseMetadata(pkg, directory), /ZIP asset/);
-    await writeFile(join(directory, 'latest-mac.yml'), JSON.stringify(metadata));
-    await writeFile(join(directory, zip.url), 'modified bytes');
-    await assert.rejects(verifyReleaseMetadata(pkg, directory), /integrity mismatch/);
+    const bytes = Buffer.from('release fixture');
+    const signature = sign(null, bytes, keys.privateKey).toString('base64');
+    const zip = names.find((name) => name.endsWith('.zip'))!;
+    for (const name of names) await writeFile(join(directory, name), bytes);
+    const xml = appcastXml(pkg, 'owner/app', signature, bytes.length);
+    const check = () => verifyReleaseMetadata(pkg, directory, 'owner/app', publicKey);
+    await writeFile(join(directory, 'appcast.xml'), xml);
+    assert.deepEqual(await check(), names);
+    for (const [modified, message] of [
+      [xml.replace(`/v0.2.0/${zip}`, '/v0.2.0/wrong.zip'), /ZIP asset/],
+      [xml.replace('<sparkle:version>0.2.0', '<sparkle:version>0.1.0'), /version/],
+      [xml.replace('27.0', '26.0'), /system version/],
+      [xml.replace(signature, ''), /signature/],
+      [xml.replace(`length="${bytes.length}"`, 'length="1"'), /size/],
+    ] as const) {
+      await writeFile(join(directory, 'appcast.xml'), modified);
+      await assert.rejects(check(), message);
+    }
+    await writeFile(join(directory, 'appcast.xml'), xml);
+    const wrongKey = generateKeyPairSync('ed25519')
+      .publicKey.export({ format: 'der', type: 'spki' })
+      .subarray(-32)
+      .toString('base64');
+    await assert.rejects(verifyReleaseMetadata(pkg, directory, 'owner/app', wrongKey), /signature/);
+    await writeFile(join(directory, zip), Buffer.alloc(bytes.length, 1));
+    await assert.rejects(check(), /signature/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

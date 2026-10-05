@@ -59,6 +59,10 @@ jobs:
         timeout-minutes: 5
         run: npm run test:packaged
 
+      - name: Test authenticated ad-hoc update and relaunch
+        timeout-minutes: 8
+        run: npm run test:updates
+
       - uses: actions/upload-artifact@v7
         with:
           name: Polka-macos-arm64

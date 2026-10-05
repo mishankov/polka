@@ -12,7 +12,6 @@ import {
   powerMonitor,
   session,
   shell,
-  autoUpdater as nativeUpdater,
 } from 'electron';
 import { Worker } from 'node:worker_threads';
 import { mkdirSync, promises as fs } from 'node:fs';
@@ -21,7 +20,8 @@ import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { autoUpdater } from 'electron-updater';
+import { loadSparkleBridgeForApp } from 'electron-sparkle-updater';
+import { SparkleUpdateAdapter } from './sparkle-updates';
 import { UpdateService } from './updates';
 import { bindSettingsShortcut } from './workspace-shortcuts';
 import { createShelf } from './shelf';
@@ -52,7 +52,8 @@ let worker: Worker,
   tray: Tray | null = null,
   quitting = false,
   quitPending = false,
-  updateInstalling = false;
+  updateInstalling = false,
+  updateQuitRequested = false;
 function desktopAppearance() {
   return {
     dark: nativeTheme.shouldUseDarkColors,
@@ -464,17 +465,22 @@ app
           });
       }
     });
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = false;
-    autoUpdater.allowPrerelease = false;
-    autoUpdater.allowDowngrade = false;
     const metadata = JSON.parse(await fs.readFile(join(app.getAppPath(), 'package.json'), 'utf8'));
+    const release = metadata.release;
     const officialRelease =
       app.isPackaged &&
-      metadata.release?.signed === true &&
-      /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(metadata.release?.repository || '');
+      process.platform === 'darwin' &&
+      release?.updater === 'sparkle' &&
+      typeof release.feedUrl === 'string' &&
+      typeof release.publicKey === 'string' &&
+      Buffer.from(release.publicKey, 'base64').length === 32;
+    const updateAdapter = new SparkleUpdateAdapter(
+      () => loadSparkleBridgeForApp(),
+      release?.feedUrl || '',
+      release?.publicKey || '',
+    );
     updates = new UpdateService(
-      autoUpdater,
+      updateAdapter,
       app.getVersion(),
       officialRelease,
       (state) => broadcast({ type: 'updates.state', state }),
@@ -486,10 +492,18 @@ app
       },
       () => {
         updateInstalling = false;
+        updateQuitRequested = false;
         for (const { window } of windows.values())
           if (!window.isDestroyed()) window.setEnabled(true);
       },
     );
+    updateAdapter.on('before-quit-for-update', () => {
+      // Sparkle's native installer is staged; Electron owns orderly termination.
+      if (updateInstalling && updates.status().status === 'installing') {
+        updateQuitRequested = true;
+        app.quit();
+      }
+    });
     const settings = await call('settings.get');
     launcherShortcut.initialize(
       typeof settings?.launcherShortcut === 'string'
@@ -497,6 +511,10 @@ app
         : DEFAULT_LAUNCHER_SHORTCUT,
     );
     await shelf.start();
+    if (officialRelease) {
+      // Update failures must not prevent the shelf or clipboard from starting.
+      void updates.handle('updates.check');
+    }
     if (!process.argv.includes('--hidden') && !app.getLoginItemSettings().wasOpenedAtLogin)
       await openWindow();
     mediaIndicator.start(mediaTrackingFromSettings(settings));
@@ -511,21 +529,6 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (worker) void openWindow();
 });
-// Squirrel emits this only when staging succeeded, immediately before closing windows.
-// A normal before-quit arrives too late for the updater's window-close sequence.
-nativeUpdater.on('before-quit-for-update', () => {
-  if (!updateInstalling) return;
-  quitting = true;
-  globalShortcut.unregisterAll();
-  void shelf.stop();
-  mediaIndicator.stop();
-  // Close the settings database before the native installer exits.
-  try {
-    worker?.postMessage({ kind: 'shutdown' });
-  } catch {
-    /* Native install must still exit if the settings worker has already stopped. */
-  }
-});
 app.on('before-quit', (event) => {
   if (quitting) return;
   if (!worker) {
@@ -537,6 +540,7 @@ app.on('before-quit', (event) => {
   quitPending = true;
   void Promise.resolve()
     .then(async () => {
+      updates?.cancelForQuit(updateQuitRequested);
       globalShortcut.unregisterAll();
       await shelf.stop();
       mediaIndicator.stop();

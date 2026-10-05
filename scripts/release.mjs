@@ -1,20 +1,29 @@
-import { readFile, access, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, access, mkdir, writeFile, stat } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
-import { releaseConfig, releaseArtifactNames } from './release-config.mjs';
-const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+import { releasePackage, releaseConfig, releaseArtifactNames } from './release-config.mjs';
+import { appcastXml } from './release-metadata.mjs';
+import { join } from 'node:path';
+const pkg = releasePackage(
+  JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')),
+  process.env,
+);
 const config = releaseConfig(pkg, process.env);
 if (process.platform !== 'darwin' || process.arch !== 'arm64')
-  throw Error('Build signed releases on an Apple silicon Mac.');
+  throw Error('Build releases on an Apple silicon Mac.');
+if (!process.env.SPARKLE_PRIVATE_KEY)
+  throw Error('SPARKLE_PRIVATE_KEY is required to sign update archives.');
 if (process.argv.includes('--publish') && !process.env.GH_TOKEN)
   throw Error('GH_TOKEN is required for draft release upload.');
 await mkdir('artifacts', { recursive: true });
 await writeFile('artifacts/release-config.json', JSON.stringify(config, null, 2));
 function run(command, args) {
-  const result = spawnSync(command, args, { stdio: 'inherit', env: process.env });
+  const { SPARKLE_PRIVATE_KEY: _privateKey, ...publicEnv } = process.env;
+  const result = spawnSync(command, args, { stdio: 'inherit', env: publicEnv });
   if (result.status !== 0) process.exit(result.status || 1);
 }
 run('npm', ['run', 'build']);
 run('npm', ['run', 'native:build']);
+run('npm', ['run', 'sparkle:build']);
 run('npx', [
   'electron-builder',
   '--config',
@@ -27,6 +36,21 @@ run('npx', [
   'never',
 ]);
 const env = process.env;
+const zip = releaseArtifactNames(pkg).find((name) => name.endsWith('.zip'));
+const archive = join('release', zip);
+// Feed the secret through stdin, never through process arguments or a config file.
+const signed = spawnSync(
+  'node_modules/electron-sparkle-updater/native/vendor/bin/sign_update',
+  ['--ed-key-file', '-', '-p', archive],
+  { input: env.SPARKLE_PRIVATE_KEY, encoding: 'utf8' },
+);
+if (signed.status !== 0)
+  throw Error('Sparkle archive signing failed. Check the release signing key.');
+const signature = signed.stdout.trim();
+await writeFile(
+  'release/appcast.xml',
+  appcastXml(pkg, env.RELEASE_REPOSITORY, signature, (await stat(archive)).size),
+);
 run('npm', ['run', 'release:verify']);
 if (process.argv.includes('--publish')) {
   const sha = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
@@ -36,7 +60,7 @@ if (process.argv.includes('--publish')) {
   run('gh', [
     'release',
     'create',
-    `v${pkg.version}`,
+    pkg.releaseTag,
     ...artifacts,
     '--draft',
     '--repo',
@@ -44,8 +68,8 @@ if (process.argv.includes('--publish')) {
     '--target',
     sha.stdout.trim(),
     '--title',
-    `Polka ${pkg.version}`,
+    `${pkg.build.productName} ${pkg.version}`,
     '--notes',
-    'Signed and notarized macOS arm64 build. Review acceptance results before publishing.',
+    'Ad-hoc signed macOS arm64 build with authenticated Sparkle updates. Review acceptance results before publishing.',
   ]);
 }

@@ -38,6 +38,8 @@
     "test:clipboard:animation": "tsx scripts/clipboard-animation-smoke.ts",
     "test:shelf": "tsx scripts/shelf-smoke.ts && tsx scripts/shelf-search-shortcuts-smoke.ts",
     "test:media": "tsx scripts/media-indicator-smoke.ts",
+    "sparkle:build": "node scripts/build-sparkle.mjs",
+    "test:updates": "tsx scripts/updates-smoke.ts",
     "test:clipboard:sync": "tsx --test tests/clipboard-sync.test.ts",
     "test:clipboard:sync:desktop": "tsx scripts/clipboard-sync-smoke.ts"
   },
@@ -50,7 +52,8 @@
     "files": [
       "out/**/*",
       "docs/unicode-license.txt",
-      "package.json"
+      "package.json",
+      "!**/node_modules/electron-sparkle-updater/native/**"
     ],
     "extraResources": [
       {
@@ -86,11 +89,12 @@
           "_everyclip._tcp"
         ]
       }
-    }
+    },
+    "npmRebuild": false
   },
   "dependencies": {
     "@tabler/icons-react": "3.48.0",
-    "electron-updater": "6.8.9",
+    "electron-sparkle-updater": "0.5.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "4.6.5",
@@ -105,6 +109,7 @@
     "electron": "44.5.1",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
+    "fast-xml-parser": "5.11.2",
     "js-yaml": "4.3.2",
     "prettier": "3.9.9",
     "tsx": "4.23.15",

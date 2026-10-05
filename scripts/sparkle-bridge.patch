@@ -1,0 +1,79 @@
+--- a/native/src/sparkle_bridge.mm
++++ b/native/src/sparkle_bridge.mm
+@@ -71,6 +71,7 @@
+ @property(nonatomic, assign) BOOL installWhenReady;
+ @property(nonatomic, assign) BOOL installOnQuitWhenReady;
+ @property(nonatomic, copy, nullable) NSString *updateVersion;
++@property(nonatomic, copy, nullable) void (^cancelUpdate)(void);
+ @end
+ 
+ @implementation SilentUserDriver
+@@ -81,6 +82,7 @@
+ }
+ 
+ - (void)showUserInitiatedUpdateCheckWithCancellation:(void (^)(void))cancellation {
++  self.cancelUpdate = [cancellation copy];
+   EmitSparkleEvent(@{@"type" : @"checking"});
+ }
+ 
+@@ -139,6 +141,7 @@
+ }
+ 
+ - (void)showDownloadInitiatedWithCancellation:(void (^)(void))cancellation {
++  self.cancelUpdate = [cancellation copy];
+   self.receivedLength = 0;
+   self.expectedContentLength = 0;
+   self.downloadStarts += 1;
+@@ -209,11 +212,13 @@
+     reply(SPUUserUpdateChoiceDismiss);
+     return;
+   }
++  self.cancelUpdate = nil;
+   self.readyToInstallReply = [reply copy];
+ }
+ 
+ - (void)showInstallingUpdateWithApplicationTerminated:(BOOL)applicationTerminated
+                          retryTerminatingApplication:(void (^)(void))retryTerminatingApplication {
++  if (!applicationTerminated) EmitSparkleEvent(@{@"type" : @"installing"});
+ }
+ 
+ - (void)showUpdateInstalledAndRelaunched:(BOOL)relaunched
+@@ -222,6 +227,7 @@
+ }
+ 
+ - (void)dismissUpdateInstallation {
++  self.cancelUpdate = nil;
+   self.installWhenReady = NO;
+   self.installOnQuitWhenReady = NO;
+   self.readyToInstallReply = nil;
+@@ -405,6 +411,22 @@
+   return env.Undefined();
+ }
+ 
++// Ordinary quit must discard staging instead of consenting to an update.
++Napi::Value CancelPendingUpdate(const Napi::CallbackInfo &info) {
++  RunOnMain(^{
++    if (g_userDriver == nil) return;
++    g_userDriver.installWhenReady = NO;
++    g_userDriver.installOnQuitWhenReady = NO;
++    void (^reply)(SPUUserUpdateChoice) = g_userDriver.readyToInstallReply;
++    void (^cancel)(void) = g_userDriver.cancelUpdate;
++    g_userDriver.readyToInstallReply = nil;
++    g_userDriver.cancelUpdate = nil;
++    if (reply != nil) reply(SPUUserUpdateChoiceSkip);
++    else if (cancel != nil) cancel();
++  });
++  return info.Env().Undefined();
++}
++
+ Napi::Value SetAutomaticChecks(const Napi::CallbackInfo &info) {
+   Napi::Env env = info.Env();
+ 
+@@ -446,6 +468,7 @@
+ }
+ 
+ Napi::Object InitModule(Napi::Env env, Napi::Object exports) {
++  exports.Set(Napi::String::New(env, "cancelPendingUpdate"), Napi::Function::New(env, CancelPendingUpdate));
+   exports.Set(Napi::String::New(env, "init"), Napi::Function::New(env, Init));
+   exports.Set(Napi::String::New(env, "checkForUpdates"), Napi::Function::New(env, CheckForUpdates));
+   exports.Set(Napi::String::New(env, "installUpdateNow"), Napi::Function::New(env, InstallUpdateNow));
