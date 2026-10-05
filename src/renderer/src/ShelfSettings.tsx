@@ -112,9 +112,7 @@ export default function ShelfSettings({ initialTab }: { initialTab: 'general' | 
               </div>
               <Updates />
               <Text size="sm" c="dimmed">
-                История хранится локально в зашифрованном виде. AI-помощник и пользовательские
-                приложения временно приостановлены; их данные сохранены, фоновые задания не
-                запускаются.
+                История хранится локально в зашифрованном виде.
               </Text>
             </Stack>
           </Tabs.Panel>

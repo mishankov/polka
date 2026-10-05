@@ -3,34 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { CoreService } from '../src/core/service';
+import { SettingsStore } from '../src/main/settings-store';
 import { pressSettingsShortcut, pressAssistantShortcut } from './native-shortcuts';
 
 async function main() {
   const profile = await mkdtemp(join(tmpdir(), 'everything-shelf-'));
-  const core = new CoreService(profile);
+  const settings = new SettingsStore(profile);
   // This workflow tests the shelf in isolation; media transitions have their own smoke test.
-  await core.handle('settings.set', { key: 'mediaIndicatorEnabled', value: false });
-  const definition = {
-    schemaVersion: 1,
-    name: 'Dormant app',
-    entities: [],
-    screens: [],
-    actions: [],
-    automations: [],
-    extensions: [],
-    permissions: [],
-  };
-  const saved = await core.handle('apps.create', { definition });
-  const jobs = [{ id: 'saved-queued-job', appId: saved.id, actionId: 'later', status: 'queued' }];
-  const runs = [{ id: 'saved-run', status: 'waiting_approval' }];
-  await core.handle('state.set', { key: 'runtime.jobs', value: jobs });
-  await core.handle('state.set', { key: 'runtime.runs', value: runs });
-  await core.handle('settings.set', {
-    key: `shortcut:${saved.id}`,
-    value: 'CommandOrControl+Alt+9',
-  });
-  core.close();
+  await settings.handle('settings.set', { key: 'mediaIndicatorEnabled', value: false });
+  settings.close();
   const launch = (hidden = false) =>
     electron.launch({
       ...(process.env.EVERYTHING_EXECUTABLE
@@ -53,6 +34,12 @@ async function main() {
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
       1,
     );
+    assert.equal(
+      await app.evaluate(({ Menu }) =>
+        Menu.getApplicationMenu()!.items.some((item) => item.label === 'Файл'),
+      ),
+      false,
+    );
     assert.equal(await app.evaluate(({ app }) => app.dock?.isVisible()), false);
     assert.equal(
       await app.evaluate(({ globalShortcut }) =>
@@ -60,6 +47,8 @@ async function main() {
       ),
       false,
     );
+    await page.evaluate(() => window.platform.call('launcher.show'));
+    await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
     await page.getByRole('button', { name: 'Понятно', exact: true }).click();
     await expect(page.locator('.shelf-welcome')).toHaveCount(0);
     assert.equal(
@@ -89,7 +78,7 @@ async function main() {
           return String(error);
         }
       }, method);
-      assert.match(failure, /временно приостановлены/);
+      assert.match(failure, /Неизвестная операция/);
     }
     await pressAssistantShortcut(app, page);
     await expect(page.locator('.agent-panel')).toHaveCount(0);
@@ -153,18 +142,11 @@ async function main() {
     await expect(page.getByRole('button', { name: 'Открыть рабочее пространство' })).toHaveCount(0);
     await page.getByRole('combobox', { name: 'Поиск по полке', exact: true }).fill('');
     await page.screenshot({ path: '/tmp/everything-shelf-launcher.png' });
-    const hiddenMenu = await app.evaluate(
-      ({ Menu }) => Menu.getApplicationMenu()!.items.find((item) => item.label === 'Файл')!.visible,
-    );
-    assert.equal(hiddenMenu, false);
     assert.equal(await app.evaluate(({ app }) => app.dock?.isVisible()), false);
     assert.deepEqual(errors, []);
     await app.close();
-    const after = new CoreService(profile);
+    const after = new SettingsStore(profile);
     assert.equal(await after.handle('settings.get', { key: 'mediaIndicatorEnabled' }), false);
-    assert.deepEqual(await after.handle('apps.get', { appId: saved.id }), saved);
-    assert.deepEqual(await after.handle('state.get', { key: 'runtime.jobs' }), jobs);
-    assert.deepEqual(await after.handle('state.get', { key: 'runtime.runs' }), runs);
     after.close();
     app = await launch(true);
     // Wait for readiness through the menu, without creating or displaying a window.
@@ -188,8 +170,21 @@ async function main() {
     await expect(reopened.locator('.shelf-welcome')).toHaveCount(0);
     assert.equal(await app.evaluate(({ app }) => app.dock?.isVisible()), false);
     console.log(
-      'Shelf smoke passed: hidden Dock icon, quiet startup, settings, native shortcuts, clipboard navigation, frozen entry points and preserved app/job data.',
+      'Shelf smoke passed: hidden Dock icon, quiet startup, settings, native shortcuts, clipboard navigation, removed workspace entry points and persisted settings.',
     );
+  } catch (error) {
+    const failedPage = app.windows()[0];
+    console.error(
+      'Shelf state at failure:',
+      await failedPage
+        ?.evaluate(() => ({
+          focused: document.hasFocus(),
+          className: document.querySelector('.clipboard-shelf')?.className,
+        }))
+        .catch(() => 'Renderer unavailable'),
+    );
+    await failedPage?.screenshot({ path: '/tmp/polka-shelf-failure.png' }).catch(() => {});
+    throw error;
   } finally {
     await app.close();
     await rm(profile, { recursive: true, force: true });

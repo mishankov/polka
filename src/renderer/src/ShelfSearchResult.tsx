@@ -50,13 +50,7 @@ export default function SearchResult({
       : app
         ? app.kind === 'builtin'
           ? 'Встроенное'
-          : app.kind === 'mac'
-            ? 'macOS'
-            : app.favorite
-              ? '★'
-              : app.status === 'stopped'
-                ? 'Запустить'
-                : 'Открыть'
+          : 'macOS'
         : 'Открыть';
   return (
     <button

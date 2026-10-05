@@ -1,25 +1,15 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { ActionIcon, Alert, Button, Loader, Text, TextInput, Tooltip } from '@mantine/core';
-import {
-  IconSettings,
-  IconArrowLeft,
-  IconExternalLink,
-  IconSearch,
-  IconX,
-} from '@tabler/icons-react';
+import { IconSettings, IconSearch, IconX } from '@tabler/icons-react';
 import { type LauncherApp, type MacLauncherApp } from '../../shared/launcher';
 import { type ClipboardState } from '../../shared/clipboard';
 import { shelfSearch, type ShelfSearchResult } from '../../shared/shelf-search';
 import SearchResult from './ShelfSearchResult';
-import type { AppInstance } from '../../shared/types';
 import { api, errorMessage, report } from './api';
-import { flushDocuments } from './documentFlush';
-import Runtime from './Runtime';
 import ClipboardHistory from './ClipboardHistory';
 import ShelfSettings from './ShelfSettings';
 import ShelfWelcome from './ShelfWelcome';
 import type { ShelfDestination } from '../../shared/shelf';
-import { CUSTOM_APPS_ENABLED } from '../../shared/features';
 
 export default function Launcher({
   entry,
@@ -44,10 +34,7 @@ export default function Launcher({
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState('');
-  const [current, setCurrent] = useState<AppInstance>();
-  const [screen, setScreen] = useState<string>();
   const input = useRef<HTMLInputElement>(null);
-  const activeApp = useRef<AppInstance | undefined>(undefined);
   const launchPending = useRef(false);
   const request = useRef(0);
   const macRequest = useRef(0);
@@ -88,7 +75,7 @@ export default function Launcher({
     }
   }, []);
   useEffect(() => {
-    if (builtin || settings || current) return;
+    if (builtin || settings) return;
     void refreshClipboard();
     const unsubscribe = window.platform.onEvent((event) => {
       if (event.type === 'clipboardHistory.changed') void refreshClipboard();
@@ -97,7 +84,7 @@ export default function Launcher({
       clipboardRequest.current++;
       unsubscribe();
     };
-  }, [builtin, settings, current, entry.revision, refreshClipboard]);
+  }, [builtin, settings, entry.revision, refreshClipboard]);
   const refreshMac = useCallback(async () => {
     const id = ++macRequest.current;
     try {
@@ -127,39 +114,13 @@ export default function Launcher({
   useEffect(() => {
     void refresh();
     void refreshMac();
-    const unsubscribe = window.platform.onEvent((event) => {
-      if (event.type === 'workspace.changed') {
-        void refresh();
-        const currentId = activeApp.current?.id;
-        if (currentId)
-          void api<AppInstance>('apps.get', { appId: currentId })
-            .then((app) => {
-              if (activeApp.current?.id === currentId) {
-                activeApp.current = app;
-                setCurrent(app);
-              }
-            })
-            .catch((error) => setError(errorMessage(error)));
-      }
-      if (event.type === 'workspace.beforeClose')
-        void flushDocuments()
-          .then(() => api('windows.confirmClose', { token: event.token }))
-          .catch((error) => {
-            report(error);
-            void api('windows.confirmClose', { token: event.token, error: String(error) });
-          });
-    });
     return () => {
       request.current++;
       macRequest.current++;
-      unsubscribe();
     };
   }, [refresh, refreshMac]);
   useEffect(() => {
-    // Main has flushed document drafts before changing the entry destination.
     navigation.current++;
-    activeApp.current = undefined;
-    setCurrent(undefined);
     setQuery('');
     setSelected(undefined);
     setError('');
@@ -168,8 +129,8 @@ export default function Launcher({
     void refreshMac();
   }, [entry.revision, entry.destination, refresh, refreshMac]);
   useEffect(() => {
-    if (!current && !builtin && !settings) input.current?.focus();
-  }, [current, builtin, settings, entry.revision]);
+    if (!builtin && !settings) input.current?.focus();
+  }, [builtin, settings, entry.revision]);
   useEffect(() => {
     document.getElementById(`launcher-app-${selection?.id}`)?.scrollIntoView({ block: 'nearest' });
   }, [selection?.id]);
@@ -178,7 +139,6 @@ export default function Launcher({
     launchPending.current = true;
     setOpening(true);
     setError('');
-    const token = navigation.current;
     try {
       if (app.kind === 'builtin') {
         await api('clipboardHistory.show');
@@ -188,11 +148,6 @@ export default function Launcher({
         await api('launcher.openMac', { id: app.id });
         return;
       }
-      const instance = await api<AppInstance>('launcher.open', { appId: app.id });
-      if (token !== navigation.current) return;
-      activeApp.current = instance;
-      setCurrent(instance);
-      setScreen(localStorage.getItem('screen:' + app.id) || undefined);
     } catch (error) {
       setError(errorMessage(error));
     } finally {
@@ -223,25 +178,6 @@ export default function Launcher({
       }
     } catch (error) {
       if (token === navigation.current) setError(errorMessage(error));
-    } finally {
-      launchPending.current = false;
-      setOpening(false);
-    }
-  }
-  async function back() {
-    if (launchPending.current) return;
-    launchPending.current = true;
-    setOpening(true);
-    try {
-      await flushDocuments();
-      await api('launcher.back');
-      activeApp.current = undefined;
-      setCurrent(undefined);
-      setError('');
-      void refresh();
-      void refreshMac();
-    } catch (error) {
-      setError(errorMessage(error));
     } finally {
       launchPending.current = false;
       setOpening(false);
@@ -278,63 +214,6 @@ export default function Launcher({
           initialQuery={entry.searchQuery}
           onBack={() => void api('launcher.show').catch((error) => setError(errorMessage(error)))}
         />
-      ) : current ? (
-        <>
-          <header className="launcher-app-header clipboard-header">
-            <div className="clipboard-app-heading">
-              <Tooltip label="Назад к приложениям">
-                <ActionIcon
-                  aria-label="Назад к приложениям"
-                  variant="subtle"
-                  disabled={opening}
-                  onClick={() => void back()}
-                >
-                  <IconArrowLeft size={20} />
-                </ActionIcon>
-              </Tooltip>
-              <Text fw={550} truncate>
-                {current.icon} {current.name}
-              </Text>
-            </div>
-            <div className="clipboard-header-actions">
-              <Tooltip label="Открыть в отдельном окне">
-                <ActionIcon
-                  aria-label="Открыть в отдельном окне"
-                  variant="subtle"
-                  onClick={() => {
-                    void flushDocuments()
-                      .then(() => api('windows.open', { appId: current.id }))
-                      .then(hide)
-                      .catch((error) => setError(errorMessage(error)));
-                  }}
-                >
-                  <IconExternalLink size={18} />
-                </ActionIcon>
-              </Tooltip>
-              <ActionIcon aria-label="Закрыть быстрый запуск" variant="subtle" onClick={hide}>
-                <IconX size={18} />
-              </ActionIcon>
-            </div>
-          </header>
-          {error && (
-            <Alert color="red" m="sm">
-              {error}
-            </Alert>
-          )}
-          <div className="launcher-content">
-            <Runtime
-              key={current.id}
-              app={current}
-              standalone
-              surface="shelf"
-              screenId={screen}
-              onScreenChange={(id) => {
-                setScreen(id);
-                localStorage.setItem('screen:' + current.id, id);
-              }}
-            />
-          </div>
-        </>
       ) : (
         <>
           <div className="launcher-search clipboard-search">
@@ -458,19 +337,6 @@ export default function Launcher({
                     ? 'Ничего не найдено. Попробуйте другое слово.'
                     : 'Список приложений пока пуст. Попробуйте обновить его.'}
                 </Text>
-                {CUSTOM_APPS_ENABLED && !apps.length && (
-                  <Button
-                    variant="default"
-                    mt="md"
-                    onClick={() =>
-                      void api('windows.open')
-                        .then(hide)
-                        .catch((error) => setError(errorMessage(error)))
-                    }
-                  >
-                    Открыть рабочее пространство
-                  </Button>
-                )}
               </div>
             )}
           </div>

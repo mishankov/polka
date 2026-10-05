@@ -31,13 +31,11 @@ export function createShelf(
   register: (win: BrowserWindow) => void,
   notify: () => void,
   isQuitting: () => boolean,
-  beforeNavigate: (win: BrowserWindow) => Promise<void>,
   screensChanged: (notches: Notch[]) => void = () => {},
 ) {
   let window: BrowserWindow | undefined;
   let loading: Promise<void> | undefined;
   let requested = false;
-  let hasPresented = false;
   let captureTargetPending: Promise<void> | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   let expanded: boolean | 'settings' = false;
@@ -157,15 +155,6 @@ export function createShelf(
     if (captureTarget) captureTargetPending = paste.capture();
     if (captureTargetPending) await captureTargetPending;
     if (!requested || presentation.revision !== revision || disposed) return;
-    if (hasPresented && window && !window.isDestroyed()) {
-      try {
-        await beforeNavigate(window);
-      } catch (reason) {
-        if (presentation.revision === revision) requested = window.isVisible();
-        throw reason;
-      }
-      if (!requested || presentation.revision !== revision) return;
-    }
     expanded = destination === 'settings' || destination === 'about' ? 'settings' : false;
     const geometry = shelfGeometry(
       display.bounds,
@@ -218,7 +207,6 @@ export function createShelf(
         if (window === win) {
           window = undefined;
           requested = false;
-          hasPresented = false;
         }
       });
       win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -251,7 +239,6 @@ export function createShelf(
       notchWidth: geometry.target.width,
       notchHeight: geometry.target.height,
     };
-    hasPresented = true;
     window.setIgnoreMouseEvents(false);
     window.setBounds(geometry.panel);
     // A macOS panel takes keyboard focus without activating its owning app.
@@ -280,10 +267,6 @@ export function createShelf(
     };
     window.setBounds(geometry.panel);
     window.webContents.send('platform:event', { type: 'shelf.presentation', presentation });
-  }
-  function setExpanded(value: boolean) {
-    expanded = value;
-    updateGeometry();
   }
   async function toggle(destination: 'apps' | 'clipboard') {
     if (requested && presentation.destination === destination && !expanded) hide();
@@ -659,13 +642,13 @@ export function createShelf(
     await history.flush();
   }
   return {
+    flush: () => history.flush(),
     start,
     stop,
     handle,
     show,
     hide,
     toggle,
-    setExpanded,
     getRevision: () => presentation.revision,
     suspend(reason = 'sleep') {
       suspensions.add(reason);

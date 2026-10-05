@@ -4,8 +4,8 @@ import {
   type CSSVariablesResolver,
 } from '@mantine/core';
 
-// Shared by the shell and app screens; application theme choices can override it.
-export const workspaceTheme = createTheme({
+// Shared control sizing and accent colors for the shelf.
+const baseTheme = createTheme({
   primaryColor: 'orange',
   autoContrast: true,
   variantColorResolver: (input) => {
@@ -84,53 +84,9 @@ const surfaceVariables = {
   '--mantine-color-anchor': 'var(--accent)',
 };
 
-export const workspaceVariables: CSSVariablesResolver = () => ({
-  variables: {
-    '--home-chrome': 'var(--sidebar-bg)',
-    '--home-canvas': 'var(--workspace-bg)',
-    '--home-ink': 'var(--ink)',
-    '--home-muted': 'var(--muted)',
-    '--home-hover': 'var(--soft)',
-    '--home-border': 'var(--line)',
-    '--character-face': '#47513d',
-    '--character-body': '#c5ceab',
-    '--character-shade': '#afbc91',
-    '--character-error': '#dfaa95',
-    '--character-waiting': '#ddc794',
-  },
-  light: {
-    ...surfaceVariables,
-    '--workspace-bg': '#faf7f2',
-    '--surface-raised': '#fffcf7',
-    '--sidebar-bg': '#eee5d9',
-    '--line': '#e3d8ca',
-    '--ink': '#473b31',
-    '--muted': '#877767',
-    '--accent': '#94573e',
-    '--accent-contrast': '#fffcf7',
-    '--soft': '#e9d9c8',
-    '--home-composer-shadow': '0 3px 10px #76523305, 0 12px 36px #76523308',
-    '--character-shadow': '#76523312',
-  },
-  dark: {
-    ...surfaceVariables,
-    '--workspace-bg': '#28221e',
-    '--surface-raised': '#302822',
-    '--sidebar-bg': '#201b17',
-    '--line': '#493c31',
-    '--ink': '#eee3d5',
-    '--muted': '#b5a28e',
-    '--accent': '#dca68a',
-    '--accent-contrast': '#39271e',
-    '--soft': '#3f3027',
-    '--home-composer-shadow': '0 4px 24px #0d08051c',
-    '--character-shadow': '#0d080518',
-  },
-});
-
 // The shelf and its embedded screens share neutral surfaces, including portals.
 export const shelfTheme = createTheme({
-  ...workspaceTheme,
+  ...baseTheme,
   primaryColor: 'gray',
   variantColorResolver: (input) => {
     const colors = defaultVariantColorsResolver(input);
@@ -139,7 +95,7 @@ export const shelfTheme = createTheme({
       : colors;
   },
   colors: {
-    ...workspaceTheme.colors,
+    ...baseTheme.colors,
     gray: [
       '#fafafa',
       '#f1f1f1',
@@ -166,8 +122,7 @@ export const shelfTheme = createTheme({
     ],
   },
 });
-export const shelfVariables: CSSVariablesResolver = (...args) => {
-  const base = workspaceVariables(...args);
+export const shelfVariables: CSSVariablesResolver = () => {
   const surfaces = {
     ...surfaceVariables,
     '--workspace-bg': '#000',
@@ -180,5 +135,5 @@ export const shelfVariables: CSSVariablesResolver = (...args) => {
     '--accent-contrast': '#111',
     '--soft': '#242424',
   };
-  return { variables: base.variables, light: surfaces, dark: surfaces };
+  return { variables: {}, light: surfaces, dark: surfaces };
 };
