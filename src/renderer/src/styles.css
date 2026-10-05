@@ -417,12 +417,15 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   min-width: 0;
 }
 .clipboard-result-shortcut {
-  min-width: 24px;
-  flex-shrink: 0;
+  flex: 0 0 36px;
+  padding-right: 10px;
   color: var(--muted);
   font: inherit;
   font-size: 12px;
   text-align: right;
+}
+.clipboard-result-shortcut kbd {
+  font: inherit;
 }
 .clipboard-text {
   display: block;

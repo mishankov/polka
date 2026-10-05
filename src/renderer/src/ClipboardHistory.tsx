@@ -428,7 +428,6 @@ export default function ClipboardHistory({
                       {clipDate(clip.createdAt)}
                     </span>
                   </span>
-                  {position < 9 && <kbd className="clipboard-result-shortcut">⌘{position + 1}</kbd>}
                 </button>
                 <div className="clipboard-row-actions">
                   <Tooltip label="Просмотр · ⌘↵">
@@ -468,6 +467,9 @@ export default function ClipboardHistory({
                     </ActionIcon>
                   </Tooltip>
                 </div>
+                <span className="clipboard-result-shortcut">
+                  {position < 9 && <kbd>⌘{position + 1}</kbd>}
+                </span>
               </div>
             ))
           )}
