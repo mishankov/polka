@@ -22,7 +22,7 @@ export interface ExtensionSDK {
 export const SDKContext = createContext<ExtensionSDK | null>(null);
 export function useSDK() {
   const sdk = useContext(SDKContext);
-  if (!sdk) throw Error('Компонент должен работать внутри экрана Everything App');
+  if (!sdk) throw Error('Компонент должен работать внутри экрана Полки');
   return sdk;
 }
 export const Card = MantineCard;

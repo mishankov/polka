@@ -44,7 +44,7 @@ if (process.argv.includes('--publish')) {
     '--target',
     sha.stdout.trim(),
     '--title',
-    `Everything App ${pkg.version}`,
+    `Polka ${pkg.version}`,
     '--notes',
     'Signed and notarized macOS arm64 build. Review acceptance results before publishing.',
   ]);
