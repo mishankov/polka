@@ -14,8 +14,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Check changed files and release notes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      macos: ${{ steps.filter.outputs.macos }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+      - name: Detect app and build changes
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: node scripts/ci-changes.mjs
+      - name: Validate bilingual release notes
+        run: |
+          for notes in release-notes/*.json; do
+            test -f "$notes" || continue
+            version=$(basename "$notes" .json)
+            node scripts/release-notes.mjs "v$version" "$RUNNER_TEMP/release-notes-$version.md" "$notes"
+          done
+
   verify:
     name: Verify macOS source (${{ matrix.suite }})
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -60,6 +92,8 @@ jobs:
 
   package:
     name: Package and test macOS arm64
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
     runs-on: xcode-27
     timeout-minutes: 15
     steps:
@@ -115,6 +149,8 @@ jobs:
 
   updates:
     name: Test macOS update and relaunch (${{ matrix.mode }})
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -149,9 +185,9 @@ jobs:
         run: npm run ${{ matrix.script }} -- --prebuilt
 
   macos-arm64:
-    # Retain the existing check name for branch protection and require every job.
+    # Always report the protected check, including intentional documentation-only skips.
     name: Verify and package macOS arm64
-    needs: [verify, package, updates]
+    needs: [changes, verify, package, updates]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -159,4 +195,12 @@ jobs:
       - name: Require all macOS checks to pass
         env:
           RESULTS: ${{ toJSON(needs) }}
-        run: jq -e 'all(.[]; .result == "success")' <<< "$RESULTS"
+        run: |
+          jq -e '
+            .changes.result == "success" and
+            (if .changes.outputs.macos == "true" then
+              [.verify, .package, .updates] | all(.result == "success")
+            elif .changes.outputs.macos == "false" then
+              [.verify, .package, .updates] | all(.result == "skipped")
+            else false end)
+          ' <<< "$RESULTS"
