@@ -31,9 +31,12 @@ const env = {
   RELEASE_REPOSITORY: 'owner/app',
   SPARKLE_PUBLIC_KEY: publicKey,
   SPARKLE_PRIVATE_KEY: 'secret',
+  POLKA_SIGNING_CERT_SHA1: 'A'.repeat(40),
+  POLKA_SIGNING_P12: 'private-certificate',
+  POLKA_SIGNING_PASSWORD: 'private-password',
 };
 
-test('release config embeds public update trust and retains ad-hoc signing without Apple credentials', () => {
+test('release config requires a persistent certificate and embeds only public update trust', () => {
   assert.throws(() => releaseConfig(pkg, {}), /RELEASE_REPOSITORY/);
   assert.throws(
     () => releaseConfig(pkg, { RELEASE_REPOSITORY: 'owner/app' }),
@@ -43,8 +46,18 @@ test('release config embeds public update trust and retains ad-hoc signing witho
     () => releaseConfig(pkg, { ...env, SPARKLE_PUBLIC_KEY: 'placeholder' }),
     /SPARKLE_PUBLIC_KEY/,
   );
+  assert.throws(
+    () => releaseConfig(pkg, { ...env, POLKA_SIGNING_CERT_SHA1: undefined }),
+    /POLKA_SIGNING_CERT_SHA1/,
+  );
+  assert.throws(
+    () => releaseConfig(pkg, { ...env, POLKA_SIGNING_CERT_SHA1: '-' }),
+    /POLKA_SIGNING_CERT_SHA1/,
+  );
   const cfg = releaseConfig(pkg, env);
   assert.equal(cfg.mac.identity, '-');
+  assert.equal(cfg.mac.sign, './scripts/sign-macos.mjs');
+  assert.equal(cfg.forceCodeSigning, true);
   assert.equal(cfg.mac.notarize, false);
   assert.equal(cfg.mac.hardenedRuntime, false);
   assert.equal(cfg.mac.extendInfo.LSUIElement, true);
@@ -60,6 +73,19 @@ test('release config embeds public update trust and retains ad-hoc signing witho
   assert.equal(cfg.dmg.writeUpdateInfo, false);
   assert(!cfg.files.includes('!**/node_modules/electron-sparkle-updater/native/**'));
   assert(!JSON.stringify(cfg).includes('secret'));
+  assert(!JSON.stringify(cfg).includes('private-certificate'));
+  assert(!JSON.stringify(cfg).includes('private-password'));
+});
+
+test('disposable updater fixtures explicitly retain certificate-free ad-hoc signing', () => {
+  const cfg = releaseConfig(
+    pkg,
+    { RELEASE_REPOSITORY: 'smoke/app', SPARKLE_PUBLIC_KEY: publicKey },
+    { adHoc: true },
+  );
+  assert.equal(cfg.mac.identity, '-');
+  assert.equal(cfg.mac.sign, undefined);
+  assert.equal(cfg.forceCodeSigning, false);
 });
 
 test('release tags drive bundle versions, asset names and exact feed URLs without editing package.json', async () => {

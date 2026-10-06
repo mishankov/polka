@@ -171,7 +171,9 @@ jobs:
         run: npm run build && npm run native:build
       - name: Build and authenticate update archive, verify packaged app
         env:
-          CSC_FOR_PULL_REQUEST: 'true'
+          POLKA_SIGNING_P12: ${{ secrets.POLKA_SIGNING_P12 }}
+          POLKA_SIGNING_PASSWORD: ${{ secrets.POLKA_SIGNING_PASSWORD }}
+          POLKA_SIGNING_CERT_SHA1: ${{ vars.POLKA_SIGNING_CERT_SHA1 }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: npm run release -- --prebuilt
       - uses: actions/upload-artifact@v7

@@ -114,7 +114,17 @@ jobs:
           retention-days: 7
 
   updates:
-    name: Test authenticated macOS update and relaunch
+    name: Test macOS update and relaunch (${{ matrix.mode }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: ad-hoc
+            script: test:updates
+          - mode: self-signed
+            script: test:updates:self-signed
+          - mode: signing-migration
+            script: test:updates:signing-migration
     # GUI workflows use separate runners: clipboard, focus and shortcuts are shared.
     runs-on: xcode-27
     timeout-minutes: 15
@@ -134,9 +144,9 @@ jobs:
         run: node -e 'console.log(require("electron"))'
       - name: Build app and native helpers once
         run: npm run build:prepare
-      - name: Test authenticated ad-hoc update and relaunch
+      - name: Test update and relaunch (${{ matrix.mode }})
         timeout-minutes: 8
-        run: npm run test:updates -- --prebuilt
+        run: npm run ${{ matrix.script }} -- --prebuilt
 
   macos-arm64:
     # Retain the existing check name for branch protection and require every job.
