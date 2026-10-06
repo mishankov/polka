@@ -47,6 +47,7 @@ export function createShelf(
   let loading: Promise<void> | undefined;
   let savingImage = false;
   let requested = false;
+  let lastHiddenAt: number | undefined;
   let captureTargetPending: Promise<void> | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingShow: { revision: number; finish: (ready: boolean) => void } | undefined;
@@ -151,6 +152,7 @@ export function createShelf(
     if (!window || window.isDestroyed() || (!window.isVisible() && !presentation.visible)) return;
     if (hideTimer && animate) return;
     clearTimeout(hideTimer);
+    if (presentation.visible) lastHiddenAt = Date.now();
     presentation = { ...presentation, visible: false, revision: presentation.revision + 1 };
     window.setIgnoreMouseEvents(true);
     window.webContents.send('platform:event', {
@@ -167,14 +169,16 @@ export function createShelf(
   }
   async function show(
     source: 'hover' | 'keyboard' = 'keyboard',
-    // Ordinary shelf openings resume its built-in app; explicit navigation wins.
-    destination: ShelfDestination = presentation.destination === 'clipboard' ||
-    presentation.destination === 'emoji'
-      ? presentation.destination
-      : 'apps',
+    destination?: ShelfDestination,
     searchQuery = '',
   ) {
     if (disposed || suspensions.size > 0) return;
+    // Resume a built-in app for one minute after closing; explicit navigation wins.
+    destination ??=
+      (presentation.destination === 'clipboard' || presentation.destination === 'emoji') &&
+      (presentation.visible || lastHiddenAt === undefined || Date.now() - lastHiddenAt < 60_000)
+        ? presentation.destination
+        : 'apps';
     pendingShow?.finish(false);
     clearTimeout(hideTimer);
     hideTimer = undefined;

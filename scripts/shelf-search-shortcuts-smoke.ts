@@ -21,7 +21,7 @@ async function main(test: DesktopTest) {
     ipcMain.handle('platform:call', (_, method, params) => fixture.call(method, params));
     global.fixture = fixture;
     app.whenReady().then(() => {
-      // Renderer interactions do not require OS activation or compete for native focus.
+      // This hidden renderer fixture avoids native focus and mouse input from the desktop.
       const window = new BrowserWindow({ show: false, width: 720, height: 740, webPreferences: { preload: ${JSON.stringify(resolve('out/preload/index.js'))} } });
       fixture.onEvent(event => window.webContents.send('platform:event', event));
       window.loadFile(${JSON.stringify(resolve('out/renderer/index.html'))});

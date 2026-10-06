@@ -96,6 +96,45 @@ async function main(test: DesktopTest) {
       await test.shelfHidden(app, page);
       await page.evaluate(() => window.platform.call('launcher.show'));
       await test.shelfReady(app, page, searchName);
+      await app.evaluate(() => {
+        (globalThis as any).__shelfClock = { read: Date.now, now: Date.now() };
+        Date.now = () => (globalThis as any).__shelfClock.now;
+      });
+      try {
+        await page.keyboard.press('Escape');
+        await test.shelfHidden(app, page);
+        await app.evaluate(({ app }) => {
+          (globalThis as any).__shelfClock.now += 59_999;
+          app.emit('activate');
+        });
+        await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
+        await test.shelfReady(app, page, searchName);
+        // A minute spent in the open app must not reset its destination.
+        await app.evaluate(() => ((globalThis as any).__shelfClock.now += 60_000));
+        await page.evaluate(() => window.platform.call('launcher.show'));
+        await test.shelfReady(app, page, searchName);
+        await page.keyboard.press('Escape');
+        await test.shelfHidden(app, page);
+        await app.evaluate(() => ((globalThis as any).__shelfClock.now += 59_999));
+        // Repeated hide requests must not restart the closed shelf's timeout.
+        await page.evaluate(() => window.platform.call('launcher.hide'));
+        await app.evaluate(() => {
+          (globalThis as any).__shelfClock.now += 1;
+          (globalThis as any).__shelfToggle();
+        });
+        await test.shelfReady(app, page, 'Поиск по полке');
+        // An explicit built-in app opening still wins over the idle timeout.
+        await page.keyboard.press('Escape');
+        await test.shelfHidden(app, page);
+        await app.evaluate(() => ((globalThis as any).__shelfClock.now += 60_000));
+        await page.evaluate((method) => window.platform.call(method), method);
+        await test.shelfReady(app, page, searchName);
+      } finally {
+        await app.evaluate(() => {
+          Date.now = (globalThis as any).__shelfClock.read;
+          delete (globalThis as any).__shelfClock;
+        });
+      }
       await page.getByRole('button', { name: 'Назад к приложениям', exact: true }).click();
       await expect(
         page.getByRole('combobox', { name: 'Поиск по полке', exact: true }),
@@ -103,6 +142,7 @@ async function main(test: DesktopTest) {
       await page.keyboard.press('Escape');
       await test.shelfHidden(app, page);
       await app.evaluate(({ app }) => app.emit('activate'));
+      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
       await expect(
         page.getByRole('combobox', { name: 'Поиск по полке', exact: true }),
       ).toBeFocused();
