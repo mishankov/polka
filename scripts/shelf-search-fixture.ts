@@ -1,4 +1,6 @@
 import type {} from '../src/shared/types';
+import type { ClipboardState } from '../src/shared/clipboard';
+import type { ShelfDestination } from '../src/shared/shelf';
 
 type PlatformEvent = Parameters<Parameters<Window['platform']['onEvent']>[0]>[0];
 
@@ -21,12 +23,15 @@ export function createShelfSearchFixture() {
     }));
   let clips = createClips(4);
   let pasteOnSelect = true;
+  let pasteAccess: ClipboardState['pasteAccess'] = 'granted';
+  let pasteReady = true;
+  let accessError = '';
   const changed = () => {
     for (const listener of listeners) listener({ type: 'clipboardHistory.changed' });
   };
   const presentation = {
     revision,
-    destination: 'apps' as 'apps' | 'clipboard' | 'settings',
+    destination: 'apps' as ShelfDestination,
     visible: true,
     focusSearch: true,
     topInset: 0,
@@ -50,6 +55,14 @@ export function createShelfSearchFixture() {
     setPasteOnSelect: (enabled: boolean) => {
       pasteOnSelect = enabled;
       changed();
+    },
+    setPasteAccess: (access: ClipboardState['pasteAccess'], ready = false) => {
+      pasteAccess = access;
+      pasteReady = ready;
+      changed();
+    },
+    setAccessError: (error: string) => {
+      accessError = error;
     },
     hold: () => {
       hold = true;
@@ -115,8 +128,8 @@ export function createShelfSearchFixture() {
               accelerator: 'CommandOrControl+Shift+V',
             },
             registered: true,
-            pasteAccess: 'granted',
-            pasteReady: true,
+            pasteAccess,
+            pasteReady,
           };
         case 'launcher.getPreferences':
           return { accelerator: 'CommandOrControl+Shift+Space', registered: true };
@@ -139,6 +152,9 @@ export function createShelfSearchFixture() {
         }
         case 'launcher.openMac':
         case 'shelf.copyCalculation':
+        case 'shelf.copyEmoji':
+        case 'shelf.selectEmoji':
+        case 'clipboardHistory.requestPasteAccess':
         case 'clipboardHistory.copy':
         case 'clipboardHistory.select':
         case 'clipboardHistory.show':
@@ -147,6 +163,8 @@ export function createShelfSearchFixture() {
             await new Promise<void>((resolve) => {
               release = resolve;
             });
+          if (method === 'clipboardHistory.requestPasteAccess' && accessError)
+            throw Error(accessError);
           if (method === 'clipboardHistory.show') navigate('clipboard', String(params.query || ''));
           return;
         default:

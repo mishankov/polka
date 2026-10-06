@@ -10,6 +10,7 @@ import {
 } from '../../shared/emoji';
 import type { ClipboardState } from '../../shared/clipboard';
 import { api, errorMessage } from './api';
+import ClipboardPasteHint from './ClipboardPasteHint';
 import './emoji.css';
 
 export default function EmojiPicker({ onBack }: { onBack: () => void }) {
@@ -67,13 +68,14 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     document.getElementById(`emoji-${selection?.id}`)?.scrollIntoView({ block: 'nearest' });
   }, [selection?.id, columns]);
-  async function choose(emoji: Emoji, copyOnly = false) {
+  async function run(method: string, params = {}) {
     if (pending.current) return;
     pending.current = true;
     setBusy(true);
     setError('');
     try {
-      await api(copyOnly ? 'shelf.copyEmoji' : 'shelf.selectEmoji', { id: emoji.id });
+      await api(method, params);
+      await refresh();
     } catch (reason) {
       setError(errorMessage(reason));
       input.current?.focus();
@@ -81,6 +83,9 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
       pending.current = false;
       setBusy(false);
     }
+  }
+  function choose(emoji: Emoji, copyOnly = false) {
+    return run(copyOnly ? 'shelf.copyEmoji' : 'shelf.selectEmoji', { id: emoji.id });
   }
   function navigate(event: KeyboardEvent, fromSearch = false) {
     if (
@@ -238,11 +243,12 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
           ))}
         </select>
       </div>
-      {state?.preferences.pasteOnSelect && !canPaste && (
-        <div className="clipboard-paste-hint emoji-paste-hint">
-          Эмодзи будет скопирован. Для ручной вставки нажмите ⌘ V.
-        </div>
-      )}
+      <ClipboardPasteHint
+        state={state}
+        busy={busy}
+        item="Эмодзи"
+        onRequestAccess={() => void run('clipboardHistory.requestPasteAccess')}
+      />
       {error && (
         <Alert className="clipboard-error" color="red">
           {error}
@@ -300,7 +306,7 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
                   onMouseMove={() => {
                     if (!grid.current?.contains(document.activeElement)) setSelected(emoji.id);
                   }}
-                  onClick={(event) => void choose(emoji, event.shiftKey)}
+                  onClick={() => void choose(emoji)}
                 >
                   <span aria-hidden="true">{emoji.value}</span>
                 </button>
