@@ -84,7 +84,7 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
     const accessibility = await target.context().newCDPSession(inputWindow);
     await accessibility.send('Accessibility.enable');
     let shelf: Awaited<ReturnType<typeof app.firstWindow>> | undefined;
-    for (const scenario of ['retained', 'blurred', 'recreated'] as const) {
+    for (const scenario of ['retained', 'blurred', 'recreated', 'transformed'] as const) {
       await inputWindow.setContent(
         `<title>Paste test target</title>${
           scenario === 'recreated'
@@ -202,7 +202,19 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
             ),
         )
         .toBe(false);
-      await selectionSearch.press('Enter');
+      const expectedText =
+        scenario === 'transformed'
+          ? 'PASTE FIXTURE: ONE SELECTION'
+          : 'Paste fixture: one selection';
+      if (scenario === 'transformed') {
+        await selectionSearch.press('Meta+Enter');
+        const preview = shelf.getByRole('region', { name: 'Просмотр записи' });
+        await preview.getByRole('button', { name: 'ПРОПИСНЫЕ', exact: true }).click();
+        await expect(preview.locator('pre')).toHaveText(expectedText);
+        await preview
+          .getByRole('button', { name: state.pasteReady ? 'Вставить' : 'Копировать', exact: true })
+          .click();
+      } else await selectionSearch.press('Enter');
 
       await expect
         .poll(() =>
@@ -227,7 +239,7 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
         );
       if (state.pasteAccess === 'granted') {
         assert(state.pasteReady, 'Native helper captures the previously focused field');
-        await expect.poll(content).toBe('Before: Paste fixture: one selection after');
+        await expect.poll(content).toBe(`Before: ${expectedText} after`);
         await expect(input).toBeFocused();
         await expect(inputWindow.locator('#second')).toHaveValue('');
         console.log(
@@ -235,14 +247,16 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
         );
       } else {
         await expect.poll(content).toBe('Before: replace after');
-        assert.equal(
-          await app.evaluate(({ clipboard }) => clipboard.readText()),
-          'Paste fixture: one selection',
-        );
+        assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), expectedText);
         console.log(
           `Copy fallback passed (${scenario}). Native paste remains unverified: Accessibility permission is not granted to the helper. No permission prompt was opened.`,
         );
       }
+      const clips = await shell.evaluate(() =>
+        window.platform.call('clipboardHistory.state').then((s) => s.clips),
+      );
+      assert.equal(clips.length, 1);
+      assert.equal(clips[0].content, 'Paste fixture: one selection');
     }
   } finally {
     if (target) await target.close();

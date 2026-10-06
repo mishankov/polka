@@ -518,6 +518,40 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   overflow: auto;
   padding: 16px 18px;
 }
+.clipboard-context-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.clipboard-context-actions button[aria-pressed='true'] {
+  background: var(--soft);
+  border-color: var(--muted);
+}
+.clipboard-context-actions kbd,
+.clipboard-transformation-status kbd {
+  margin-left: 8px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+}
+.clipboard-transformation-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 18px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.clipboard-action-notice {
+  margin: 0;
+  padding: 8px 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .clipboard-preview-content > img {
   display: block;
   width: 100%;

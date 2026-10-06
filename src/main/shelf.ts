@@ -8,7 +8,10 @@ import {
   Notification,
   safeStorage,
   screen,
+  dialog,
+  shell,
 } from 'electron';
+import { promises as fs } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
@@ -24,6 +27,11 @@ import { ClipboardSync } from './clipboard-sync';
 import { ClipboardPaste } from './clipboard-paste';
 import { LauncherShortcut } from './launcher-shortcut';
 import type { ClipboardState } from '../shared/clipboard';
+import {
+  clipboardWebUrl,
+  TEXT_TRANSFORMATIONS,
+  transformClipboardText,
+} from '../shared/clipboard-actions';
 import type { ShelfDestination, ShelfPresentation } from '../shared/shelf';
 import { calculate } from '../shared/calculator';
 import { emojiById } from '../shared/emoji';
@@ -37,6 +45,7 @@ export function createShelf(
 ) {
   let window: BrowserWindow | undefined;
   let loading: Promise<void> | undefined;
+  let savingImage = false;
   let requested = false;
   let captureTargetPending: Promise<void> | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
@@ -222,7 +231,9 @@ export function createShelf(
         skipTransformProcessType: true,
       });
       win.setAlwaysOnTop(true, 'pop-up-menu');
-      win.on('blur', () => hide());
+      win.on('blur', () => {
+        if (!savingImage) hide();
+      });
       win.on('close', (event) => {
         if (!isQuitting()) {
           event.preventDefault();
@@ -398,7 +409,7 @@ export function createShelf(
     }
   }
   function tick() {
-    if (suspensions.size > 0 || disposed) return;
+    if (suspensions.size > 0 || disposed || savingImage) return;
     const point = screen.getCursorScreenPoint();
     const display = requested
       ? screen.getAllDisplays().find((display) => display.id === displayId)
@@ -655,6 +666,54 @@ export function createShelf(
         })
         .toDataURL();
     }
+    if (method === 'clipboardHistory.openUrl' || method === 'clipboardHistory.saveImage') {
+      if (!requested || !window?.isFocused() || savingImage)
+        throw Error('Откройте запись на полке, чтобы выполнить действие');
+      const owner = window;
+      const revision = presentation.revision;
+      await history.prune();
+      const clip = history.snapshot().clips.find((item) => item.id === z.string().parse(params.id));
+      if (!clip) throw Error('Запись уже удалена');
+      if (!requested || !owner.isFocused() || savingImage || presentation.revision !== revision)
+        throw Error('Откройте запись на полке, чтобы выполнить действие');
+      if (method === 'clipboardHistory.openUrl') {
+        const url = clip.kind === 'text' ? clipboardWebUrl(clip.content) : undefined;
+        if (!url)
+          throw Error('Запись должна содержать одну ссылку HTTP или HTTPS без логина и пароля');
+        await shell.openExternal(url);
+        if (presentation.revision === revision) hide();
+        return true;
+      }
+      if (clip.kind !== 'image') throw Error('Сохранение в файл доступно только для изображений');
+      savingImage = true;
+      try {
+        const result = await dialog.showSaveDialog(owner, {
+          title: 'Сохранить изображение',
+          defaultPath: `Polka-${new Date(clip.createdAt).toISOString().replace(/[:.]/g, '-')}.png`,
+          buttonLabel: 'Сохранить',
+          filters: [{ name: 'Изображение PNG', extensions: ['png'] }],
+          properties: ['createDirectory'],
+        });
+        if (result.canceled || !result.filePath) return 'cancelled';
+        await fs.writeFile(result.filePath, Buffer.from(clip.content, 'base64'));
+        return 'saved';
+      } catch (reason) {
+        const code = (reason as NodeJS.ErrnoException)?.code;
+        const detail =
+          code === 'ENOENT'
+            ? 'Папка больше не существует. Выберите другую папку.'
+            : code === 'EACCES' || code === 'EPERM'
+              ? 'Нет доступа к файлу. Выберите другую папку или имя.'
+              : code === 'ENOSPC'
+                ? 'На диске нет свободного места.'
+                : 'Выберите другую папку и попробуйте ещё раз.';
+        throw Error(`Не удалось сохранить изображение. ${detail}`);
+      } finally {
+        savingImage = false;
+        if (requested && presentation.revision === revision && !disposed && !owner.isDestroyed())
+          owner.focus();
+      }
+    }
     if (method === 'clipboardHistory.syncEnabled') {
       await sync.setEnabled(z.boolean().parse(params.enabled));
       return state();
@@ -732,9 +791,16 @@ export function createShelf(
       await history.prune();
       const clip = history.snapshot().clips.find((item) => item.id === params.id);
       if (!clip) throw Error('Запись уже удалена');
+      const transformation = z.enum(TEXT_TRANSFORMATIONS).optional().parse(params.transformation);
+      if (transformation && clip.kind !== 'text')
+        throw Error('Преобразование доступно только для текста');
       return copySelection(
         clip.kind === 'text'
-          ? { 'text/plain': clip.content }
+          ? {
+              'text/plain': transformation
+                ? transformClipboardText(clip.content, transformation)
+                : clip.content,
+            }
           : { 'image/png': new Blob([Buffer.from(clip.content, 'base64')], { type: 'image/png' }) },
         context,
       );
