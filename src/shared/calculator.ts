@@ -1,13 +1,31 @@
+import { convertUnits } from './unit-conversions';
+import { convertTimeZones } from './time-zone-conversions';
+
+export type CalculationContext = { now?: Date; sourceDate?: string };
+
 export type Calculation =
-  | { status: 'result'; expression: string; value: string }
-  | { status: 'incomplete'; expression: string }
+  | {
+      status: 'result';
+      expression: string;
+      value: string;
+      conversion?: 'unit' | 'time-zone';
+      interpretation?: string;
+      displayValue?: string;
+      sourceDate?: string;
+    }
+  | { status: 'incomplete'; expression: string; message?: string }
   | { status: 'error'; expression: string; message: string };
 
 class IncompleteExpression extends Error {}
 
 /** A bounded arithmetic grammar, never JavaScript evaluation. Percent means / 100. */
-export function calculate(query: string): Calculation | undefined {
+export function calculate(
+  query: string,
+  context: CalculationContext = {},
+): Calculation | undefined {
   const expression = query.trim();
+  const conversion = convertTimeZones(expression, context) ?? convertUnits(expression);
+  if (conversion) return conversion;
   const source = expression
     .replace(/^=\s*/, '')
     .replace(/[×хx]/g, '*')

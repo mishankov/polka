@@ -36,14 +36,14 @@ export default function SearchResult({
     : clip
       ? clipboardSnippet(clip, query)
       : calculation
-        ? calculation.value
+        ? calculation.displayValue || calculation.value
         : 'Показать все записи';
   const description = app
     ? app.description || 'Полка'
     : clip
       ? `${clip.pinned ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
       : calculation
-        ? calculation.expression
+        ? calculation.interpretation || calculation.expression
         : result.kind === 'more-clips'
           ? `Найдено в истории: ${result.count}`
           : '';
@@ -67,7 +67,7 @@ export default function SearchResult({
       tabIndex={-1}
       id={`launcher-app-${result.id}`}
       data-kind={app?.kind || result.kind}
-      className={`launcher-result${selected ? ' selected' : ''}${calculation ? ' launcher-calculation' : ''}`}
+      className={`launcher-result${selected ? ' selected' : ''}${calculation ? ' launcher-calculation' : ''}${calculation?.conversion ? ' launcher-conversion' : ''}`}
       aria-selected={selected}
       aria-keyshortcuts={shortcut ? `Meta+${shortcut}` : undefined}
       disabled={busy}

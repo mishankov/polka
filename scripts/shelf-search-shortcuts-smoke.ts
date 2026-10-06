@@ -92,6 +92,44 @@ async function main() {
     await input.press('Meta+3');
     await lastAction('clipboardHistory.select', { id: 'clip-3' });
 
+    await input.fill('10 inches in cm');
+    await expect(rows.first()).toContainText('25.4 cm');
+    await expect(rows.first()).toContainText('10 in → cm');
+    await input.press('Enter');
+    await lastAction('shelf.copyCalculation', { expression: '10 inches in cm' });
+    await expect(rows.first()).toContainText('Скопировано');
+    await expect(input).toBeFocused();
+    await input.fill('100 метров в сантиметрах');
+    await expect(rows.first()).toContainText('10000 cm');
+    await expect(rows.first()).toContainText('100 m → cm');
+    await input.press('Enter');
+    await lastAction('shelf.copyCalculation', { expression: '100 метров в сантиметрах' });
+    await expect(rows.first()).toContainText('Скопировано');
+    await expect(input).toBeFocused();
+    await input.fill('2026-07-15 18:00 Moscow in London');
+    await expect(rows.first()).toContainText('16:00 Лондон');
+    await expect(rows.first()).toContainText('2026-07-15');
+    await expect(rows.first()).toContainText('UTC+01:00');
+    await rows.first().click();
+    await lastAction('shelf.copyCalculation', {
+      expression: '2026-07-15 18:00 Moscow in London',
+      sourceDate: '2026-07-15',
+    });
+    await expect(rows.first()).toContainText('Скопировано');
+    await expect(input).toBeFocused();
+    await page.screenshot({ path: '/tmp/everything-shelf-time-conversion.png', scale: 'css' });
+    await input.fill('2026-11-01 01:30 New York in UTC');
+    await expect(page.locator('.launcher-calculation-status')).toContainText('встречается дважды');
+    await expect(rows).toHaveCount(0);
+    const beforeInvalidConversion = (await actions()).length;
+    await input.press('Enter');
+    assert.equal((await actions()).length, beforeInvalidConversion);
+    await input.fill('10 inches in');
+    await expect(page.locator('.launcher-calculation-status')).toContainText(
+      'Укажите единицу результата',
+    );
+    await expect(rows).toHaveCount(0);
+
     await input.fill('пример');
     await expect(rows).toHaveCount(4);
     await expect(rows.locator('kbd')).toHaveText(['⌘1', '⌘2', '⌘3', '⌘4']);

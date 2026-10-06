@@ -1,4 +1,4 @@
-import { calculate, type Calculation } from './calculator';
+import { calculate, type Calculation, type CalculationContext } from './calculator';
 import { clipboardResults, type ClipboardClip } from './clipboard';
 import { launcherApps, type LauncherApp, type LauncherUsageStats } from './launcher';
 
@@ -13,8 +13,9 @@ export function shelfSearch(
   clips: ClipboardClip[],
   query: string,
   usage: LauncherUsageStats = {},
+  context: CalculationContext = {},
 ) {
-  const calculation = calculate(query);
+  const calculation = calculate(query, context);
   const results: ShelfSearchResult[] = [];
   if (calculation?.status === 'result')
     results.push({

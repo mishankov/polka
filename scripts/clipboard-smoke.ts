@@ -88,6 +88,39 @@ async function main() {
     await mainSearch.press('Enter');
     await expect(shell.locator('.launcher-calculation')).toContainText('Скопировано');
     assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), '3750');
+    await mainSearch.fill('10 inches in cm');
+    await expect(shell.locator('.launcher-calculation strong')).toHaveText('25.4 cm');
+    await mainSearch.press('Enter');
+    await expect(shell.locator('.launcher-calculation')).toContainText('Скопировано');
+    assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), '25.4 cm');
+    await mainSearch.fill('2026-07-15 18:00 Moscow in London');
+    await expect(shell.locator('.launcher-calculation strong')).toHaveText('16:00 Лондон');
+    await shell.locator('.launcher-calculation').click();
+    await expect(shell.locator('.launcher-calculation')).toContainText('Скопировано');
+    assert.equal(
+      await app.evaluate(({ clipboard }) => clipboard.readText()),
+      '16:00 · 2026-07-15 · Лондон (UTC+01:00)',
+    );
+    // Copy an undated query using the displayed source date, even after midnight.
+    await shell.evaluate(() =>
+      window.platform.call('shelf.copyCalculation', {
+        expression: '18:00 Moscow in London',
+        sourceDate: '2026-01-15',
+      }),
+    );
+    assert.equal(
+      await app.evaluate(({ clipboard }) => clipboard.readText()),
+      '15:00 · 2026-01-15 · Лондон (UTC+00:00)',
+    );
+    await mainSearch.fill('2026-03-08 02:30 New York in UTC');
+    await expect(shell.locator('.launcher-calculation-status')).toContainText(
+      'Такого местного времени нет',
+    );
+    await mainSearch.press('Enter');
+    assert.equal(
+      await app.evaluate(({ clipboard }) => clipboard.readText()),
+      '15:00 · 2026-01-15 · Лондон (UTC+00:00)',
+    );
     assert(
       await app.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows()
