@@ -37,10 +37,9 @@ async function main() {
     const actions = () => app.evaluate(() => (globalThis as any).fixture.actions);
     const lastAction = async (method: string, params: Record<string, unknown>) => {
       await expect.poll(async () => (await actions()).at(-1)).toEqual({ method, params });
-      await expect(page.locator('[role="listbox"][aria-busy]')).toHaveAttribute(
-        'aria-busy',
-        'false',
-      );
+      await expect(
+        page.locator('[role="listbox"][aria-busy], [role="grid"][aria-busy]'),
+      ).toHaveAttribute('aria-busy', 'false');
     };
     await expect(input).toBeFocused();
     // This fixture opens from its initial snapshot without sending shelf.shown.
@@ -293,6 +292,79 @@ async function main() {
     await expect(input).toBeFocused();
     await input.press('Meta+1');
     await expect(page.getByRole('combobox', { name: 'Найти в истории' })).toHaveValue('');
+
+    // Emoji uses the same selection/copy gestures and permission states as history.
+    await app.evaluate(() => {
+      const fixture = (globalThis as any).fixture;
+      fixture.setPasteOnSelect(true);
+      fixture.setPasteAccess('required');
+    });
+    const allow = page.getByRole('button', { name: /Разрешить…$/ });
+    await expect(allow).toBeVisible();
+    await expect(page.locator('.clipboard-paste-permission')).toContainText('Универсальный доступ');
+    await app.evaluate(() => (globalThis as any).fixture.navigate('emoji'));
+    const emojiInput = page.getByRole('combobox', { name: 'Найти эмодзи', exact: true });
+    const emojiGrid = page.getByRole('grid', { name: 'Эмодзи для вставки' });
+    await expect(emojiInput).toBeFocused();
+    await expect(allow).toBeVisible();
+    await expect(page.locator('.clipboard-paste-permission')).toContainText(
+      'эмодзи только копируется',
+    );
+    await expect(page.locator('.emoji-footer')).toContainText('копировать');
+    await emojiInput.fill('🔥');
+    await emojiInput.press('Enter');
+    await lastAction('shelf.selectEmoji', { id: '1f525' });
+    await emojiInput.press('Shift+Enter');
+    await lastAction('shelf.copyEmoji', { id: '1f525' });
+    await emojiInput.press('ArrowDown');
+    await page.keyboard.press('Shift+Enter');
+    await lastAction('shelf.copyEmoji', { id: '1f525' });
+    const fire = emojiGrid.getByRole('gridcell', { name: 'огонь · fire', exact: true });
+    await fire.click();
+    await lastAction('shelf.selectEmoji', { id: '1f525' });
+    await fire.click({ modifiers: ['Shift'] });
+    await lastAction('shelf.selectEmoji', { id: '1f525' });
+    await page.getByRole('button', { name: 'Копировать', exact: true }).click();
+    await lastAction('shelf.copyEmoji', { id: '1f525' });
+
+    await app.evaluate(() => (globalThis as any).fixture.hold());
+    const beforePermission = (await actions()).length;
+    await allow.click();
+    await expect(emojiGrid).toHaveAttribute('aria-busy', 'true');
+    await expect(allow).toBeDisabled();
+    await emojiInput.press('Enter');
+    assert.equal((await actions()).length, beforePermission + 1);
+    await app.evaluate(() => (globalThis as any).fixture.release());
+    await lastAction('clipboardHistory.requestPasteAccess', {});
+    await expect(emojiGrid).toHaveAttribute('aria-busy', 'false');
+    await expect(allow).toBeVisible();
+    await app.evaluate(() =>
+      (globalThis as any).fixture.setAccessError('Permission request failed'),
+    );
+    await allow.click();
+    await expect(page.locator('.clipboard-error')).toContainText('Permission request failed');
+    await expect(emojiInput).toBeFocused();
+    await app.evaluate(() => (globalThis as any).fixture.setAccessError(''));
+    await allow.click();
+    await expect(page.locator('.clipboard-error')).toHaveCount(0);
+    await expect(emojiGrid).toHaveAttribute('aria-busy', 'false');
+    await page.screenshot({ path: '/tmp/everything-emoji-paste-permission.png', scale: 'css' });
+
+    await app.evaluate(() => (globalThis as any).fixture.setPasteAccess('granted', true));
+    await expect(page.locator('.clipboard-paste-hint')).toHaveCount(0);
+    await expect(page.locator('.emoji-footer')).toContainText('вставить');
+    await app.evaluate(() => (globalThis as any).fixture.setPasteAccess('granted', false));
+    await expect(page.locator('.emoji-footer')).toContainText('копировать');
+    await app.evaluate(() => (globalThis as any).fixture.setPasteAccess('unavailable'));
+    await expect(page.locator('.clipboard-paste-hint')).toContainText(
+      'Автовставка пока недоступна',
+    );
+    await expect(allow).toHaveCount(0);
+    await app.evaluate(() => (globalThis as any).fixture.setPasteOnSelect(false));
+    await expect(page.locator('.clipboard-paste-hint')).toHaveCount(0);
+    await expect(page.locator('.emoji-footer')).toContainText('копировать');
+    await emojiInput.press('Enter');
+    await lastAction('shelf.selectEmoji', { id: '1f525' });
     await page.evaluate(() => window.platform.call('shelf.settings'));
     await expect(page.getByRole('tab', { name: 'Основные', exact: true })).toBeVisible();
     const beforeSettings = (await actions()).length;
@@ -300,7 +372,7 @@ async function main() {
     assert.equal((await actions()).length, beforeSettings);
     assert.deepEqual(errors, []);
     console.log(
-      'Shelf and clipboard history shortcuts passed: displayed order, all result actions, filtering, pinning, pending actions, overlays, settings and existing navigation.',
+      'Shelf, clipboard history and emoji actions passed: shortcuts, selection/copy gestures, permission states, request retry, pending actions and navigation.',
     );
   } finally {
     await app.close();

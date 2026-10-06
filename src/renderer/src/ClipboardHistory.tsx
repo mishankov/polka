@@ -10,10 +10,10 @@ import {
   IconEye,
   IconArrowLeft,
   IconTextSize,
-  IconLock,
 } from '@tabler/icons-react';
 import { clipboardResults, type ClipboardState, type ClipboardClip } from '../../shared/clipboard';
 import { api, errorMessage } from './api';
+import ClipboardPasteHint from './ClipboardPasteHint';
 
 function clipDate(timestamp: number) {
   const date = new Date(timestamp);
@@ -305,29 +305,11 @@ export default function ClipboardHistory({
           />
         </div>
       )}
-      {state?.preferences.pasteOnSelect && state.pasteAccess !== 'granted' && (
-        <div
-          className={`clipboard-paste-hint${state.pasteAccess === 'required' ? ' clipboard-paste-permission' : ''}`}
-          role="status"
-        >
-          {state.pasteAccess === 'required' && (
-            <IconLock className="clipboard-paste-permission-icon" size={20} aria-hidden="true" />
-          )}
-          <div className="clipboard-paste-hint-text">
-            {state.pasteAccess === 'required' && <strong>Автовставке нужен доступ</strong>}
-            <p>
-              {state.pasteAccess === 'required'
-                ? 'Разрешите «Универсальный доступ» в macOS. Пока запись только копируется — вставьте её ⌘ V.'
-                : 'Автовставка пока недоступна. Запись будет скопирована; вставьте её сочетанием ⌘ V.'}
-            </p>
-          </div>
-          {state.pasteAccess === 'required' && (
-            <Button variant="default" loading={busy} onClick={() => void run('requestPasteAccess')}>
-              Разрешить…
-            </Button>
-          )}
-        </div>
-      )}
+      <ClipboardPasteHint
+        state={state}
+        busy={busy}
+        onRequestAccess={() => void run('requestPasteAccess')}
+      />
       {(error || state?.error) && (
         <Alert className="clipboard-error" color="red">
           {error || state?.error}
