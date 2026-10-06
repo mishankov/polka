@@ -1,6 +1,7 @@
 import type {} from '../src/shared/types';
 import type { ClipboardState } from '../src/shared/clipboard';
 import type { ShelfDestination } from '../src/shared/shelf';
+import type { LauncherUsageStats } from '../src/shared/launcher';
 
 type PlatformEvent = Parameters<Parameters<Window['platform']['onEvent']>[0]>[0];
 
@@ -9,6 +10,7 @@ export function createShelfSearchFixture() {
   const listeners = new Set<(event: PlatformEvent) => void>();
   const actions: { method: string; params: Record<string, unknown> }[] = [];
   const shownRevisions: number[] = [];
+  const usage: LauncherUsageStats = {};
   let release: (() => void) | undefined;
   let hold = false;
   let revision = 0;
@@ -115,8 +117,11 @@ export function createShelfSearchFixture() {
             name,
             description: `${name}.app`,
             icon: '',
-            searchTerms: name === 'Calculator' ? ['2+2'] : [],
+            searchTerms:
+              name === 'Calculator' ? ['2+2'] : name === 'Terminal' ? ['Unix Terminal'] : [],
           }));
+        case 'launcher.usage':
+          return structuredClone(usage);
         case 'clipboardHistory.state':
           return {
             clips,
@@ -166,6 +171,11 @@ export function createShelfSearchFixture() {
           if (method === 'clipboardHistory.requestPasteAccess' && accessError)
             throw Error(accessError);
           if (method === 'clipboardHistory.show') navigate('clipboard', String(params.query || ''));
+          if (method === 'launcher.openMac') {
+            const id = String(params.id);
+            usage[id] = { count: (usage[id]?.count || 0) + 1, lastLaunchedAt: Date.now() };
+            return { opened: true, usage: structuredClone(usage) };
+          }
           return;
         default:
           return;

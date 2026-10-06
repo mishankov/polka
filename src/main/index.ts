@@ -30,6 +30,7 @@ import { mediaTrackingFromSettings } from '../shared/media-indicator';
 import { LauncherShortcut } from './launcher-shortcut';
 import { BUILTIN_APPS, DEFAULT_LAUNCHER_SHORTCUT } from '../shared/launcher';
 import { InstalledApps, readApplicationIcons } from './installed-apps';
+import { LauncherUsage } from './launcher-usage';
 import { protectTerminalOutput } from './terminal-output';
 import polkaTrayPath from './assets/polkaTemplate.png?asset';
 import polkaTray2xPath from './assets/polkaTemplate@2x.png?asset';
@@ -82,6 +83,12 @@ const installedApps = new InstalledApps({
     return icon.isEmpty() ? '' : icon.resize({ width: 32, height: 32 }).toDataURL();
   },
   openPath: (path) => shell.openPath(path),
+});
+const launcherUsage = new LauncherUsage({
+  read: () => call('settings.get', { key: 'launcherUsage' }),
+  save: (value) => call('settings.set', { key: 'launcherUsage', value }),
+  open: (id) => installedApps.open(id),
+  onError: (error) => console.error('Could not persist app launch ranking', error),
 });
 const shelf = createShelf(
   root,
@@ -272,13 +279,14 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
   }
   if (method === 'launcher.apps') return BUILTIN_APPS;
   if (method === 'launcher.macApps') return installedApps.list();
+  if (method === 'launcher.usage') return launcherUsage.state();
   if (method === 'launcher.openMac') {
     const revision = shelf.getRevision();
     const id = z
       .string()
       .regex(/^mac:[a-f0-9]{32}$/)
       .parse(params.id);
-    const result = await installedApps.open(id);
+    const result = await launcherUsage.open(id);
     if (revision === shelf.getRevision()) shelf.hide();
     return result;
   }

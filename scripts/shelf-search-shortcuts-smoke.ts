@@ -63,6 +63,7 @@ async function main() {
 
     await input.press('Meta+9');
     await lastAction('launcher.openMac', { id: 'mac:Safari' });
+    await expect(rows.nth(1)).toContainText('Safari');
     await expect(rows.first()).toHaveAttribute('aria-selected', 'true');
     await input.press('ArrowUp');
     await expect(rows.last()).toHaveAttribute('aria-selected', 'true');
@@ -166,6 +167,41 @@ async function main() {
     await expect(rows).toHaveCount(0);
     await input.press('Meta+1');
     assert.equal((await actions()).length, beforeIgnored);
+
+    // Matching and learned ranking must use the same order as arrows and number shortcuts.
+    await input.fill('safri');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('Safari');
+    await input.press('Enter');
+    await lastAction('launcher.openMac', { id: 'mac:Safari' });
+    await input.fill('ЫФАФКШ');
+    await expect(rows).toHaveCount(1);
+    await input.press('Meta+1');
+    await lastAction('launcher.openMac', { id: 'mac:Safari' });
+    await input.fill('ut');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('Terminal');
+    await input.press('Meta+1');
+    await lastAction('launcher.openMac', { id: 'mac:Terminal' });
+    await input.fill('cal');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first()).toContainText('Calculator');
+    await input.press('ArrowDown');
+    await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await input.press('Enter');
+    await lastAction('launcher.openMac', { id: 'mac:Calendar' });
+    // The selected ID stays selected even when its row moves to the top.
+    await expect(rows.first()).toContainText('Calendar');
+    await expect(rows.first()).toHaveAttribute('aria-selected', 'true');
+    await expect(rows.first()).toHaveAttribute('aria-keyshortcuts', 'Meta+1');
+    await input.press('Meta+1');
+    await lastAction('launcher.openMac', { id: 'mac:Calendar' });
+    await page.evaluate(() => window.platform.call('launcher.show'));
+    await expect(input).toHaveValue('');
+    await input.fill('cal');
+    await expect(rows.first()).toContainText('Calendar');
+    await input.press('Meta+2');
+    await lastAction('launcher.openMac', { id: 'mac:Calculator' });
 
     await input.fill('пример');
     await input.press('Meta+4');

@@ -6,6 +6,7 @@ export function shelfMethodAllowed(method: string) {
       'launcher.hide',
       'launcher.apps',
       'launcher.macApps',
+      'launcher.usage',
       'launcher.openMac',
       'launcher.getPreferences',
       'launcher.setShortcut',
