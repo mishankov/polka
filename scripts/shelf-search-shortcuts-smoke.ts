@@ -43,6 +43,11 @@ async function main() {
       );
     };
     await expect(input).toBeFocused();
+    // This fixture opens from its initial snapshot without sending shelf.shown.
+    // Cold startup must still acknowledge the rendered opening to the main process.
+    await expect
+      .poll(() => app.evaluate(() => (globalThis as any).fixture.shownRevisions))
+      .toContain(0);
     await expect(rows).toHaveCount(11);
     await expect(rows.locator('kbd')).toHaveText(Array.from({ length: 9 }, (_, i) => `⌘${i + 1}`));
     await expect(rows.nth(9)).not.toHaveAttribute('aria-keyshortcuts');

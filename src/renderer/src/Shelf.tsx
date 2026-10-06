@@ -34,16 +34,17 @@ export default function Shelf() {
       });
   }, []);
   useEffect(() => {
+    const show = (next: ShelfPresentation) => {
+      flushSync(() => apply(next, true));
+      if (next.visible) void api('shelf.didShow', { revision: next.revision }).catch(report);
+    };
     const unsubscribe = window.platform.onEvent((event) => {
       if (event.type === 'shelf.presentation') apply(event.presentation);
-      if (event.type === 'shelf.shown') {
-        flushSync(() => apply(event.presentation, true));
-        void api('shelf.didShow', { revision: event.presentation.revision }).catch(report);
-      }
+      if (event.type === 'shelf.shown') show(event.presentation);
     });
-    void api<ShelfPresentation>('shelf.presentation')
-      .then((next) => apply(next, true))
-      .catch(report);
+    // The first shown event can precede subscription on a cold startup. Commit
+    // and acknowledge the snapshot too, so the native window can safely appear.
+    void api<ShelfPresentation>('shelf.presentation').then(show).catch(report);
     return unsubscribe;
   }, [apply]);
   useEffect(() => {
