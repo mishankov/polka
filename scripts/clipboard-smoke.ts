@@ -78,7 +78,7 @@ async function main() {
     await copy('Второй пример: https://example.com/reference');
     await expect.poll(async () => (await clips()).length).toBe(2);
     // The main shelf combines arithmetic, app launch and clipboard search.
-    await shell.evaluate(() => window.platform.call('launcher.show'));
+    await shell.evaluate(() => window.platform.call('launcher.show', { destination: 'apps' }));
     const mainSearch = shell.getByRole('combobox', { name: 'Поиск по полке', exact: true });
     await expect(mainSearch).toBeFocused();
     await mainSearch.fill('1250 * 3');
@@ -162,7 +162,7 @@ async function main() {
       await app.evaluate(({ clipboard }) => clipboard.readText()),
       'Первый пример: план проекта',
     );
-    await shell.evaluate(() => window.platform.call('launcher.show'));
+    await shell.evaluate(() => window.platform.call('launcher.show', { destination: 'apps' }));
     await expect(mainSearch).toHaveValue('');
     await expect(shelfClips).toHaveCount(0);
     const existingPanel = app.windows().find((page) => page.url().includes('mode=shelf'));
@@ -283,7 +283,7 @@ async function main() {
       await copy(text);
       await expect.poll(async () => (await clips()).length).toBe(count + 1);
     }
-    await shell.evaluate(() => window.platform.call('launcher.show'));
+    await shell.evaluate(() => window.platform.call('launcher.show', { destination: 'apps' }));
     await mainSearch.fill('поиск');
     await expect(shelfClips).toHaveCount(3);
     await shell.screenshot({ path: '/tmp/everything-shelf-search.png' });
@@ -379,8 +379,7 @@ async function main() {
         app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)!.isFocused(), panelId),
       )
       .toBe(true);
-    await expect(panel.getByRole('combobox', { name: 'Поиск по полке' })).toBeFocused();
-    await panel.keyboard.press('Enter');
+    // Hover resumes the history that was open before the shelf was dismissed.
     await expect(search).toBeFocused();
     await app.evaluate(({ BrowserWindow }, id) => {
       const bounds = BrowserWindow.fromId(id)!.getBounds();
@@ -388,7 +387,7 @@ async function main() {
     }, panelId);
     await new Promise((resolve) => setTimeout(resolve, 700));
     assert(await visible());
-    // Hover opens the app list; Enter opens the first built-in, then keyboard copying works.
+    // Keyboard copying works immediately in the restored history.
     await panel.keyboard.press('ArrowDown');
     await expect(panel.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true');
     await panel.keyboard.press('ArrowUp');

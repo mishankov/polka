@@ -141,7 +141,8 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
         await app.evaluate(({ screen }) => {
           (globalThis as any).__qaCursor.y = screen.getPrimaryDisplay().bounds.y + 1;
         });
-      } else await shell.evaluate(() => window.platform.call('launcher.show'));
+      } else
+        await shell.evaluate(() => window.platform.call('launcher.show', { destination: 'apps' }));
       await expect.poll(() => app.windows().some((w) => w.url().includes('mode=shelf'))).toBe(true);
       shelf = app.windows().find((w) => w.url().includes('mode=shelf'))!;
       await expect
