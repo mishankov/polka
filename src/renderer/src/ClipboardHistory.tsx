@@ -10,10 +10,28 @@ import {
   IconEye,
   IconArrowLeft,
   IconTextSize,
+  IconExternalLink,
+  IconDownload,
 } from '@tabler/icons-react';
 import { clipboardResults, type ClipboardState, type ClipboardClip } from '../../shared/clipboard';
+import {
+  clipboardWebUrl,
+  TEXT_TRANSFORMATIONS,
+  TEXT_TRANSFORMATION_LABELS,
+  transformClipboardText,
+  type TextTransformation,
+} from '../../shared/clipboard-actions';
 import { api, errorMessage } from './api';
 import ClipboardPasteHint from './ClipboardPasteHint';
+
+type PreviewAction = {
+  id: string;
+  label: string;
+  disabled: boolean;
+  title?: string;
+  pressed?: boolean;
+  run: () => void;
+};
 
 function clipDate(timestamp: number) {
   const date = new Date(timestamp);
@@ -29,7 +47,7 @@ function clipDate(timestamp: number) {
   return `${day}, ${date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
-function ClipboardPreview({ clip }: { clip: ClipboardClip }) {
+function ClipboardPreview({ clip, text }: { clip: ClipboardClip; text?: string }) {
   const [image, setImage] = useState('');
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -55,7 +73,7 @@ function ClipboardPreview({ clip }: { clip: ClipboardClip }) {
       aria-busy={clip.kind === 'image' && !image && !error}
     >
       {clip.kind === 'text' ? (
-        <pre>{clip.content}</pre>
+        <pre>{text ?? clip.content}</pre>
       ) : error ? (
         <div className="clipboard-empty" role="alert">
           <p>{error}</p>
@@ -86,6 +104,8 @@ export default function ClipboardHistory({
   const [busy, setBusy] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [previewId, setPreviewId] = useState<string>();
+  const [transformation, setTransformation] = useState<TextTransformation>();
+  const [notice, setNotice] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const request = useRef(0);
@@ -99,8 +119,61 @@ export default function ClipboardHistory({
   const canPaste =
     !!state?.preferences.pasteOnSelect && state.pasteAccess === 'granted' && state.pasteReady;
   const preview = state?.clips.find((clip) => clip.id === previewId);
+  const previewText =
+    preview?.kind === 'text'
+      ? transformation
+        ? transformClipboardText(preview.content, transformation)
+        : preview.content
+      : undefined;
+  const previewActions: PreviewAction[] = !preview
+    ? []
+    : preview.kind === 'text'
+      ? [
+          ...TEXT_TRANSFORMATIONS.map((action) => {
+            const unchanged = transformClipboardText(preview.content, action) === preview.content;
+            return {
+              id: action,
+              label: TEXT_TRANSFORMATION_LABELS[action],
+              disabled: busy || unchanged,
+              title: unchanged ? 'Исходный текст уже в этом виде' : undefined,
+              pressed: transformation === action,
+              run: () => setTransformation(action),
+            };
+          }),
+          ...(transformation
+            ? [
+                {
+                  id: 'original',
+                  label: 'Показать оригинал',
+                  disabled: busy,
+                  run: () => {
+                    setTransformation(undefined);
+                    requestAnimationFrame(() =>
+                      document
+                        .querySelector<HTMLButtonElement>('.clipboard-preview .clipboard-back')
+                        ?.focus(),
+                    );
+                  },
+                },
+              ]
+            : []),
+        ]
+      : [
+          {
+            id: 'saveImage',
+            label: 'Сохранить изображение…',
+            disabled: busy,
+            run: () => {
+              void run('saveImage', { id: preview.id });
+            },
+          },
+        ];
+  const originalActionIndex = previewActions.findIndex((action) => action.id === 'original');
   function openPreview(id: string) {
     setSelected(id);
+    setTransformation(undefined);
+    setNotice('');
+    setError('');
     setPreviewId(id);
   }
   function closeConfirmation() {
@@ -135,18 +208,32 @@ export default function ClipboardHistory({
   }, [selection?.id, previewId, confirmClear]);
   async function run(method: string, params = {}) {
     if (pending.current) return;
+    const focusedBefore = document.activeElement;
     pending.current = true;
     setBusy(true);
     setError('');
+    setNotice('');
     try {
-      await api(`clipboardHistory.${method}`, params);
+      const result = await api(`clipboardHistory.${method}`, params);
+      if (method === 'saveImage' && result === 'saved') setNotice('Изображение сохранено');
       await refresh();
       return true;
     } catch (reason) {
-      setError(errorMessage(reason));
+      setError(
+        errorMessage(reason).replace(/^Error invoking remote method 'platform:call': Error: /, ''),
+      );
     } finally {
       pending.current = false;
       setBusy(false);
+      if (method === 'saveImage')
+        requestAnimationFrame(() => {
+          if (
+            focusedBefore instanceof HTMLElement &&
+            focusedBefore.isConnected &&
+            document.activeElement === document.body
+          )
+            focusedBefore.focus();
+        });
     }
   }
   return (
@@ -154,8 +241,53 @@ export default function ClipboardHistory({
       className="clipboard-app"
       aria-label="История буфера обмена"
       onKeyDown={(event) => {
+        const actionNumber = /^Digit[1-9]$/.test(event.code) ? event.code.slice(-1) : event.key;
+        if (
+          !preview &&
+          !confirmClear &&
+          !menuOpen &&
+          !busy &&
+          !event.nativeEvent.isComposing &&
+          !event.defaultPrevented &&
+          event.metaKey &&
+          event.altKey &&
+          !event.ctrlKey &&
+          !event.shiftKey &&
+          /^[1-9]$/.test(actionNumber) &&
+          !document.querySelector(
+            '[role="dialog"], [role="menu"], [role="listbox"]:not(#clipboard-results)',
+          )
+        ) {
+          event.preventDefault();
+          const clip = results[Number(actionNumber) - 1];
+          if (clip && !event.repeat) {
+            if (clip.kind === 'image') void run('saveImage', { id: clip.id });
+            else if (clipboardWebUrl(clip.content)) void run('openUrl', { id: clip.id });
+          }
+          return;
+        }
+        if (
+          preview &&
+          !confirmClear &&
+          !menuOpen &&
+          !busy &&
+          !event.nativeEvent.isComposing &&
+          !event.defaultPrevented &&
+          event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.shiftKey &&
+          /^[1-9]$/.test(event.key) &&
+          !document.querySelector('[role="dialog"], [role="menu"]')
+        ) {
+          event.preventDefault();
+          const action = previewActions[Number(event.key) - 1];
+          if (action && !action.disabled && !event.repeat) action.run();
+          return;
+        }
         if (
           event.key === 'Backspace' &&
+          !event.repeat &&
           !event.nativeEvent.isComposing &&
           !event.defaultPrevented &&
           !event.metaKey &&
@@ -168,11 +300,13 @@ export default function ClipboardHistory({
           const editing = target.closest('input, textarea, [contenteditable="true"]');
           if (!editing || (target === input.current && query.length === 0)) {
             event.preventDefault();
-            onBack();
+            if (confirmClear) closeConfirmation();
+            else if (preview) closePreview();
+            else onBack();
             return;
           }
         }
-        if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
+        if (event.key === 'Escape' && !event.nativeEvent.isComposing && !busy) {
           event.preventDefault();
           if (menuOpen) setMenuOpen(false);
           else if (confirmClear) closeConfirmation();
@@ -223,7 +357,11 @@ export default function ClipboardHistory({
                   disabled={!selection || busy}
                   onClick={() => {
                     setMenuOpen(false);
-                    if (selection) void run('copy', { id: selection.id });
+                    if (selection)
+                      void run('copy', {
+                        id: preview?.id ?? selection.id,
+                        transformation: preview ? transformation : undefined,
+                      });
                   }}
                 >
                   Копировать без вставки · ⇧↵
@@ -315,6 +453,11 @@ export default function ClipboardHistory({
           {error || state?.error}
         </Alert>
       )}
+      {notice && (
+        <p className="clipboard-action-notice" role="status">
+          {notice}
+        </p>
+      )}
       {confirmClear ? (
         <div className="clipboard-confirm">
           <h2>Удалить историю на всех связанных Mac?</h2>
@@ -340,23 +483,86 @@ export default function ClipboardHistory({
           </Group>
         </div>
       ) : preview ? (
-        <section className="clipboard-preview" aria-label="Просмотр записи">
+        <section
+          className="clipboard-preview"
+          aria-label="Просмотр записи"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              void run('copy', { id: preview.id, transformation });
+            }
+          }}
+        >
           <div className="clipboard-preview-toolbar">
-            <button className="clipboard-back" onClick={closePreview} autoFocus>
+            <button
+              className="clipboard-back"
+              onClick={closePreview}
+              disabled={busy}
+              title="Назад к списку · ⌫"
+              aria-keyshortcuts="Backspace"
+              autoFocus
+            >
               <IconArrowLeft size={16} />
               Назад
             </button>
             <span>{clipDate(preview.createdAt)}</span>
+            {canPaste && (
+              <Button
+                size="compact-sm"
+                variant="subtle"
+                disabled={busy}
+                onClick={() => void run('copy', { id: preview.id, transformation })}
+              >
+                Копировать
+              </Button>
+            )}
             <Button
               size="compact-sm"
               variant="default"
               disabled={busy}
-              onClick={() => void run('select', { id: preview.id })}
+              onClick={() => void run('select', { id: preview.id, transformation })}
             >
               {canPaste ? 'Вставить' : 'Копировать'}
             </Button>
           </div>
-          <ClipboardPreview key={preview.id} clip={preview} />
+          <div className="clipboard-context-actions" role="group" aria-label="Действия с записью">
+            {previewActions.map((action, position) =>
+              action.id === 'original' ? null : (
+                <Button
+                  key={action.id}
+                  size="compact-sm"
+                  variant="default"
+                  disabled={action.disabled}
+                  title={action.title}
+                  aria-label={action.label}
+                  aria-keyshortcuts={`Meta+${position + 1}`}
+                  aria-pressed={action.pressed}
+                  onClick={action.run}
+                >
+                  {action.label}
+                  <kbd aria-hidden="true">⌘{position + 1}</kbd>
+                </Button>
+              ),
+            )}
+          </div>
+          {transformation && (
+            <div className="clipboard-transformation-status" role="status">
+              <span>
+                Результат: {TEXT_TRANSFORMATION_LABELS[transformation]}. Оригинал сохранён.
+              </span>
+              <Button
+                size="compact-sm"
+                variant="subtle"
+                disabled={busy}
+                aria-label="Показать оригинал"
+                aria-keyshortcuts={`Meta+${originalActionIndex + 1}`}
+                onClick={previewActions[originalActionIndex]?.run}
+              >
+                Показать оригинал<kbd aria-hidden="true">⌘{originalActionIndex + 1}</kbd>
+              </Button>
+            </div>
+          )}
+          <ClipboardPreview key={preview.id} clip={preview} text={previewText} />
         </section>
       ) : (
         <div
@@ -430,6 +636,38 @@ export default function ClipboardHistory({
                   </span>
                 </button>
                 <div className="clipboard-row-actions">
+                  {clip.kind === 'image' && (
+                    <Tooltip
+                      label={`Сохранить изображение…${position < 9 ? ` · ⌘⌥${position + 1}` : ''}`}
+                    >
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        aria-label="Сохранить изображение…"
+                        aria-keyshortcuts={position < 9 ? `Meta+Alt+${position + 1}` : undefined}
+                        disabled={busy}
+                        onClick={() => void run('saveImage', { id: clip.id })}
+                      >
+                        <IconDownload size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
+                  {clip.kind === 'text' && clipboardWebUrl(clip.content) && (
+                    <Tooltip
+                      label={`Открыть ссылку в браузере${position < 9 ? ` · ⌘⌥${position + 1}` : ''}`}
+                    >
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        aria-label="Открыть ссылку в браузере"
+                        aria-keyshortcuts={position < 9 ? `Meta+Alt+${position + 1}` : undefined}
+                        disabled={busy}
+                        onClick={() => void run('openUrl', { id: clip.id })}
+                      >
+                        <IconExternalLink size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
                   <Tooltip label="Просмотр · ⌘↵">
                     <ActionIcon
                       variant="subtle"
@@ -491,9 +729,9 @@ export default function ClipboardHistory({
           </div>
         )}
         {preview ? (
-          <span>esc вернуться к списку</span>
+          <span>⌫ / esc вернуться к списку</span>
         ) : confirmClear ? (
-          <span>esc отменить</span>
+          <span>⌫ / esc отменить</span>
         ) : (
           <button
             disabled={!selection || busy}
