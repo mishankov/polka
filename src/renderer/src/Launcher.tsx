@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActionIcon, Alert, Button, Loader, Text, TextInput, Tooltip } from './NativeControls';
 import { IconSettings, IconSearch, IconX } from '@tabler/icons-react';
 import {
@@ -46,11 +46,14 @@ export default function Launcher({
   const request = useRef(0);
   const macRequest = useRef(0);
   const clipboardRequest = useRef(0);
+  // Keep an undated conversion anchored while the user reviews and copies it.
+  const calculationNow = useMemo(() => new Date(), [query, entry.revision]);
   const { results, calculation } = shelfSearch(
     [...apps, ...macApps],
     clipboard?.clips || [],
     query,
     usage,
+    { now: calculationNow },
   );
   const index = Math.max(
     0,
@@ -179,7 +182,10 @@ export default function Launcher({
     const token = navigation.current;
     try {
       if (result.kind === 'calculation') {
-        await api('shelf.copyCalculation', { expression: result.calculation.expression });
+        await api('shelf.copyCalculation', {
+          expression: result.calculation.expression,
+          ...(result.calculation.sourceDate ? { sourceDate: result.calculation.sourceDate } : {}),
+        });
         if (token === navigation.current) {
           setCopied(result.id);
           input.current?.focus();
@@ -319,7 +325,9 @@ export default function Launcher({
           )}
           {calculation && calculation.status !== 'result' && (
             <div className="launcher-calculation-status" role="status">
-              {calculation.status === 'incomplete' ? 'Продолжите выражение…' : calculation.message}
+              {calculation.status === 'incomplete'
+                ? calculation.message || 'Продолжите выражение…'
+                : calculation.message}
             </div>
           )}
           <span className="sr-only" role="status">

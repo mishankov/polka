@@ -227,6 +227,11 @@ canvas:focus-visible {
 .launcher-result-text > span {
   margin-top: 3px;
 }
+.launcher-conversion .launcher-result-text > span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
 .launcher-result-hint {
   display: flex;
   align-items: center;

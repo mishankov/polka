@@ -583,7 +583,13 @@ export function createShelf(
       return copySelection({ 'text/plain': emoji.value }, context);
     }
     if (method === 'shelf.copyCalculation') {
-      const calculation = calculate(z.string().max(512).parse(params.expression));
+      const calculation = calculate(z.string().max(512).parse(params.expression), {
+        sourceDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .parse(params.sourceDate),
+      });
       if (calculation?.status !== 'result') throw Error('Нет результата для копирования');
       generation++;
       await clipboard.write([
