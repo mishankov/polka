@@ -1,6 +1,6 @@
 import { calculate, type Calculation } from './calculator';
 import { clipboardResults, type ClipboardClip } from './clipboard';
-import { launcherApps, type LauncherApp } from './launcher';
+import { launcherApps, type LauncherApp, type LauncherUsageStats } from './launcher';
 
 export type ShelfSearchResult =
   | { id: string; kind: 'app'; app: LauncherApp }
@@ -8,7 +8,12 @@ export type ShelfSearchResult =
   | { id: string; kind: 'clip'; clip: ClipboardClip }
   | { id: string; kind: 'more-clips'; count: number; query: string };
 
-export function shelfSearch(apps: LauncherApp[], clips: ClipboardClip[], query: string) {
+export function shelfSearch(
+  apps: LauncherApp[],
+  clips: ClipboardClip[],
+  query: string,
+  usage: LauncherUsageStats = {},
+) {
   const calculation = calculate(query);
   const results: ShelfSearchResult[] = [];
   if (calculation?.status === 'result')
@@ -18,7 +23,11 @@ export function shelfSearch(apps: LauncherApp[], clips: ClipboardClip[], query: 
       calculation,
     });
   results.push(
-    ...launcherApps(apps, query).map((app) => ({ id: `app:${app.id}`, kind: 'app' as const, app })),
+    ...launcherApps(apps, query, usage).map((app) => ({
+      id: `app:${app.id}`,
+      kind: 'app' as const,
+      app,
+    })),
   );
   const matches = query.trim() ? clipboardResults(clips, query) : [];
   results.push(

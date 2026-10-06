@@ -1,7 +1,11 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { ActionIcon, Alert, Button, Loader, Text, TextInput, Tooltip } from './NativeControls';
 import { IconSettings, IconSearch, IconX } from '@tabler/icons-react';
-import { type LauncherApp, type MacLauncherApp } from '../../shared/launcher';
+import {
+  type LauncherApp,
+  type MacLauncherApp,
+  type LauncherUsageStats,
+} from '../../shared/launcher';
 import { type ClipboardState } from '../../shared/clipboard';
 import { shelfSearch, type ShelfSearchResult } from '../../shared/shelf-search';
 import SearchResult from './ShelfSearchResult';
@@ -25,6 +29,7 @@ export default function Launcher({
   const navigation = useRef(0);
   const [apps, setApps] = useState<LauncherApp[]>([]);
   const [macApps, setMacApps] = useState<MacLauncherApp[]>([]);
+  const [usage, setUsage] = useState<LauncherUsageStats>({});
   const [macLoading, setMacLoading] = useState(true);
   const [macError, setMacError] = useState('');
   const [clipboard, setClipboard] = useState<ClipboardState>();
@@ -45,6 +50,7 @@ export default function Launcher({
     [...apps, ...macApps],
     clipboard?.clips || [],
     query,
+    usage,
   );
   const index = Math.max(
     0,
@@ -90,9 +96,13 @@ export default function Launcher({
   const refreshMac = useCallback(async () => {
     const id = ++macRequest.current;
     try {
-      const next = await api<MacLauncherApp[]>('launcher.macApps');
+      const [next, nextUsage] = await Promise.all([
+        api<MacLauncherApp[]>('launcher.macApps'),
+        api<LauncherUsageStats>('launcher.usage'),
+      ]);
       if (id !== macRequest.current) return;
       setMacApps(next);
+      setUsage(nextUsage || {});
       setMacError('');
     } catch (error) {
       if (id === macRequest.current) setMacError(errorMessage(error));
@@ -147,7 +157,10 @@ export default function Launcher({
         return;
       }
       if (app.kind === 'mac') {
-        await api('launcher.openMac', { id: app.id });
+        const result = await api<{ usage?: LauncherUsageStats }>('launcher.openMac', {
+          id: app.id,
+        });
+        if (result?.usage) setUsage(result.usage);
         return;
       }
     } catch (error) {

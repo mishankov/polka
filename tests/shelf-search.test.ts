@@ -111,3 +111,25 @@ test('clipboard matches include Russian, images and snippets beyond the saved pr
   assert(clipboardSnippet(long, 'НУЖНЫЙ текст').length <= 162);
   assert.equal(shelfSearch([], [long, image], 'изображение').results[0].id, 'clip:image');
 });
+
+test('app ranking preserves calculation priority and leaves clipboard matching literal', () => {
+  const apps: LauncherApp[] = ['Calculator', 'Calendar'].map((name) => ({
+    kind: 'mac',
+    id: `mac:${name}`,
+    name,
+    icon: '',
+    description: '',
+    searchTerms: name === 'Calculator' ? ['2+2'] : [],
+  }));
+  const usage = { 'mac:Calendar': { count: 100, lastLaunchedAt: 10 } };
+  const clips = [clip('literal', 'cal'), clip('layout', 'сфд')];
+  assert.deepEqual(
+    shelfSearch(apps, clips, 'cal', usage).results.map((result) => result.id),
+    ['app:mac:Calendar', 'app:mac:Calculator', 'clip:literal'],
+  );
+  assert.deepEqual(
+    shelfSearch(apps, clips, 'сфд', usage).results.map((result) => result.id),
+    ['app:mac:Calendar', 'app:mac:Calculator', 'clip:layout'],
+  );
+  assert.equal(shelfSearch(apps, clips, '2+2', usage).results[0].kind, 'calculation');
+});
