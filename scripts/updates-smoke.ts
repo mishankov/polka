@@ -6,6 +6,7 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { readFile, writeFile, mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { stopUpdateFixtureProcesses } from './update-fixture-cleanup';
 // @ts-expect-error Build-time JavaScript.
 import { releaseConfig, releaseArtifactNames } from './release-config.mjs';
 // @ts-expect-error Build-time JavaScript.
@@ -369,13 +370,13 @@ require('./index.js');
     await running?.close().catch(() => {});
     server.closeAllConnections();
     await new Promise<void>((done) => server.close(() => done()));
-    // Terminate only disposable fixture helpers before removing their staged files.
-    spawnSync('pkill', ['-f', directory]);
-    spawnSync('pkill', ['-f', appId]);
-    await rm(profile, { recursive: true, force: true });
-    await rm(join(homedir(), 'Library/Caches', appId), { recursive: true, force: true });
+    // Signal delivery alone does not mean exit: the detached app can still write caches.
+    await stopUpdateFixtureProcesses(directory, appId);
+    const removal = { recursive: true, force: true, maxRetries: 5, retryDelay: 100 };
+    await rm(profile, removal);
+    await rm(join(homedir(), 'Library/Caches', appId), removal);
     await rm(join(homedir(), 'Library/Preferences', `${appId}.plist`), { force: true });
-    await rm(directory, { recursive: true, force: true });
+    await rm(directory, removal);
   }
 }
 main().catch((error) => {
