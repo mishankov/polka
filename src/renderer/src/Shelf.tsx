@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { flushSync } from 'react-dom';
-import type { ShelfDestination, ShelfPresentation } from '../../shared/shelf';
+import type { ShelfEntry, ShelfPresentation } from '../../shared/shelf';
 import { api, report } from './api';
 import Launcher from './Launcher';
 
@@ -8,6 +8,8 @@ export default function Shelf() {
   const hasOpened = useRef(false);
   const [presentation, setPresentation] = useState<ShelfPresentation>({
     revision: -1,
+    sessionId: 0,
+    entryMode: 'fresh',
     destination: 'apps',
     visible: false,
     focusSearch: false,
@@ -15,28 +17,32 @@ export default function Shelf() {
     notchWidth: 96,
     notchHeight: 3,
   });
-  const [entry, setEntry] = useState({
+  const [entry, setEntry] = useState<ShelfEntry>({
     revision: -1,
-    destination: 'apps' as ShelfDestination,
+    sessionId: 0,
+    entryMode: 'fresh',
+    destination: 'apps',
     searchQuery: '',
   });
+  const [committedRevision, setCommittedRevision] = useState(-1);
   const latest = useRef(-1);
   const apply = useCallback((next: ShelfPresentation, navigate = false) => {
     if (next.revision < latest.current) return;
     latest.current = next.revision;
     if (next.visible) hasOpened.current = true;
     setPresentation(next);
-    if (navigate && next.visible)
-      setEntry({
-        revision: next.revision,
-        destination: next.destination,
-        searchQuery: next.searchQuery || '',
-      });
+    if (navigate && next.visible) setEntry(next);
   }, []);
   useEffect(() => {
     const show = (next: ShelfPresentation) => {
+      if (next.revision < latest.current) return;
       flushSync(() => apply(next, true));
-      if (next.visible) void api('shelf.didShow', { revision: next.revision }).catch(report);
+      if (next.visible)
+        void api<boolean>('shelf.didShow', { revision: next.revision })
+          .then((accepted) => {
+            if (accepted) setCommittedRevision((revision) => Math.max(revision, next.revision));
+          })
+          .catch(report);
     };
     const unsubscribe = window.platform.onEvent((event) => {
       if (event.type === 'shelf.presentation') apply(event.presentation);
@@ -76,7 +82,7 @@ export default function Shelf() {
           void api('shelf.didHide', { revision: presentation.revision }).catch(report);
       }}
     >
-      <Launcher entry={entry} />
+      <Launcher entry={entry} committedRevision={committedRevision} />
     </main>
   );
 }

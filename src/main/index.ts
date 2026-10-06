@@ -29,7 +29,7 @@ import { createMediaIndicator } from './media-indicator';
 import { mediaTrackingFromSettings } from '../shared/media-indicator';
 import { LauncherShortcut } from './launcher-shortcut';
 import { BUILTIN_APPS, DEFAULT_LAUNCHER_SHORTCUT } from '../shared/launcher';
-import { InstalledApps, readApplicationIcons } from './installed-apps';
+import { InstalledApps, readApplicationIcons, readApplicationNames } from './installed-apps';
 import { LauncherUsage } from './launcher-usage';
 import { protectTerminalOutput } from './terminal-output';
 import polkaTrayPath from './assets/polkaTemplate.png?asset';
@@ -77,6 +77,7 @@ const mediaIndicator = createMediaIndicator({
   changed: (state) => broadcast({ type: 'mediaIndicator.changed', state }),
 });
 const installedApps = new InstalledApps({
+  getNames: (paths) => readApplicationNames(paths, app.getPreferredSystemLanguages()),
   getIcons: readApplicationIcons,
   getIcon: async (path) => {
     const icon = await app.getFileIcon(path, { size: 'normal' });

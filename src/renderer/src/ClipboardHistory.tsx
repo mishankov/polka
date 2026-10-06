@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ActionIcon, Alert, Button, Group, Loader, TextInput, Tooltip } from './NativeControls';
 import {
   IconClipboard,
@@ -23,6 +23,8 @@ import {
 } from '../../shared/clipboard-actions';
 import { api, errorMessage } from './api';
 import ClipboardPasteHint from './ClipboardPasteHint';
+import type { ClipboardContext } from './shelf-context';
+import { consumedKey, editingTarget, numberShortcut } from './shelf-keyboard';
 
 type PreviewAction = {
   id: string;
@@ -47,14 +49,28 @@ function clipDate(timestamp: number) {
   return `${day}, ${date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
-function ClipboardPreview({ clip, text }: { clip: ClipboardClip; text?: string }) {
+function ClipboardPreview({
+  clip,
+  text,
+  scrollTop,
+}: {
+  clip: ClipboardClip;
+  text?: string;
+  scrollTop: number;
+}) {
   const [image, setImage] = useState('');
+  const [imageReady, setImageReady] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const content = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (content.current) content.current.scrollTop = scrollTop;
+  }, [clip.id, text, image]);
   useEffect(() => {
     if (clip.kind !== 'image') return;
     let cancelled = false;
     setImage('');
+    setImageReady(false);
     setError('');
     void api<string>('clipboardHistory.preview', { id: clip.id })
       .then((result) => {
@@ -70,7 +86,8 @@ function ClipboardPreview({ clip, text }: { clip: ClipboardClip; text?: string }
   return (
     <div
       className="clipboard-preview-content"
-      aria-busy={clip.kind === 'image' && !image && !error}
+      ref={content}
+      aria-busy={clip.kind === 'image' && !imageReady && !error}
     >
       {clip.kind === 'text' ? (
         <pre>{text ?? clip.content}</pre>
@@ -82,7 +99,14 @@ function ClipboardPreview({ clip, text }: { clip: ClipboardClip; text?: string }
           </Button>
         </div>
       ) : image ? (
-        <img src={image} alt="Просмотр скопированного изображения" />
+        <img
+          src={image}
+          alt="Просмотр скопированного изображения"
+          onLoad={() => {
+            if (content.current) content.current.scrollTop = scrollTop;
+            setImageReady(true);
+          }}
+        />
       ) : (
         <Loader size="sm" color="gray" />
       )}
@@ -93,23 +117,40 @@ function ClipboardPreview({ clip, text }: { clip: ClipboardClip; text?: string }
 export default function ClipboardHistory({
   onBack,
   initialQuery = '',
+  initialContext,
+  onContextChange,
 }: {
   onBack: () => void;
   initialQuery?: string;
+  initialContext?: ClipboardContext;
+  onContextChange: (context: ClipboardContext) => void;
 }) {
-  const [state, setState] = useState<ClipboardState>();
-  const [query, setQuery] = useState(initialQuery);
-  const [selected, setSelected] = useState<string>();
+  const [state, setState] = useState<ClipboardState | undefined>(
+    initialContext?.state ? { ...initialContext.state, pasteReady: false } : undefined,
+  );
+  const [query, setQuery] = useState(initialContext?.query ?? initialQuery);
+  const [selected, setSelected] = useState<string | undefined>(initialContext?.selected);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [previewId, setPreviewId] = useState<string>();
-  const [transformation, setTransformation] = useState<TextTransformation>();
+  const [previewId, setPreviewId] = useState<string | undefined>(initialContext?.previewId);
+  const [transformation, setTransformation] = useState<TextTransformation | undefined>(
+    initialContext?.transformation,
+  );
   const [notice, setNotice] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const request = useRef(0);
   const pending = useRef(false);
+  const alive = useRef(true);
+  const root = useRef<HTMLElement>(null);
+  const contextMounted = useRef(false);
+  const list = useRef<HTMLDivElement>(null);
+  const scroll = useRef({
+    list: initialContext?.scrollTop ?? 0,
+    preview: initialContext?.previewScrollTop ?? 0,
+  });
+  const skipInitialScroll = useRef(!!initialContext);
   const results = clipboardResults(state?.clips || [], query);
   const index = Math.max(
     0,
@@ -149,9 +190,7 @@ export default function ClipboardHistory({
                   run: () => {
                     setTransformation(undefined);
                     requestAnimationFrame(() =>
-                      document
-                        .querySelector<HTMLButtonElement>('.clipboard-preview .clipboard-back')
-                        ?.focus(),
+                      document.querySelector<HTMLButtonElement>('.clipboard-back')?.focus(),
                     );
                   },
                 },
@@ -169,7 +208,38 @@ export default function ClipboardHistory({
           },
         ];
   const originalActionIndex = previewActions.findIndex((action) => action.id === 'original');
+  const context = useRef<ClipboardContext>({
+    destination: 'clipboard',
+    query,
+    scrollTop: 0,
+    previewScrollTop: 0,
+  });
+  useLayoutEffect(() => {
+    // Also sample on dismissal; the browser may not have emitted its scroll event yet.
+    if (contextMounted.current) {
+      if (list.current) scroll.current.list = list.current.scrollTop;
+      const content = root.current?.querySelector<HTMLElement>('.clipboard-preview-content');
+      if (content && content.getAttribute('aria-busy') !== 'true')
+        scroll.current.preview = content.scrollTop;
+    }
+    contextMounted.current = true;
+    context.current = {
+      destination: 'clipboard',
+      query,
+      selected,
+      previewId,
+      transformation,
+      scrollTop: scroll.current.list,
+      previewScrollTop: scroll.current.preview,
+      state,
+    };
+    onContextChange(context.current);
+  });
+  useLayoutEffect(() => {
+    if (list.current) list.current.scrollTop = scroll.current.list;
+  }, [preview?.id, confirmClear, !!state]);
   function openPreview(id: string) {
+    scroll.current.preview = 0;
     setSelected(id);
     setTransformation(undefined);
     setNotice('');
@@ -184,26 +254,44 @@ export default function ClipboardHistory({
     setPreviewId(undefined);
     requestAnimationFrame(() => input.current?.focus());
   }
+  function goBack() {
+    if (confirmClear) closeConfirmation();
+    else if (preview) closePreview();
+    else onBack();
+  }
+  useLayoutEffect(() => {
+    if (preview) document.querySelector<HTMLButtonElement>('.clipboard-back')?.focus();
+  }, [preview?.id]);
   const refresh = useCallback(async () => {
     const token = ++request.current;
     try {
       const next = await api<ClipboardState>('clipboardHistory.state');
-      if (token === request.current) setState(next);
+      if (token === request.current) {
+        setState(next);
+        setSelected((id) => (next.clips.some((clip) => clip.id === id) ? id : undefined));
+        setPreviewId((id) => (next.clips.some((clip) => clip.id === id) ? id : undefined));
+      }
     } catch (reason) {
       if (token === request.current) setError(errorMessage(reason));
     }
   }, []);
   useEffect(() => {
+    alive.current = true;
     void refresh();
     const unsubscribe = window.platform.onEvent((event) => {
       if (event.type === 'clipboardHistory.changed') void refresh();
     });
     return () => {
+      alive.current = false;
       request.current++;
       unsubscribe();
     };
   }, [refresh]);
   useEffect(() => {
+    if (skipInitialScroll.current) {
+      skipInitialScroll.current = false;
+      return;
+    }
     document.getElementById(`clip-${selection?.id}`)?.scrollIntoView({ block: 'nearest' });
   }, [selection?.id, previewId, confirmClear]);
   async function run(method: string, params = {}) {
@@ -215,19 +303,22 @@ export default function ClipboardHistory({
     setNotice('');
     try {
       const result = await api(`clipboardHistory.${method}`, params);
+      if (!alive.current) return false;
       if (method === 'saveImage' && result === 'saved') setNotice('Изображение сохранено');
       await refresh();
       return true;
     } catch (reason) {
+      if (!alive.current) return false;
       setError(
         errorMessage(reason).replace(/^Error invoking remote method 'platform:call': Error: /, ''),
       );
     } finally {
       pending.current = false;
       setBusy(false);
-      if (method === 'saveImage')
+      if (method === 'saveImage' && alive.current)
         requestAnimationFrame(() => {
           if (
+            alive.current &&
             focusedBefore instanceof HTMLElement &&
             focusedBefore.isConnected &&
             document.activeElement === document.body
@@ -239,9 +330,59 @@ export default function ClipboardHistory({
   return (
     <section
       className="clipboard-app"
+      ref={root}
+      onScrollCapture={(event) => {
+        const target = event.target as HTMLElement;
+        if (target.id === 'clipboard-results') scroll.current.list = target.scrollTop;
+        else if (target.classList.contains('clipboard-preview-content'))
+          scroll.current.preview = target.scrollTop;
+        else return;
+        onContextChange({
+          ...context.current,
+          scrollTop: scroll.current.list,
+          previewScrollTop: scroll.current.preview,
+        });
+      }}
       aria-label="История буфера обмена"
       onKeyDown={(event) => {
+        if (consumedKey(event)) return;
+        if (
+          document.querySelector(
+            '[role="dialog"], [role="menu"], [role="listbox"]:not(#clipboard-results)',
+          )
+        )
+          return;
+        if (busy) {
+          if (
+            ['Enter', 'Escape', 'Backspace'].includes(event.key) ||
+            numberShortcut(event) !== undefined
+          )
+            event.preventDefault();
+          return;
+        }
+        if (
+          event.key === 'Enter' &&
+          event.shiftKey &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !confirmClear &&
+          !menuOpen
+        ) {
+          event.preventDefault();
+          const clip = preview ?? selection;
+          if (clip && !event.repeat)
+            void run('copy', { id: clip.id, transformation: preview ? transformation : undefined });
+          return;
+        }
         const actionNumber = /^Digit[1-9]$/.test(event.code) ? event.code.slice(-1) : event.key;
+        const number = numberShortcut(event);
+        if (number !== undefined && !preview && !confirmClear && !menuOpen) {
+          event.preventDefault();
+          const clip = results[number];
+          if (clip && !event.repeat) void run('select', { id: clip.id });
+          return;
+        }
         if (
           !preview &&
           !confirmClear &&
@@ -297,7 +438,7 @@ export default function ClipboardHistory({
           !busy
         ) {
           const target = event.target as HTMLElement;
-          const editing = target.closest('input, textarea, [contenteditable="true"]');
+          const editing = editingTarget(target);
           if (!editing || (target === input.current && query.length === 0)) {
             event.preventDefault();
             if (confirmClear) closeConfirmation();
@@ -306,7 +447,7 @@ export default function ClipboardHistory({
             return;
           }
         }
-        if (event.key === 'Escape' && !event.nativeEvent.isComposing && !busy) {
+        if (event.key === 'Escape' && !event.repeat) {
           event.preventDefault();
           if (menuOpen) setMenuOpen(false);
           else if (confirmClear) closeConfirmation();
@@ -317,8 +458,16 @@ export default function ClipboardHistory({
     >
       <header className="clipboard-header">
         <div className="clipboard-app-heading">
-          <Tooltip label="Назад к приложениям · ⌫">
-            <ActionIcon aria-label="Назад к приложениям" variant="subtle" onClick={onBack}>
+          <Tooltip
+            label={`${preview || confirmClear ? 'Назад к списку' : 'Назад к приложениям'} · ⌫`}
+          >
+            <ActionIcon
+              className="clipboard-back"
+              aria-label={preview || confirmClear ? 'Назад к списку' : 'Назад к приложениям'}
+              variant="subtle"
+              onClick={goBack}
+              disabled={busy}
+            >
               <IconArrowLeft size={18} />
             </ActionIcon>
           </Tooltip>
@@ -334,6 +483,7 @@ export default function ClipboardHistory({
               if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false);
             }}
             onKeyDown={(event) => {
+              if (consumedKey(event)) return;
               if (event.key === 'Escape' && menuOpen) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -402,7 +552,11 @@ export default function ClipboardHistory({
             aria-autocomplete="list"
             aria-activedescendant={selection ? `clip-${selection.id}` : undefined}
             onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing) return;
+              if (consumedKey(event)) return;
+              if (event.key === 'Enter' && (busy || menuOpen)) {
+                event.preventDefault();
+                return;
+              }
               if (
                 event.metaKey &&
                 !event.ctrlKey &&
@@ -436,7 +590,8 @@ export default function ClipboardHistory({
               }
               if (event.key === 'Enter' && selection) {
                 event.preventDefault();
-                if (event.metaKey) openPreview(selection.id);
+                if (event.repeat || event.ctrlKey || event.altKey) return;
+                if (event.metaKey && !event.shiftKey) openPreview(selection.id);
                 else void run(event.shiftKey ? 'copy' : 'select', { id: selection.id });
               }
             }}
@@ -487,24 +642,20 @@ export default function ClipboardHistory({
           className="clipboard-preview"
           aria-label="Просмотр записи"
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && event.shiftKey && !event.nativeEvent.isComposing) {
+            if (
+              event.key === 'Enter' &&
+              event.shiftKey &&
+              !consumedKey(event) &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              !event.altKey
+            ) {
               event.preventDefault();
-              void run('copy', { id: preview.id, transformation });
+              if (!event.repeat) void run('copy', { id: preview.id, transformation });
             }
           }}
         >
           <div className="clipboard-preview-toolbar">
-            <button
-              className="clipboard-back"
-              onClick={closePreview}
-              disabled={busy}
-              title="Назад к списку · ⌫"
-              aria-keyshortcuts="Backspace"
-              autoFocus
-            >
-              <IconArrowLeft size={16} />
-              Назад
-            </button>
             <span>{clipDate(preview.createdAt)}</span>
             {canPaste && (
               <Button
@@ -562,11 +713,17 @@ export default function ClipboardHistory({
               </Button>
             </div>
           )}
-          <ClipboardPreview key={preview.id} clip={preview} text={previewText} />
+          <ClipboardPreview
+            key={preview.id}
+            clip={preview}
+            text={previewText}
+            scrollTop={scroll.current.preview}
+          />
         </section>
       ) : (
         <div
           className="clipboard-results"
+          ref={list}
           id="clipboard-results"
           role="listbox"
           aria-label="Скопированные записи"
@@ -604,10 +761,27 @@ export default function ClipboardHistory({
                   onFocus={() => setSelected(clip.id)}
                   onClick={() => void run('select', { id: clip.id })}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter' && event.metaKey) {
+                    if (consumedKey(event)) return;
+                    if (event.key === 'Enter' && event.repeat) {
+                      event.preventDefault();
+                      return;
+                    }
+                    if (
+                      event.key === 'Enter' &&
+                      event.metaKey &&
+                      !event.shiftKey &&
+                      !event.ctrlKey &&
+                      !event.altKey
+                    ) {
                       event.preventDefault();
                       openPreview(clip.id);
-                    } else if (event.key === 'Enter' && event.shiftKey) {
+                    } else if (
+                      event.key === 'Enter' &&
+                      event.shiftKey &&
+                      !event.metaKey &&
+                      !event.ctrlKey &&
+                      !event.altKey
+                    ) {
                       event.preventDefault();
                       void run('copy', { id: clip.id });
                     }

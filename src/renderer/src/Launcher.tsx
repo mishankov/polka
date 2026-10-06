@@ -1,4 +1,12 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { ActionIcon, Alert, Button, Loader, Text, TextInput, Tooltip } from './NativeControls';
 import { IconSettings, IconSearch, IconX } from '@tabler/icons-react';
 import {
@@ -15,12 +23,52 @@ import EmojiPicker from './EmojiPicker';
 import ShelfSettings from './ShelfSettings';
 import ShelfWelcome from './ShelfWelcome';
 import UpdateNotice from './UpdateNotice';
-import type { ShelfDestination } from '../../shared/shelf';
+import type { ShelfEntry } from '../../shared/shelf';
+import type { BuiltinContext } from './shelf-context';
+import { consumedKey, numberShortcut } from './shelf-keyboard';
 
 export default function Launcher({
   entry,
+  committedRevision,
 }: {
-  entry: { revision: number; destination: ShelfDestination; searchQuery?: string };
+  entry: ShelfEntry;
+  committedRevision: number;
+}) {
+  const snapshot = useRef<BuiltinContext | undefined>(undefined);
+  const draft = useRef<BuiltinContext | undefined>(undefined);
+  const saveContext = useCallback(
+    (context: BuiltinContext) => {
+      draft.current = context;
+      if (entry.revision === committedRevision) snapshot.current = context;
+    },
+    [entry.revision, committedRevision],
+  );
+  useLayoutEffect(() => {
+    // Preparing an entry must not replace the last successfully opened context.
+    if (entry.revision === committedRevision)
+      snapshot.current =
+        entry.destination === 'clipboard' || entry.destination === 'emoji'
+          ? draft.current
+          : undefined;
+  }, [entry.revision, entry.destination, committedRevision]);
+  return (
+    <LauncherEntry
+      key={entry.revision}
+      entry={entry}
+      context={entry.entryMode === 'resume' ? snapshot.current : undefined}
+      saveContext={saveContext}
+    />
+  );
+}
+
+function LauncherEntry({
+  entry,
+  context,
+  saveContext,
+}: {
+  entry: ShelfEntry;
+  context?: BuiltinContext;
+  saveContext: (context: BuiltinContext) => void;
 }) {
   // Apply the entry destination in this render. Mirroring it in an effect briefly
   // remounts clipboard history when a closed shelf reopens on the app list.
@@ -134,15 +182,12 @@ export default function Launcher({
       macRequest.current++;
     };
   }, [refresh, refreshMac]);
-  useEffect(() => {
-    navigation.current++;
-    setQuery('');
-    setSelected(undefined);
-    setError('');
-    setCopied('');
-    void refresh();
-    void refreshMac();
-  }, [entry.revision, entry.destination, refresh, refreshMac]);
+  useEffect(
+    () => () => {
+      navigation.current++;
+    },
+    [],
+  );
   useEffect(() => {
     if (!builtin && !settings) input.current?.focus();
   }, [builtin, settings, entry.revision]);
@@ -209,11 +254,23 @@ export default function Launcher({
     <section
       className="launcher"
       aria-label="Быстрый запуск"
+      onKeyDownCapture={(event) => {
+        // An underlying search or result must not activate behind another popup.
+        const popup = document.querySelector(
+          '[role="dialog"], [role="menu"], [role="listbox"]:not(#launcher-results):not(#clipboard-results)',
+        );
+        if (!consumedKey(event) && popup && !popup.contains(event.target as Node))
+          event.preventDefault();
+      }}
       onKeyDown={(event) => {
+        if (consumedKey(event)) return;
+        if (event.key === 'Enter' && event.repeat) {
+          event.preventDefault();
+          return;
+        }
         if (
           event.key === 'Escape' &&
-          !event.nativeEvent.isComposing &&
-          !event.defaultPrevented &&
+          !event.repeat &&
           !document.querySelector(
             '[role="dialog"], [role="menu"], [role="listbox"]:not(#launcher-results)',
           )
@@ -232,6 +289,8 @@ export default function Launcher({
       ) : entry.destination === 'emoji' ? (
         <EmojiPicker
           key={entry.revision}
+          initialContext={context?.destination === 'emoji' ? context : undefined}
+          onContextChange={saveContext}
           onBack={() =>
             void api('launcher.show', { destination: 'apps' }).catch((error) =>
               setError(errorMessage(error)),
@@ -242,6 +301,8 @@ export default function Launcher({
         <ClipboardHistory
           key={entry.revision}
           initialQuery={entry.searchQuery}
+          initialContext={context?.destination === 'clipboard' ? context : undefined}
+          onContextChange={saveContext}
           onBack={() =>
             void api('launcher.show', { destination: 'apps' }).catch((error) =>
               setError(errorMessage(error)),
@@ -271,14 +332,13 @@ export default function Launcher({
               aria-autocomplete="list"
               aria-activedescendant={selection ? `launcher-app-${selection.id}` : undefined}
               onKeyDown={(event) => {
-                if (event.nativeEvent.isComposing) return;
-                if (
-                  event.metaKey &&
-                  !event.ctrlKey &&
-                  !event.altKey &&
-                  !event.shiftKey &&
-                  /^[1-9]$/.test(event.key)
-                ) {
+                if (consumedKey(event)) return;
+                if (event.key === 'Enter' && launchPending.current) {
+                  event.preventDefault();
+                  return;
+                }
+                const number = numberShortcut(event);
+                if (number !== undefined) {
                   if (
                     event.defaultPrevented ||
                     document.querySelector(
@@ -287,7 +347,7 @@ export default function Launcher({
                   )
                     return;
                   event.preventDefault();
-                  const result = results[Number(event.key) - 1];
+                  const result = results[number];
                   if (result && !event.repeat) void activate(result);
                   return;
                 }
@@ -303,7 +363,8 @@ export default function Launcher({
                 }
                 if (event.key === 'Enter' && selection) {
                   event.preventDefault();
-                  void activate(selection, event.shiftKey);
+                  if (!event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey)
+                    void activate(selection, event.shiftKey);
                 }
               }}
             />
@@ -317,89 +378,92 @@ export default function Launcher({
               </ActionIcon>
             </Tooltip>
           </div>
-          {!query.trim() && (
-            <div className="launcher-start">
-              <UpdateNotice />
-              <ShelfWelcome />
-            </div>
-          )}
-          {query.trim() && clipboardError && (
-            <Alert color="red" mx="sm" mt="sm" title="История буфера обмена">
-              {clipboardError}
-              <Button variant="subtle" onClick={() => void refreshClipboard()}>
-                Повторить
-              </Button>
-            </Alert>
-          )}
-          {calculation && calculation.status !== 'result' && (
-            <div className="launcher-calculation-status" role="status">
-              {calculation.status === 'incomplete'
-                ? calculation.message || 'Продолжите выражение…'
-                : calculation.message}
-            </div>
-          )}
-          <span className="sr-only" role="status">
-            {copied === selection?.id ? 'Результат скопирован' : ''}
-          </span>
-          {(error || macError) && (
-            <Alert color="red" mx="sm" mt="sm">
-              {error || macError}
-              <Button
-                variant="subtle"
-                onClick={() => {
-                  void refresh();
-                  void refreshMac();
-                }}
-              >
-                Обновить список
-              </Button>
-            </Alert>
-          )}
-          <div
-            className="launcher-results"
-            id="launcher-results"
-            role="listbox"
-            aria-label="Результаты поиска"
-            aria-busy={loading || macLoading || clipboardLoading || opening}
-          >
-            {(loading || macLoading || clipboardLoading) && !results.length ? (
-              <div className="launcher-message">
-                <Loader size="sm" aria-label="Загрузка результатов" />
-              </div>
-            ) : results.length ? (
-              results.map((result, position) => (
-                <Fragment key={result.id}>
-                  {result.kind !== 'more-clips' && result.kind !== results[position - 1]?.kind && (
-                    <div className="launcher-result-group" role="presentation">
-                      {result.kind === 'calculation'
-                        ? 'Калькулятор'
-                        : result.kind === 'clip'
-                          ? 'Буфер обмена'
-                          : 'Приложения'}
-                    </div>
-                  )}
-                  <SearchResult
-                    result={result}
-                    query={query}
-                    selected={selection?.id === result.id}
-                    busy={opening}
-                    copied={copied === result.id}
-                    canPaste={canPaste}
-                    shortcut={position < 9 ? position + 1 : undefined}
-                    onSelect={() => setSelected(result.id)}
-                    onActivate={(copyOnly) => void activate(result, copyOnly)}
-                  />
-                </Fragment>
-              ))
-            ) : calculation ? null : (
-              <div className="launcher-message">
-                <Text c="dimmed" size="sm">
-                  {query.trim()
-                    ? 'Ничего не найдено. Попробуйте другое слово.'
-                    : 'Список приложений пока пуст. Попробуйте обновить его.'}
-                </Text>
+          <div className="launcher-scroll">
+            {!query.trim() && (
+              <div className="launcher-start">
+                <UpdateNotice />
+                <ShelfWelcome />
               </div>
             )}
+            {query.trim() && clipboardError && (
+              <Alert color="red" mx="sm" mt="sm" title="История буфера обмена">
+                {clipboardError}
+                <Button variant="subtle" onClick={() => void refreshClipboard()}>
+                  Повторить
+                </Button>
+              </Alert>
+            )}
+            {calculation && calculation.status !== 'result' && (
+              <div className="launcher-calculation-status" role="status">
+                {calculation.status === 'incomplete'
+                  ? calculation.message || 'Продолжите выражение…'
+                  : calculation.message}
+              </div>
+            )}
+            <span className="sr-only" role="status">
+              {copied === selection?.id ? 'Результат скопирован' : ''}
+            </span>
+            {(error || macError) && (
+              <Alert color="red" mx="sm" mt="sm">
+                {error || macError}
+                <Button
+                  variant="subtle"
+                  onClick={() => {
+                    void refresh();
+                    void refreshMac();
+                  }}
+                >
+                  Обновить список
+                </Button>
+              </Alert>
+            )}
+            <div
+              className="launcher-results"
+              id="launcher-results"
+              role="listbox"
+              aria-label="Результаты поиска"
+              aria-busy={loading || macLoading || clipboardLoading || opening}
+            >
+              {(loading || macLoading || clipboardLoading) && !results.length ? (
+                <div className="launcher-message">
+                  <Loader size="sm" aria-label="Загрузка результатов" />
+                </div>
+              ) : results.length ? (
+                results.map((result, position) => (
+                  <Fragment key={result.id}>
+                    {result.kind !== 'more-clips' &&
+                      result.kind !== results[position - 1]?.kind && (
+                        <div className="launcher-result-group" role="presentation">
+                          {result.kind === 'calculation'
+                            ? 'Калькулятор'
+                            : result.kind === 'clip'
+                              ? 'Буфер обмена'
+                              : 'Приложения'}
+                        </div>
+                      )}
+                    <SearchResult
+                      result={result}
+                      query={query}
+                      selected={selection?.id === result.id}
+                      busy={opening}
+                      copied={copied === result.id}
+                      canPaste={canPaste}
+                      shortcut={position < 9 ? position + 1 : undefined}
+                      onSelect={() => setSelected(result.id)}
+                      onActivate={(copyOnly) => void activate(result, copyOnly)}
+                    />
+                  </Fragment>
+                ))
+              ) : calculation ? null : (
+                <div className="launcher-message">
+                  <Text c="dimmed" size="sm">
+                    {query.trim()
+                      ? 'Ничего не найдено. Попробуйте другое слово.'
+                      : 'Список приложений пока пуст. Попробуйте обновить его.'}
+                  </Text>
+                </div>
+              )}
+            </div>
           </div>
           <footer className="launcher-footer clipboard-footer">
             <span>

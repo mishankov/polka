@@ -501,17 +501,6 @@ html[data-window-mode='shelf'] .mantine-Tooltip-tooltip {
   color: var(--muted);
   font-size: 11px;
 }
-.clipboard-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  border-radius: 4px;
-  padding: 5px 0;
-  background: none;
-  color: var(--ink);
-  font-size: 12px;
-}
 .clipboard-preview-content {
   flex: 1;
   min-height: 0;

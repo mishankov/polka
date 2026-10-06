@@ -139,6 +139,47 @@ async function main() {
           delete (globalThis as any).__shelfClock;
         });
       }
+      const builtinSearch = page.getByRole('combobox', { name: searchName, exact: true });
+      await builtinSearch.fill(method === 'shelf.showEmoji' ? 'лайк' : 'retained query');
+      if (method === 'shelf.showEmoji')
+        await page.getByRole('combobox', { name: 'Оттенок кожи' }).selectOption('🏽');
+      await builtinSearch.focus();
+      const previousSession = (
+        await page.evaluate(() => window.platform.call('shelf.presentation'))
+      ).sessionId;
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((w) => w.webContents.getURL().includes('mode=shelf'))!
+          .blur(),
+      );
+      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+      assert.equal(
+        (await page.evaluate(() => window.platform.call('clipboardHistory.state'))).pasteReady,
+        false,
+      );
+      await app.evaluate(({ app }) => app.emit('activate'));
+      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
+      await expect(builtinSearch).toHaveValue(
+        method === 'shelf.showEmoji' ? 'лайк' : 'retained query',
+      );
+      await expect(builtinSearch).toBeFocused();
+      const next = await page.evaluate(() => window.platform.call('shelf.presentation'));
+      assert(next.sessionId > previousSession);
+      assert.equal(next.entryMode, 'resume');
+      assert.equal(
+        await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .find((w) => w.webContents.getURL().includes('mode=shelf'))!
+            .isFocused(),
+        ),
+        true,
+      );
+      if (method === 'shelf.showEmoji')
+        await expect(page.getByRole('combobox', { name: 'Оттенок кожи' })).toHaveValue('🏽');
+      await page.evaluate((method) => window.platform.call(method), method);
+      await expect(builtinSearch).toHaveValue('');
+      if (method === 'shelf.showEmoji')
+        await expect(page.getByRole('combobox', { name: 'Оттенок кожи' })).toHaveValue('default');
       await page.getByRole('button', { name: 'Назад к приложениям', exact: true }).click();
       await expect(
         page.getByRole('combobox', { name: 'Поиск по полке', exact: true }),

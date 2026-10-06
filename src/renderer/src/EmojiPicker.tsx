@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import { IconArrowLeft, IconLayoutGrid, IconSearch, IconX } from '@tabler/icons-react';
 import { ActionIcon, Alert, TextInput, Tooltip } from './NativeControls';
 import {
@@ -11,14 +18,24 @@ import {
 import type { ClipboardState } from '../../shared/clipboard';
 import { api, errorMessage } from './api';
 import ClipboardPasteHint from './ClipboardPasteHint';
+import type { EmojiContext } from './shelf-context';
+import { consumedKey, editingTarget, numberShortcut } from './shelf-keyboard';
 import './emoji.css';
 
-export default function EmojiPicker({ onBack }: { onBack: () => void }) {
-  const [query, setQuery] = useState('');
-  const [category, setCategory] = useState('all');
-  const [tone, setTone] = useState('default');
-  const [selected, setSelected] = useState<string>();
-  const [columns, setColumns] = useState(10);
+export default function EmojiPicker({
+  onBack,
+  initialContext,
+  onContextChange,
+}: {
+  onBack: () => void;
+  initialContext?: EmojiContext;
+  onContextChange: (context: EmojiContext) => void;
+}) {
+  const [query, setQuery] = useState(initialContext?.query ?? '');
+  const [category, setCategory] = useState(initialContext?.category ?? 'all');
+  const [tone, setTone] = useState(initialContext?.tone ?? 'default');
+  const [selected, setSelected] = useState<string | undefined>(initialContext?.selected);
+  const [columns, setColumns] = useState(initialContext?.columns ?? 10);
   const [state, setState] = useState<ClipboardState>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -26,6 +43,35 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
   const request = useRef(0);
+  const alive = useRef(true);
+  const scrollTop = useRef(initialContext?.scrollTop ?? 0);
+  const skipInitialScroll = useRef(!!initialContext);
+  const contextMounted = useRef(false);
+  const context = useRef<EmojiContext>({
+    destination: 'emoji',
+    query,
+    category,
+    tone,
+    columns,
+    scrollTop: scrollTop.current,
+  });
+  useLayoutEffect(() => {
+    if (contextMounted.current && grid.current) scrollTop.current = grid.current.scrollTop;
+    contextMounted.current = true;
+    context.current = {
+      destination: 'emoji',
+      query,
+      selected,
+      category,
+      tone,
+      columns,
+      scrollTop: scrollTop.current,
+    };
+    onContextChange(context.current);
+  });
+  useLayoutEffect(() => {
+    if (grid.current) grid.current.scrollTop = scrollTop.current;
+  }, []);
   const results = emojiResults(query, category, tone);
   const index = Math.max(
     0,
@@ -47,11 +93,13 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
     }
   }, []);
   useEffect(() => {
+    alive.current = true;
     void refresh();
     const unsubscribe = window.platform.onEvent((event) => {
       if (event.type === 'clipboardHistory.changed') void refresh();
     });
     return () => {
+      alive.current = false;
       request.current++;
       unsubscribe();
     };
@@ -66,6 +114,10 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
+    if (skipInitialScroll.current) {
+      skipInitialScroll.current = false;
+      return;
+    }
     document.getElementById(`emoji-${selection?.id}`)?.scrollIntoView({ block: 'nearest' });
   }, [selection?.id, columns]);
   async function run(method: string, params = {}) {
@@ -75,8 +127,10 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
     setError('');
     try {
       await api(method, params);
+      if (!alive.current) return;
       await refresh();
     } catch (reason) {
+      if (!alive.current) return;
       setError(errorMessage(reason));
       input.current?.focus();
     } finally {
@@ -88,14 +142,7 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
     return run(copyOnly ? 'shelf.copyEmoji' : 'shelf.selectEmoji', { id: emoji.id });
   }
   function navigate(event: KeyboardEvent, fromSearch = false) {
-    if (
-      event.nativeEvent.isComposing ||
-      event.defaultPrevented ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.altKey
-    )
-      return;
+    if (consumedKey(event) || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key.startsWith('Arrow') || (!fromSearch && ['Home', 'End'].includes(event.key))) {
       if (fromSearch && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) return;
       event.preventDefault();
@@ -108,7 +155,7 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
     }
     if (event.key === 'Enter' && selection) {
       event.preventDefault();
-      void choose(selection, event.shiftKey);
+      if (!event.repeat) void choose(selection, event.shiftKey);
     }
   }
   return (
@@ -116,20 +163,53 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
       className="clipboard-app emoji-picker"
       aria-label="Эмодзи"
       onKeyDown={(event) => {
-        if (event.nativeEvent.isComposing || event.defaultPrevented) return;
+        if (consumedKey(event)) return;
+        if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+        const target = event.target as HTMLElement;
+        // A native select owns dismissal of its popup and must retain normal keys.
+        if (target.closest('select')) {
+          event.stopPropagation();
+          return;
+        }
+        if (busy) {
+          if (
+            ['Enter', 'Escape', 'Backspace'].includes(event.key) ||
+            numberShortcut(event) !== undefined
+          )
+            event.preventDefault();
+          return;
+        }
+        const number = numberShortcut(event);
+        if (number !== undefined) {
+          event.preventDefault();
+          if (!event.repeat && results[number]) void choose(results[number]);
+          return;
+        }
+        if (
+          event.key === 'Enter' &&
+          event.shiftKey &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey
+        ) {
+          event.preventDefault();
+          if (!event.repeat && selection) void choose(selection, true);
+          return;
+        }
         if (event.key === 'Escape') {
           event.preventDefault();
-          void api('launcher.hide').catch((reason) => setError(errorMessage(reason)));
+          if (!event.repeat)
+            void api('launcher.hide').catch((reason) => setError(errorMessage(reason)));
         }
         if (
           event.key === 'Backspace' &&
+          !event.repeat &&
           !event.metaKey &&
           !event.ctrlKey &&
           !event.altKey &&
           !busy
         ) {
-          const target = event.target as HTMLElement;
-          if (!target.closest('input, select, textarea') || (target === input.current && !query)) {
+          if (!editingTarget(target) || (target === input.current && !query)) {
             event.preventDefault();
             onBack();
           }
@@ -139,7 +219,12 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
       <header className="clipboard-header">
         <div className="clipboard-app-heading">
           <Tooltip label="Назад к приложениям · ⌫">
-            <ActionIcon aria-label="Назад к приложениям" variant="subtle" onClick={onBack}>
+            <ActionIcon
+              aria-label="Назад к приложениям"
+              variant="subtle"
+              onClick={onBack}
+              disabled={busy}
+            >
               <IconArrowLeft size={18} />
             </ActionIcon>
           </Tooltip>
@@ -280,6 +365,10 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
           aria-colcount={columns}
           aria-busy={busy}
           onKeyDown={(event) => navigate(event)}
+          onScroll={(event) => {
+            scrollTop.current = event.currentTarget.scrollTop;
+            onContextChange({ ...context.current, scrollTop: scrollTop.current });
+          }}
         >
           {rows.map((row, rowIndex) => (
             <div
@@ -299,6 +388,11 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
                   aria-colindex={column + 1}
                   aria-label={`${emoji.name} · ${emoji.englishName}`}
                   aria-selected={selection?.id === emoji.id}
+                  aria-keyshortcuts={
+                    rowIndex * columns + column < 9
+                      ? `Meta+${rowIndex * columns + column + 1}`
+                      : undefined
+                  }
                   title={emoji.name}
                   tabIndex={selection?.id === emoji.id ? 0 : -1}
                   disabled={busy}
@@ -309,6 +403,9 @@ export default function EmojiPicker({ onBack }: { onBack: () => void }) {
                   onClick={() => void choose(emoji)}
                 >
                   <span aria-hidden="true">{emoji.value}</span>
+                  {rowIndex * columns + column < 9 && (
+                    <kbd aria-hidden="true">⌘{rowIndex * columns + column + 1}</kbd>
+                  )}
                 </button>
               ))}
             </div>

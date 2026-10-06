@@ -272,9 +272,19 @@ require('./index.js');
       name: `Доступно обновление Полки ${newPkg.version}`,
     });
     await expect(notice).toBeVisible();
-    await expect(notice.locator('[lang="ru"]')).toContainText(newPkg.releaseNotes.ru);
-    await notice.getByRole('button', { name: 'English', exact: true }).click();
-    await expect(notice.locator('[lang="en"]')).toContainText(newPkg.releaseNotes.en);
+    const [notesPage] = await Promise.all([
+      running.waitForEvent('window'),
+      notice.getByRole('button', { name: 'Что нового', exact: true }).click(),
+    ]);
+    await expect(notesPage.getByRole('tab', { name: 'О приложении', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(notesPage.locator('[lang="ru"]')).toContainText(newPkg.releaseNotes.ru);
+    await notesPage.getByRole('button', { name: 'English', exact: true }).click();
+    await expect(notesPage.locator('[lang="en"]')).toContainText(newPkg.releaseNotes.en);
+    await Promise.all([notesPage.waitForEvent('close'), notesPage.evaluate(() => window.close())]);
+    await page.evaluate(() => window.platform.call('launcher.show', { destination: 'apps' }));
     await notice.getByRole('button', { name: 'Напомнить завтра', exact: true }).click();
     await expect(notice).toHaveCount(0);
     assert.equal((await status()).notification, 'deferred');

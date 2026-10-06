@@ -112,7 +112,7 @@ async function main() {
     );
     await panel.keyboard.press('Meta+3');
     await expect(preview.locator('pre')).toHaveText(source);
-    await expect(preview.getByRole('button', { name: 'Назад', exact: true })).toBeFocused();
+    await expect(panel.getByRole('button', { name: 'Назад к списку', exact: true })).toBeFocused();
     await panel.keyboard.press('Meta+1');
     await expect(preview.locator('pre')).toHaveText(source.toUpperCase());
     await preview.getByRole('button', { name: 'Копировать', exact: true }).click();
@@ -123,7 +123,7 @@ async function main() {
     await search.press('Meta+Enter');
     await panel.keyboard.press('Meta+2');
     await expect(preview.locator('pre')).toHaveText(source.toLowerCase());
-    await preview.getByRole('button', { name: 'Назад', exact: true }).press('Shift+Enter');
+    await panel.getByRole('button', { name: 'Назад к списку', exact: true }).press('Shift+Enter');
     assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), source.toLowerCase());
     await show();
     await search.press('Meta+Enter');
@@ -207,7 +207,7 @@ async function main() {
       ]);
     });
     await expect.poll(async () => (await clips()).length).toBe(4);
-    await preview.getByRole('button', { name: 'Назад', exact: true }).click();
+    await panel.getByRole('button', { name: 'Назад к списку', exact: true }).click();
     await search.fill('');
     const imageRow = panel
       .locator('.clipboard-row')

@@ -66,12 +66,16 @@ export class ClipboardPaste {
   get ready() {
     return !!this.token;
   }
-  async paste() {
+  async paste(beforeSend: () => void = () => {}) {
     const token = this.token;
+    const generation = this.generation;
     this.token = undefined;
     this.failureReason = undefined;
     if (!token) return false;
+    // Transfer the one-shot target before closing the shelf, then restore focus.
+    beforeSend();
     const result = await this.request('paste', { token });
+    if (generation !== this.generation) return false;
     if (result.sent !== true) this.failureReason = result.reason;
     return result.sent === true;
   }

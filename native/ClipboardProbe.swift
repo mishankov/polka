@@ -189,7 +189,7 @@ func handlePasteCommand(_ command: [String: Any]) {
     }
     guard method == "paste", let token = command["token"] as? String,
           let target = pasteTarget, target.token == token else {
-        reply(id, ["sent": false]); return
+        reply(id, ["sent": false, "reason": "target-unavailable"]); return
     }
     pasteTarget = nil // A selection can issue at most one paste.
     pasteGeneration += 1
@@ -197,11 +197,11 @@ func handlePasteCommand(_ command: [String: Any]) {
     guard AXIsProcessTrusted(), !target.app.isTerminated,
           let expiresAt = command["expiresAt"] as? Double,
           Date().timeIntervalSince1970 * 1000 < expiresAt else {
-        reply(id, ["sent": false]); return
+        reply(id, ["sent": false, "reason": "target-unavailable"]); return
     }
     let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
     guard frontPID == ownerPID || frontPID == target.app.processIdentifier else {
-        reply(id, ["sent": false]); return
+        reply(id, ["sent": false, "reason": "app-changed"]); return
     }
     let changeCount = NSPasteboard.general.changeCount
     let targetElement = AXUIElementCreateApplication(target.app.processIdentifier)
@@ -224,7 +224,7 @@ func handlePasteCommand(_ command: [String: Any]) {
         let activePID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         // If the user switches elsewhere, never send a keystroke into that app.
         guard activePID == ownerPID || activePID == target.app.processIdentifier else {
-            reply(id, ["sent": false]); return
+            reply(id, ["sent": false, "reason": "app-changed"]); return
         }
         let appElement = AXUIElementCreateApplication(target.app.processIdentifier)
         AXUIElementSetMessagingTimeout(appElement, 0.15)

@@ -48,6 +48,52 @@ export async function readApplicationIcons(paths: string[]): Promise<Map<string,
   return icons;
 }
 type Info = Record<string, unknown>;
+// Bundle localization follows macOS language preferences without loading app code.
+const namesScript = `function run(args) {
+  ObjC.import('Foundation');
+  var languages = JSON.parse(args.shift());
+  if (!languages.length) languages = ObjC.deepUnwrap($.NSLocale.preferredLanguages);
+  return JSON.stringify(args.map(function(path) {
+    try {
+      var bundle = $.NSBundle.bundleWithPath(path);
+      var localization = ObjC.unwrap($.NSBundle.preferredLocalizationsFromArrayForPreferences(
+        bundle.localizations, $(languages)).firstObject);
+      var stringsPath = ObjC.unwrap(bundle.pathForResourceOfTypeInDirectoryForLocalization(
+        'InfoPlist', 'strings', '', localization));
+      var info = stringsPath ? ObjC.deepUnwrap($.NSDictionary.dictionaryWithContentsOfFile(stringsPath)) : undefined;
+      // Recent Apple apps store localized Info.plist values in one .loctable.
+      if (!info) {
+        var table = ObjC.deepUnwrap($.NSDictionary.dictionaryWithContentsOfFile(
+          ObjC.unwrap(bundle.resourcePath) + '/InfoPlist.loctable'));
+        info = table && table[localization];
+      }
+      if (!info) return '';
+      return typeof info.CFBundleDisplayName === 'string' && info.CFBundleDisplayName.trim()
+        ? info.CFBundleDisplayName : typeof info.CFBundleName === 'string' ? info.CFBundleName : '';
+    } catch (_) { return ''; }
+  }));
+}`;
+export async function readApplicationNames(paths: string[], languages: string[] = []) {
+  const names = new Map<string, string>();
+  for (let start = 0; start < paths.length; start += 64) {
+    const batch = paths.slice(start, start + 64);
+    try {
+      const { stdout } = await execFileAsync(
+        '/usr/bin/osascript',
+        ['-l', 'JavaScript', '-e', namesScript, JSON.stringify(languages), ...batch],
+        { timeout: 5000, maxBuffer: 1024 * 1024 },
+      );
+      const values: unknown = JSON.parse(stdout);
+      if (!Array.isArray(values) || values.length !== batch.length) continue;
+      values.forEach((name, index) => {
+        if (typeof name === 'string' && name.trim()) names.set(batch[index], name.trim());
+      });
+    } catch {
+      /* Plain bundle names remain available if localization fails. */
+    }
+  }
+  return names;
+}
 export async function readApplicationInfo(path: string): Promise<Info> {
   const { stdout } = await execFileAsync(
     '/usr/bin/plutil',
@@ -125,7 +171,13 @@ async function mapConcurrent<T, U>(items: T[], map: (item: T) => Promise<U>): Pr
   );
   return results;
 }
-type Entry = { app: MacLauncherApp; path: string; signature: string; bundleId?: string };
+type Entry = {
+  app: MacLauncherApp;
+  path: string;
+  signature: string;
+  baseName: string;
+  bundleId?: string;
+};
 interface Options {
   platform?: string;
   roots?: string[];
@@ -133,6 +185,7 @@ interface Options {
   readInfo?: (path: string) => Promise<Info>;
   getIcon?: (path: string) => Promise<string>;
   getIcons?: (paths: string[]) => Promise<Map<string, string>>;
+  getNames?: (paths: string[]) => Promise<Map<string, string>>;
   openPath: (path: string) => Promise<string>;
 }
 
@@ -195,6 +248,7 @@ export class InstalledApps {
         return {
           path,
           signature,
+          baseName: name?.trim() || basename(path).replace(/\.app$/i, ''),
           bundleId:
             typeof info.CFBundleIdentifier === 'string' ? info.CFBundleIdentifier : undefined,
           app: {
@@ -205,6 +259,7 @@ export class InstalledApps {
             description: `macOS · ${dirname(path)}`,
             searchTerms: [
               basename(path).replace(/\.app$/i, ''),
+              info.CFBundleDisplayName,
               info.CFBundleName,
               info.CFBundleIdentifier,
             ].filter((term): term is string => typeof term === 'string'),
@@ -236,8 +291,18 @@ export class InstalledApps {
             ? await this.options.getIcon(entry.path).catch(() => '')
             : '');
     }
+    const entries = found.filter((entry): entry is Entry => !!entry);
+    const names = await (
+      this.options.getNames ||
+      (this.options.readInfo ? async () => new Map<string, string>() : readApplicationNames)
+    )(entries.map((entry) => entry.path)).catch(() => new Map<string, string>());
     this.entries = new Map(
-      found.filter((entry): entry is Entry => !!entry).map((entry) => [entry.app.id, entry]),
+      entries.map((entry) => {
+        const name = names.get(entry.path) || entry.baseName;
+        const localized =
+          name !== entry.app.name ? { ...entry, app: { ...entry.app, name } } : entry;
+        return [entry.app.id, localized];
+      }),
     );
     return [...this.entries.values()]
       .map((entry) => entry.app)

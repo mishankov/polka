@@ -85,3 +85,26 @@ test('helper exit resolves pending requests and invalidates the saved destinatio
   assert.equal(paste.ready, false);
   assert.equal(paste.access, 'unavailable');
 });
+
+test('paste consumes the target before native dismissal and ignores replies from a previous session', async () => {
+  const { paste, messages, reply } = fixture();
+  const capture = paste.capture();
+  reply(0, { trusted: true, token: 'previous-field' });
+  await capture;
+  let dismissed = false;
+  const sending = paste.paste(() => {
+    assert.equal(paste.ready, false);
+    assert.equal(messages.length, 1, 'hide precedes the native paste command');
+    dismissed = true;
+  });
+  assert.equal(dismissed, true);
+  paste.cancel();
+  const next = paste.capture();
+  reply(3, { trusted: true, token: 'next-field' });
+  await next;
+  reply(1, { sent: false, reason: 'field-changed' });
+  assert.equal(await sending, false);
+  assert.equal(paste.ready, true);
+  assert.equal(paste.failureReason, undefined);
+  paste.stop();
+});

@@ -106,26 +106,50 @@ html[data-window-mode] h2 {
   color: var(--muted);
 }
 .update-notice {
-  padding: 14px 18px;
+  padding: 9px 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-raised);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+}
+.update-notice-status {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.update-notice-status .native-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.update-notice-status .native-text:first-child {
   flex-shrink: 0;
 }
-.launcher-start {
-  flex-shrink: 0;
+.update-notice-actions .native-button {
+  font-size: 11px;
+  padding: 3px 7px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.launcher-scroll {
+  flex: 1;
   min-height: 0;
-  max-height: 60%;
   overflow-y: auto;
+  padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.launcher-scroll .launcher-results {
+  flex: none;
+  overflow: visible;
+  padding: 0;
 }
 .launcher-start .update-notice {
-  margin: 10px 14px;
-}
-.launcher-start .update-release-notes-body {
-  max-height: 96px;
+  margin: 2px 6px 10px;
 }
 .update-release-notes {
   min-width: 0;

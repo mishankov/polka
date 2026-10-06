@@ -165,6 +165,8 @@ async function main() {
         document.body.append(overlay);
       }, role);
       await input.press('Meta+1');
+      await input.press('Enter');
+      await input.press('Shift+Enter');
       await page.evaluate(() => document.getElementById('test-overlay')!.remove());
     }
     await input.evaluate((element) => {
@@ -440,8 +442,244 @@ async function main() {
     await expect(page.locator('.emoji-footer')).toContainText('копировать');
     await emojiInput.press('Enter');
     await lastAction('shelf.selectEmoji', { id: '1f525' });
+    // Numbered emoji actions work from search and grid focus, with one action per key.
+    await expect(emojiGrid.locator('kbd')).toHaveText(
+      Array.from(
+        { length: Math.min(9, await emojiGrid.getByRole('gridcell').count()) },
+        (_, i) => `⌘${i + 1}`,
+      ),
+    );
+    await emojiInput.press('Meta+1');
+    await lastAction('shelf.selectEmoji', { id: '1f525' });
+    const beforeEmojiIgnored = (await actions()).length;
+    for (const options of [{ repeat: true }, { isComposing: true }]) {
+      await emojiInput.dispatchEvent('keydown', {
+        key: '1',
+        code: 'Digit1',
+        metaKey: true,
+        bubbles: true,
+        ...options,
+      });
+      await emojiInput.dispatchEvent('keydown', { key: 'Enter', bubbles: true, ...options });
+    }
+    await page.getByRole('combobox', { name: 'Оттенок кожи' }).press('Escape');
+    assert.equal((await actions()).length, beforeEmojiIgnored);
+
+    // A resumed built-in restores browsing state; direct entry starts fresh.
+    await app.evaluate(() => (globalThis as any).fixture.navigate('clipboard'));
+    await app.evaluate(() => (globalThis as any).fixture.setClipCount(12));
+    await historyInput.fill('пример');
+    await historyInput.press('ArrowDown');
+    await historyInput.press('ArrowDown');
+    const selectedClip = await historyRows
+      .getByRole('option', { selected: true })
+      .getAttribute('id');
+    await page.locator('#clipboard-results').evaluate((element) => {
+      element.scrollTop = 100;
+    });
+    await expect
+      .poll(() => page.locator('#clipboard-results').evaluate((el) => el.scrollTop))
+      .toBe(100);
+    await app.evaluate(() => (globalThis as any).fixture.hide());
+    await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+    await app.evaluate(() => (globalThis as any).fixture.navigate('clipboard', '', 'resume'));
+    await expect(historyInput).toHaveValue('пример');
+    await expect(historyInput).toBeFocused();
+    await expect(historyRows.getByRole('option', { selected: true })).toHaveAttribute(
+      'id',
+      selectedClip!,
+    );
+    await expect
+      .poll(() => page.locator('#clipboard-results').evaluate((el) => el.scrollTop))
+      .toBe(100);
+    await app.evaluate(
+      (_, id) =>
+        (globalThis as any).fixture.setClipText(
+          id,
+          'Заметка: пример длинного текста\n'.repeat(100),
+        ),
+      selectedClip!.replace(/^clip-/, ''),
+    );
+    await historyInput.press('Meta+Enter');
+    const preview = page.getByRole('region', { name: 'Просмотр записи' });
+    const back = page.getByRole('button', { name: 'Назад к списку', exact: true });
+    await expect(back).toBeFocused();
+    await expect(page.locator('.clipboard-back')).toHaveCount(1);
+    await expect(preview.getByRole('button', { name: /Назад/ })).toHaveCount(0);
+    await page.keyboard.press('Meta+1');
+    await expect(preview.locator('pre')).toContainText('ЗАМЕТКА');
+    const transformed = await preview.locator('pre').textContent();
+    await preview.locator('.clipboard-preview-content').evaluate((el) => {
+      el.scrollTop = 180;
+    });
+    await expect
+      .poll(() => preview.locator('.clipboard-preview-content').evaluate((el) => el.scrollTop))
+      .toBe(180);
+    await app.evaluate(() => (globalThis as any).fixture.hide());
+    await app.evaluate(() => (globalThis as any).fixture.navigate('clipboard', '', 'resume'));
+    await expect(preview).toBeVisible();
+    await expect(preview.locator('pre')).toHaveText(transformed!);
+    await expect
+      .poll(() => preview.locator('.clipboard-preview-content').evaluate((el) => el.scrollTop))
+      .toBe(180);
+    await expect(back).toBeFocused();
+    await back.press('Enter');
+    await expect(historyInput).toHaveValue('пример');
+    await expect(historyInput).toBeFocused();
+    await historyInput.press('Meta+Enter');
+    await app.evaluate(() => (globalThis as any).fixture.hide());
+    await app.evaluate(() => (globalThis as any).fixture.setClipCount(0));
+    await app.evaluate(() => (globalThis as any).fixture.navigate('clipboard', '', 'resume'));
+    await expect(preview).toHaveCount(0);
+    await expect(historyRows).toHaveCount(0);
+    await app.evaluate(() => (globalThis as any).fixture.setClipCount(4));
+    await app.evaluate(() => (globalThis as any).fixture.navigate('clipboard'));
+    await expect(historyInput).toHaveValue('');
+    await historyMenu.click();
+    await app.evaluate(() => (globalThis as any).fixture.hide());
+    await app.evaluate(() => (globalThis as any).fixture.navigate('clipboard', '', 'resume'));
+    await expect(historyMenu).toHaveAttribute('aria-expanded', 'false');
+    await expect(historyInput).toBeFocused();
+    await historyMenu.click();
+    await page
+      .getByRole('button', { name: 'Очистить историю на всех связанных Mac…', exact: true })
+      .click();
+    await app.evaluate(() => (globalThis as any).fixture.hide());
+    await app.evaluate(() => (globalThis as any).fixture.navigate('clipboard', '', 'resume'));
+    await expect(
+      page.getByRole('heading', { name: 'Удалить историю на всех связанных Mac?' }),
+    ).toHaveCount(0);
+    await expect(historyRows).toHaveCount(4);
+
+    await app.evaluate(() => (globalThis as any).fixture.navigate('emoji'));
+    await emojiInput.fill('лайк');
+    await page.getByRole('combobox', { name: 'Оттенок кожи' }).selectOption('🏽');
+    await emojiInput.press('ArrowDown');
+    const selectedEmoji = await emojiGrid.locator('[aria-selected="true"]').getAttribute('id');
+    await app.evaluate(() => (globalThis as any).fixture.hide());
+    await app.evaluate(() => (globalThis as any).fixture.navigate('emoji', '', 'resume'));
+    await expect(emojiInput).toHaveValue('лайк');
+    await expect(emojiInput).toBeFocused();
+    await expect(page.getByRole('combobox', { name: 'Оттенок кожи' })).toHaveValue('🏽');
+    await expect(emojiGrid.locator('[aria-selected="true"]')).toHaveAttribute('id', selectedEmoji!);
+    await emojiInput.fill('');
+    const category = page.getByRole('tab').nth(1);
+    await category.click();
+    const categoryId = await category.getAttribute('id');
+    await emojiGrid.evaluate((el) => {
+      el.scrollTop = 150;
+    });
+    await emojiGrid.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    const emojiScroll = await emojiGrid.evaluate((el) => el.scrollTop);
+    await app.evaluate(() => (globalThis as any).fixture.hide());
+    await app.evaluate(() => (globalThis as any).fixture.navigate('emoji', '', 'resume'));
+    await expect(page.locator('#' + categoryId)).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(() => emojiGrid.evaluate((el) => el.scrollTop)).toBe(emojiScroll);
+    await expect(emojiGrid.locator('kbd')).toHaveText(
+      Array.from({ length: 9 }, (_, i) => `⌘${i + 1}`),
+    );
+    await app.evaluate(() => (globalThis as any).fixture.navigate('emoji'));
+    await expect(emojiInput).toHaveValue('');
+    await expect(page.getByRole('combobox', { name: 'Оттенок кожи' })).toHaveValue('default');
+    await expect(page.getByRole('tab').first()).toHaveAttribute('aria-selected', 'true');
+
+    // An unacknowledged preparation cannot erase the last committed browsing context.
+    await emojiInput.fill('original emoji query');
+    await app.evaluate(() => (globalThis as any).fixture.setAcknowledgeShows(false));
+    await app.evaluate(() => (globalThis as any).fixture.navigate('clipboard'));
+    await historyInput.fill('discarded query');
+    await app.evaluate(() => (globalThis as any).fixture.hide());
+    await app.evaluate(() => (globalThis as any).fixture.setAcknowledgeShows(true));
+    await app.evaluate(() => (globalThis as any).fixture.navigate('emoji', '', 'resume'));
+    await expect(emojiInput).toHaveValue('original emoji query');
+
+    // Verify the compact notice at the real shelf width, not just the wider fixture.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(560, 560));
+    // Update notice has exactly two compact rows and shares the results scroller.
+    await app.evaluate(() => (globalThis as any).fixture.navigate('apps'));
+    await expect(rows).toHaveCount(11);
+    const notice = page.getByRole('region', { name: 'Доступно обновление Полки 0.5.0' });
+    for (const status of ['checking', 'downloading', 'ready', 'installing', 'error']) {
+      await app.evaluate(
+        (_, status) =>
+          (globalThis as any).fixture.setUpdateState({
+            status,
+            currentVersion: '0.4.0',
+            version: '0.5.0',
+            progress: 38,
+            notification: 'visible',
+            message: 'Long error explanation '.repeat(20),
+            releaseNotes: {
+              ru: 'Полные примечания '.repeat(100),
+              en: 'Full release notes '.repeat(100),
+            },
+          }),
+        status,
+      );
+      await expect(notice).toBeVisible();
+      const geometry = await notice.evaluate((el) => {
+        const children = [...el.children] as HTMLElement[];
+        const rect = el.getBoundingClientRect();
+        return {
+          rows: children.length,
+          height: rect.height,
+          width: rect.width,
+          actionRows: new Set(
+            [...el.querySelectorAll('button')].map((button) =>
+              Math.round(button.getBoundingClientRect().top),
+            ),
+          ).size,
+          shared: !!el.closest('.launcher-scroll'),
+          noHorizontalOverflow: el.scrollWidth <= el.clientWidth,
+          overflow: getComputedStyle(el).overflowY,
+        };
+      });
+      assert.equal(geometry.rows, 2);
+      assert.equal(geometry.actionRows, 1);
+      assert(geometry.height < 90, JSON.stringify(geometry));
+      assert(geometry.shared);
+      assert(geometry.noHorizontalOverflow, JSON.stringify(geometry));
+      assert.equal(geometry.overflow, 'visible');
+      await expect(notice.locator('.update-release-notes')).toHaveCount(0);
+    }
+    await app.evaluate(() =>
+      (globalThis as any).fixture.setUpdateState({
+        status: 'ready',
+        currentVersion: '0.4.0',
+        version: '0.5.0',
+        notification: 'visible',
+        releaseNotes: { ru: 'Полные примечания', en: 'Full release notes' },
+      }),
+    );
+    await page.screenshot({ path: '/tmp/polka-compact-update-notice.png' });
+    await page.locator('.launcher-scroll').evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    assert(
+      (await notice.boundingBox())!.y < (await page.locator('.launcher-search').boundingBox())!.y,
+    );
+    await page.locator('.launcher-scroll').evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await notice.getByRole('button', { name: 'Что нового', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'О приложении', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(page.locator('.update-release-notes-body')).toContainText('Полные примечания');
+    await page.getByRole('button', { name: 'English', exact: true }).click();
+    await expect(page.locator('.update-release-notes-body')).toContainText('Full release notes');
     await page.evaluate(() => window.platform.call('shelf.settings'));
-    await expect(page.getByRole('tab', { name: 'Основные', exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Основные', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
     const beforeSettings = (await actions()).length;
     await page.keyboard.press('Meta+1');
     assert.equal((await actions()).length, beforeSettings);

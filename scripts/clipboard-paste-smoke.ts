@@ -5,13 +5,51 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import type { ViteDevServer } from 'vite';
 
 async function main() {
   const profile = await mkdtemp(join(tmpdir(), 'everything-paste-'));
-  const app = await electron.launch({
-    args: [resolve('.')],
-    env: { ...process.env, EVERYTHING_PROFILE: profile, EVERYTHING_PASTE_DEBUG: '1' },
-  });
+  const development = process.argv.includes('--dev');
+  let rendererServer: ViteDevServer | undefined;
+  let rendererUrl: string | undefined;
+  if (development) {
+    const [{ resolveConfig }, { createServer }] = await Promise.all([
+      import('electron-vite'),
+      import('vite'),
+    ]);
+    const resolved = await resolveConfig({}, 'serve', 'development');
+    rendererServer = await createServer({
+      ...resolved.config!.renderer,
+      configFile: false,
+      server: { host: '127.0.0.1', port: 0 },
+    });
+    await rendererServer.listen();
+    const address = rendererServer.httpServer!.address();
+    assert(address && typeof address !== 'string');
+    rendererUrl = `http://127.0.0.1:${address.port}`;
+    console.log(`Testing development renderer: ${rendererUrl}`);
+  }
+  const env: Record<string, string> = Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] =>
+        entry[0] !== 'ELECTRON_RUN_AS_NODE' && entry[1] !== undefined,
+    ),
+  );
+  const app = await electron
+    .launch({
+      args: [resolve('.')],
+      env: {
+        ...env,
+        EVERYTHING_PROFILE: profile,
+        EVERYTHING_PASTE_DEBUG: process.env.EVERYTHING_PASTE_DEBUG ?? '1',
+        ...(rendererUrl ? { ELECTRON_RENDERER_URL: rendererUrl } : {}),
+      },
+    })
+    .catch(async (error) => {
+      await rendererServer?.close();
+      await rm(profile, { recursive: true, force: true });
+      throw error;
+    });
   app.on('console', (message) => {
     if (message.text().startsWith('Clipboard paste')) console.log(message.text());
   });
@@ -64,7 +102,7 @@ async function main() {
     const focusProbe = join(profile, 'menu-owner');
     await writeFile(
       focusProbeSource,
-      'import AppKit\nprint(NSWorkspace.shared.menuBarOwningApplication?.processIdentifier ?? 0)\n',
+      'import AppKit\nprint((CommandLine.arguments.contains("--front") ? NSWorkspace.shared.frontmostApplication : NSWorkspace.shared.menuBarOwningApplication)?.processIdentifier ?? 0)\n',
     );
     await promisify(execFile)('swiftc', [
       focusProbeSource,
@@ -79,7 +117,7 @@ async function main() {
       `const {app,BrowserWindow,Menu}=require('electron');
 app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setApplicationMenu(Menu.buildFromTemplate([{role:'editMenu'}]));const w=new BrowserWindow({width:500,height:250,title:'Paste test target'});w.loadURL('data:text/html,<title>Paste test target</title><textarea id="first" autofocus></textarea><textarea id="second"></textarea>');});app.on('window-all-closed',()=>app.quit());`,
     );
-    target = await electron.launch({ args: [fixture] });
+    target = await electron.launch({ args: [fixture], env });
     const inputWindow = await target.firstWindow();
     const accessibility = await target.context().newCDPSession(inputWindow);
     await accessibility.send('Accessibility.enable');
@@ -124,7 +162,7 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
           );
         })
         .toBe(true);
-      if (scenario === 'retained') {
+      if (scenario === 'retained' && !development) {
         // First opening via hover must take keys without taking the menu bar.
         await app.evaluate(({ screen }) => {
           (globalThis as any).__realCursor = screen.getCursorScreenPoint;
@@ -156,7 +194,7 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
         .toBe(true);
       const search = shelf.getByRole('combobox', { name: 'Поиск по полке' });
       await expect(search).toBeFocused();
-      if (scenario === 'retained')
+      if (scenario === 'retained' && !development)
         await app.evaluate(() => {
           (globalThis as any).__qaCursor.y += 100;
         });
@@ -176,7 +214,7 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
       }
       // Search results and navigation must retain the original target and selection.
       let selectionSearch = search;
-      if (scenario === 'retained') {
+      if (scenario === 'retained' && !development) {
         await search.fill('Paste fixture');
         await expect(shelf.locator('.launcher-result[data-kind="clip"]')).toHaveCount(1);
       } else {
@@ -225,7 +263,7 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
           ),
         )
         .toBe(false);
-      if (scenario === 'retained') {
+      if (scenario === 'retained' && !development) {
         await shell.evaluate(() =>
           window.platform.call('clipboardHistory.preferences', { hoverEnabled: false }),
         );
@@ -257,8 +295,236 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
       );
       assert.equal(clips.length, 1);
       assert.equal(clips[0].content, 'Paste fixture: one selection');
+      if (scenario === 'blurred' && state.pasteAccess === 'granted') {
+        let expectedContent = 'Before: Paste fixture: one selection after';
+        const holdWrite = () =>
+          app.evaluate(({ clipboard }) => {
+            (globalThis as any).__realClipboardWrite ??= clipboard.write.bind(clipboard);
+            (globalThis as any).__writeWaiting = false;
+            (globalThis as any).__writeFinished = false;
+            clipboard.write = async (items) => {
+              (globalThis as any).__writeWaiting = true;
+              await new Promise((resolve) => ((globalThis as any).__releaseWrite = resolve));
+              await (globalThis as any).__realClipboardWrite(items);
+              (globalThis as any).__writeFinished = true;
+            };
+          });
+        const releaseWrite = () =>
+          app.evaluate(({ clipboard }) => {
+            clipboard.write = (globalThis as any).__realClipboardWrite;
+            (globalThis as any).__releaseWrite();
+          });
+        // Reopen directly after paste, without reactivating/refilling the target app.
+        // This retains the history screen and catches a lost target on the next opening.
+        for (let reopen = 1; reopen <= 3; reopen++) {
+          await inputWindow.evaluate(() => {
+            const field = document.querySelector<HTMLTextAreaElement>('#first')!;
+            field.setSelectionRange(field.value.length, field.value.length);
+          });
+          await shell.evaluate(() => window.platform.call('launcher.show'));
+          const historySearch = shelf.getByRole('combobox', { name: 'Найти в истории' });
+          await expect(historySearch).toBeFocused();
+          const reopenedState: { pasteReady?: boolean } = await shelf.evaluate(() =>
+            window.platform.call('clipboardHistory.state'),
+          );
+          assert.equal(
+            reopenedState.pasteReady,
+            true,
+            `Opening ${reopen + 1} captures a new target`,
+          );
+          await historySearch.press('Enter');
+          expectedContent += 'Paste fixture: one selection';
+          await expect.poll(content).toBe(expectedContent);
+          await expect(input).toBeFocused();
+          console.log(
+            `Native paste passed (reopen ${reopen + 1}): a fresh target was captured and pasted once.`,
+          );
+        }
+        for (const dismissal of ['Escape', 'Shift+Enter']) {
+          await shell.evaluate(() => window.platform.call('launcher.show'));
+          const historySearch = shelf.getByRole('combobox', { name: 'Найти в истории' });
+          await expect(historySearch).toBeFocused();
+          await historySearch.press(dismissal);
+          await expect
+            .poll(() =>
+              app.evaluate(({ BrowserWindow }) =>
+                BrowserWindow.getAllWindows()
+                  .find((w) => w.webContents.getURL().includes('mode=shelf'))!
+                  .isVisible(),
+              ),
+            )
+            .toBe(false);
+          console.log('Native target after ordinary dismissal', {
+            dismissal,
+            frontPID: Number((await promisify(execFile)(focusProbe, ['--front'])).stdout.trim()),
+            targetPID: target.process().pid,
+          });
+          await shell.evaluate(() => window.platform.call('launcher.show'));
+          await expect(historySearch).toBeFocused();
+          const ready: boolean = await shelf.evaluate(() =>
+            window.platform.call('clipboardHistory.state').then((state) => !!state.pasteReady),
+          );
+          assert(ready, `Reopening after ${dismissal} captures a target`);
+          await historySearch.press('Enter');
+          expectedContent += 'Paste fixture: one selection';
+          await expect.poll(content).toBe(expectedContent);
+          await expect(input).toBeFocused();
+          console.log(
+            `Native paste passed (after ${dismissal}): ordinary close does not strand the next opening.`,
+          );
+        }
+        // Generic hover reopening keeps the history destination. A slow clipboard
+        // write must not let pointer departure cancel the selected paste mid-flight.
+        await app.evaluate(({ screen }) => {
+          (globalThis as any).__realCursor = screen.getCursorScreenPoint;
+          const { bounds } = screen.getPrimaryDisplay();
+          (globalThis as any).__qaCursor = { x: bounds.x, y: bounds.y + 700 };
+          screen.getCursorScreenPoint = () => (globalThis as any).__qaCursor;
+        });
+        await shell.evaluate(() =>
+          window.platform.call('clipboardHistory.preferences', { hoverEnabled: true }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        await app.evaluate(({ screen }) => {
+          const { bounds } = screen.getPrimaryDisplay();
+          (globalThis as any).__qaCursor = { x: bounds.x + bounds.width / 2, y: bounds.y + 1 };
+        });
+        await expect
+          .poll(() =>
+            app.evaluate(({ BrowserWindow }) =>
+              BrowserWindow.getAllWindows()
+                .find((w) => w.webContents.getURL().includes('mode=shelf'))!
+                .isFocused(),
+            ),
+          )
+          .toBe(true);
+        const hoverSearch = shelf.getByRole('combobox', { name: 'Найти в истории' });
+        await expect(hoverSearch).toBeFocused();
+        await holdWrite();
+        await hoverSearch.press('Enter');
+        await expect.poll(() => app.evaluate(() => (globalThis as any).__writeWaiting)).toBe(true);
+        await app.evaluate(({ screen }) => {
+          const { bounds } = screen.getPrimaryDisplay();
+          (globalThis as any).__qaCursor = { x: bounds.x, y: bounds.y + 700 };
+        });
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        const remainedOpen = await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .find((w) => w.webContents.getURL().includes('mode=shelf'))!
+            .isVisible(),
+        );
+        await app.evaluate(({ screen }) => {
+          screen.getCursorScreenPoint = (globalThis as any).__realCursor;
+        });
+        await releaseWrite();
+        assert(remainedOpen, 'Hover departure must not dismiss a pending paste');
+        expectedContent += 'Paste fixture: one selection';
+        await expect.poll(content).toBe(expectedContent);
+        await expect(input).toBeFocused();
+        await shell.evaluate(() =>
+          window.platform.call('clipboardHistory.preferences', { hoverEnabled: false }),
+        );
+        console.log(
+          'Native paste passed (hover departure during slow copy): selection completes before automatic dismissal.',
+        );
+        // A delayed native blur must obey the same guard for keyboard openings.
+        await shell.evaluate(() => window.platform.call('launcher.show'));
+        await expect(hoverSearch).toBeFocused();
+        await holdWrite();
+        await hoverSearch.press('Enter');
+        await expect.poll(() => app.evaluate(() => (globalThis as any).__writeWaiting)).toBe(true);
+        await app.evaluate(({ BrowserWindow }) => {
+          const win = BrowserWindow.getAllWindows().find((w) =>
+            w.webContents.getURL().includes('mode=shelf'),
+          )!;
+          const focused = win.isFocused;
+          try {
+            win.isFocused = () => false;
+            win.emit('blur');
+          } finally {
+            win.isFocused = focused;
+          }
+        });
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        assert(
+          await app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()
+              .find((w) => w.webContents.getURL().includes('mode=shelf'))!
+              .isVisible(),
+          ),
+          'Native blur must not dismiss a pending paste',
+        );
+        await releaseWrite();
+        expectedContent += 'Paste fixture: one selection';
+        await expect.poll(content).toBe(expectedContent);
+        await expect(input).toBeFocused();
+        console.log(
+          'Native paste passed (blur during slow copy): automatic blur preserves selection.',
+        );
+
+        // Explicit close must still cancel the old action. Reopening cannot let
+        // its late completion close the new shelf or paste into the old target.
+        await shell.evaluate(() => window.platform.call('launcher.show'));
+        await expect(hoverSearch).toBeFocused();
+        await holdWrite();
+        await hoverSearch.press('Enter');
+        await expect.poll(() => app.evaluate(() => (globalThis as any).__writeWaiting)).toBe(true);
+        await shelf.evaluate(() => window.platform.call('clipboardHistory.hide'));
+        await expect
+          .poll(() =>
+            app.evaluate(({ BrowserWindow }) =>
+              BrowserWindow.getAllWindows()
+                .find((w) => w.webContents.getURL().includes('mode=shelf'))!
+                .isVisible(),
+            ),
+          )
+          .toBe(false);
+        await shell.evaluate(() => window.platform.call('launcher.show'));
+        await expect(hoverSearch).toBeFocused();
+        await releaseWrite();
+        await expect.poll(() => app.evaluate(() => (globalThis as any).__writeFinished)).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        assert.equal(await content(), expectedContent, 'Cancelled selection must not paste late');
+        await expect(hoverSearch).toBeFocused();
+        await hoverSearch.press('Enter');
+        expectedContent += 'Paste fixture: one selection';
+        await expect.poll(content).toBe(expectedContent);
+        await expect(input).toBeFocused();
+        console.log(
+          'Native paste passed (cancelled slow copy): new opening owns its own action and target.',
+        );
+      }
     }
+  } catch (error) {
+    const shelf = app.windows().find((page) => page.url().includes('mode=shelf'));
+    if (shelf)
+      console.error(
+        'Failed paste state',
+        await shelf
+          .evaluate(async () => {
+            const state = await window.platform.call('clipboardHistory.state');
+            return {
+              presentation: await window.platform.call('shelf.presentation'),
+              pasteReady: state.pasteReady,
+              pasteAccess: state.pasteAccess,
+              shelfClass: document.querySelector('.clipboard-shelf')?.className,
+              error: document.querySelector('.clipboard-error')?.textContent,
+              focus: document.activeElement?.getAttribute('aria-label'),
+            };
+          })
+          .catch(() => 'Renderer unavailable'),
+      );
+    throw error;
   } finally {
+    await app
+      .evaluate(({ clipboard, screen }) => {
+        if ((globalThis as any).__realClipboardWrite)
+          clipboard.write = (globalThis as any).__realClipboardWrite;
+        if ((globalThis as any).__releaseWrite) (globalThis as any).__releaseWrite();
+        if ((globalThis as any).__realCursor)
+          screen.getCursorScreenPoint = (globalThis as any).__realCursor;
+      })
+      .catch(() => {});
     if (target) await target.close();
     if (backedUp)
       await app
@@ -269,6 +535,7 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
         })
         .catch(() => {});
     await app.close();
+    await rendererServer?.close();
     await rm(profile, { recursive: true, force: true });
   }
 }
