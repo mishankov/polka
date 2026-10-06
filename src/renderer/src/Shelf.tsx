@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { flushSync } from 'react-dom';
 import type { ShelfDestination, ShelfPresentation } from '../../shared/shelf';
 import { api, report } from './api';
 import Launcher from './Launcher';
@@ -33,13 +34,17 @@ export default function Shelf() {
       });
   }, []);
   useEffect(() => {
+    const show = (next: ShelfPresentation) => {
+      flushSync(() => apply(next, true));
+      if (next.visible) void api('shelf.didShow', { revision: next.revision }).catch(report);
+    };
     const unsubscribe = window.platform.onEvent((event) => {
       if (event.type === 'shelf.presentation') apply(event.presentation);
-      if (event.type === 'shelf.shown') apply(event.presentation, true);
+      if (event.type === 'shelf.shown') show(event.presentation);
     });
-    void api<ShelfPresentation>('shelf.presentation')
-      .then((next) => apply(next, true))
-      .catch(report);
+    // The first shown event can precede subscription on a cold startup. Commit
+    // and acknowledge the snapshot too, so the native window can safely appear.
+    void api<ShelfPresentation>('shelf.presentation').then(show).catch(report);
     return unsubscribe;
   }, [apply]);
   useEffect(() => {

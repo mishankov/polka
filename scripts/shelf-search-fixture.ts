@@ -6,6 +6,7 @@ type PlatformEvent = Parameters<Parameters<Window['platform']['onEvent']>[0]>[0]
 export function createShelfSearchFixture() {
   const listeners = new Set<(event: PlatformEvent) => void>();
   const actions: { method: string; params: Record<string, unknown> }[] = [];
+  const shownRevisions: number[] = [];
   let release: (() => void) | undefined;
   let hold = false;
   let revision = 0;
@@ -40,6 +41,7 @@ export function createShelfSearchFixture() {
   };
   return {
     actions,
+    shownRevisions,
     navigate,
     setClipCount: (count: number) => {
       clips = createClips(count);
@@ -64,6 +66,9 @@ export function createShelfSearchFixture() {
     },
     async call(method: string, params: Record<string, unknown> = {}) {
       switch (method) {
+        case 'shelf.didShow':
+          shownRevisions.push(Number(params.revision));
+          return;
         case 'shelf.presentation':
           return { ...presentation };
         case 'shelf.appearance':

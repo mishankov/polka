@@ -161,6 +161,55 @@ async function main() {
       await mainSearch.press('Enter');
       await expect(search).toBeFocused();
     };
+    const reopenWithoutPickerFlash = async () => {
+      // Delay destination delivery to expose any reveal of the previous picker.
+      await app.evaluate(({ BrowserWindow }) => {
+        const contents = BrowserWindow.getAllWindows().find((window) =>
+          window.webContents.getURL().includes('mode=shelf'),
+        )!.webContents;
+        const send = contents.send.bind(contents);
+        const wrapper = {
+          send(channel: string, ...args: any[]) {
+            if (channel === 'platform:event' && args[0]?.type === 'shelf.shown') {
+              (globalThis as any).__pendingShelfShow = {
+                revision: args[0].presentation.revision,
+                deliver() {
+                  contents.send = send;
+                  send(channel, ...args);
+                },
+              };
+              return;
+            }
+            send(channel, ...args);
+          },
+        };
+        contents.send = wrapper.send;
+      });
+      const reopening = page.evaluate(() => window.platform.call('launcher.show'));
+      void reopening.catch(() => {});
+      await expect
+        .poll(() => app.evaluate(() => !!(globalThis as any).__pendingShelfShow))
+        .toBe(true);
+      assert.equal(
+        await visible(),
+        false,
+        'Keep the old emoji view hidden until navigation commits',
+      );
+      const revision = await app.evaluate(() => (globalThis as any).__pendingShelfShow.revision);
+      await page.evaluate(
+        (revision) => window.platform.call('shelf.didShow', { revision: revision - 1 }),
+        revision,
+      );
+      assert.equal(await visible(), false, 'A stale renderer reply must not reveal the shelf');
+      await app.evaluate(() => {
+        (globalThis as any).__pendingShelfShow.deliver();
+        delete (globalThis as any).__pendingShelfShow;
+      });
+      await reopening;
+      await launcherReady();
+      await expect(page.locator('.emoji-picker')).toHaveCount(0);
+      assert.equal(await visible(), true);
+    };
     await page.evaluate(async () => {
       try {
         await window.platform.call('shelf.copyEmoji', { id: 'invalid' });
@@ -181,6 +230,7 @@ async function main() {
           ),
         ),
       );
+      if (value === '❤️') await reopenWithoutPickerFlash();
       await openPicker();
     }
     await search.fill('🔥');
@@ -273,6 +323,7 @@ async function main() {
           );
       }
       await expect(targetPage.locator('#second')).toHaveValue('');
+      if (!copyOnly) await reopenWithoutPickerFlash();
     }
     assert.deepEqual(errors, []);
     console.log(

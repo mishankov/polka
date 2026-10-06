@@ -40,6 +40,7 @@ export function createShelf(
   let requested = false;
   let captureTargetPending: Promise<void> | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
+  let pendingShow: { revision: number; finish: (ready: boolean) => void } | undefined;
   let expanded: boolean | 'settings' = false;
   let presentation: ShelfPresentation = {
     revision: 0,
@@ -136,8 +137,9 @@ export function createShelf(
   }
   function hide(animate = true) {
     requested = false;
+    pendingShow?.finish(false);
     hover.dismiss();
-    if (!window || window.isDestroyed() || !window.isVisible()) return;
+    if (!window || window.isDestroyed() || (!window.isVisible() && !presentation.visible)) return;
     if (hideTimer && animate) return;
     clearTimeout(hideTimer);
     presentation = { ...presentation, visible: false, revision: presentation.revision + 1 };
@@ -160,6 +162,7 @@ export function createShelf(
     searchQuery = '',
   ) {
     if (disposed || suspensions.size > 0) return;
+    pendingShow?.finish(false);
     clearTimeout(hideTimer);
     hideTimer = undefined;
     const captureTarget = !requested && !window?.isFocused();
@@ -258,16 +261,35 @@ export function createShelf(
       notchWidth: geometry.target.width,
       notchHeight: geometry.target.height,
     };
-    window.setIgnoreMouseEvents(false);
     window.setBounds(geometry.panel);
-    // A macOS panel takes keyboard focus without activating its owning app.
-    // Keep the previous app's menu bar while making both entry points type-ready.
-    window.show();
-    window.focus();
+    const shownRevision = presentation.revision;
+    const ready = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => finish(false), 2000);
+      const finish = (ready: boolean) => {
+        clearTimeout(timer);
+        if (pendingShow?.revision === shownRevision) pendingShow = undefined;
+        resolve(ready);
+      };
+      pendingShow = { revision: shownRevision, finish };
+    });
+    // Commit the destination before revealing the native window. Otherwise its
+    // first frame can still contain the emoji picker from the previous opening.
     window.webContents.send('platform:event', {
       type: 'shelf.shown',
       presentation,
     });
+    const rendered = await ready;
+    if (!requested || disposed || presentation.revision !== shownRevision) return;
+    if (!rendered) {
+      hide(false);
+      throw Error('Не удалось открыть полку. Попробуйте ещё раз.');
+    }
+    if (!window || window.isDestroyed()) return;
+    window.setIgnoreMouseEvents(false);
+    // A macOS panel takes keyboard focus without activating its owning app.
+    // Keep the previous app's menu bar while making both entry points type-ready.
+    window.show();
+    window.focus();
   }
   function updateGeometry() {
     if (!window || window.isDestroyed()) return;
@@ -579,6 +601,11 @@ export function createShelf(
       return true;
     }
     if (method === 'shelf.presentation') return presentation;
+    if (method === 'shelf.didShow') {
+      const revision = z.number().int().parse(params.revision);
+      if (pendingShow?.revision === revision) pendingShow.finish(true);
+      return true;
+    }
     if (method === 'shelf.didHide') {
       finishHide(z.number().int().parse(params.revision));
       return true;
@@ -700,6 +727,7 @@ export function createShelf(
   }
   async function stop() {
     disposed = true;
+    pendingShow?.finish(false);
     generation++;
     clearTimeout(hideTimer);
     clearInterval(hoverTimer);
