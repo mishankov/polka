@@ -24,6 +24,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"tests/**/*.ts\" \"scripts/**/*.ts\" electron.vite.config.ts",
     "release": "node scripts/release.mjs",
     "release:verify": "node scripts/verify-release.mjs",
+    "signing:create": "node scripts/create-signing-certificate.mjs",
     "test:workflows": "npm run test:clipboard && npm run test:clipboard:images && npm run test:clipboard:animation",
     "test:packaged:workflows": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Polka.app/Contents/MacOS/Polka\" npm run test:workflows",
     "test:auto-start": "npm run test:shelf",
@@ -40,6 +41,8 @@
     "test:media": "tsx scripts/media-indicator-smoke.ts",
     "sparkle:build": "node scripts/build-sparkle.mjs",
     "test:updates": "tsx scripts/updates-smoke.ts",
+    "test:updates:self-signed": "tsx scripts/updates-smoke.ts --self-signed",
+    "test:updates:signing-migration": "tsx scripts/updates-smoke.ts --migrate-self-signed",
     "test:clipboard:sync": "tsx --test tests/clipboard-sync.test.ts",
     "test:clipboard:sync:desktop": "tsx scripts/clipboard-sync-smoke.ts",
     "build:prepare": "npm run build && npm run native:build",
@@ -102,6 +105,7 @@
     "selfsigned": "5.5.0"
   },
   "devDependencies": {
+    "@electron/osx-sign": "1.3.3",
     "@playwright/test": "1.63.0",
     "@tabler/icons-react": "3.48.0",
     "@types/node": "26.6.4",

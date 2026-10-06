@@ -44,9 +44,13 @@ Swift CLI `native/MediaProbe.swift` с Foundation/CoreAudio/CoreMediaIO/AVFounda
 
 ## Подпись и обновления
 
-Все сборки остаются ad-hoc signed (`identity: "-"`), без Developer ID и notarization. Это позволяет выполнять нативный ARM-код на Apple silicon, но не устанавливает доверие Apple к разработчику. `hardenedRuntime` отключён, entitlement разрешает JIT. Проверка готового bundle: `codesign --verify --deep --strict "release/mac-arm64/Polka.app"`. Обычная оценка Gatekeeper (`spctl`) может отклонить ad-hoc сборку; stapler для неё не применяется.
+Локальные и PR-сборки используют ad-hoc подпись (`identity: "-"`). Production-выпуски используют один постоянный self-signed сертификат, без Apple Developer account и notarization. `scripts/sign-macos.mjs` подписывает Electron bundle, вложенный код и Swift helpers до создания DMG/ZIP. Для `clipboard-probe`, `media-probe` и `sync-discovery` заданы постоянные identifiers `app.everything.desktop.<имя помощника>`; UUID Mach-O больше не участвует в их идентичности. `hardenedRuntime` отключён, entitlement разрешает JIT.
 
-Первый скачанный DMG может потребовать разрешения запуска в настройках macOS. Sparkle обрабатывает quarantine при обновлении: ожидаемый сценарий — перезапуск без команд Terminal и повторного «Открыть всё равно». Keychain также может повторно запросить пароль/разрешение для ключа Electron `safeStorage`, поскольку ad-hoc подпись меняется между сборками; это отдельное разрешение, не Gatekeeper. Сохранение Accessibility-разрешения для автоматической вставки не гарантируется при изменении ad-hoc подписи и требует проверки на отдельном Mac.
+macOS хранит разрешения по designated requirement (DR). У ad-hoc сборок он привязан к хешу конкретной версии; у self-signed выпусков — к постоянному сертификату и identifier, поэтому новая версия может удовлетворять прежнему DR. [Apple: идентичность кода и privacy permissions](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements), [self-signed сертификаты](https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/Procedures/Procedures.html). Сборка проверяет сертификат по закреплённому SHA-1 fingerprint и отказывается от отсутствующего, неправильного или истёкшего сертификата. SHA-1 здесь — идентификатор для `codesign`, не алгоритм подписи: сертификат использует RSA 3072 и SHA-256.
+
+При переходе с ad-hoc версии пользователям может потребоваться один раз удалить старую запись Polka и выдать разрешение заново в System Settings → Privacy & Security → Accessibility («Device Control and Data Access»). На следующем self-signed обновлении необходимо проверить сохранение доступа. Не меняйте appId, signing identifiers или сертификат между выпусками. Внутри приложения нет сброса TCC или автоматической выдачи разрешений.
+
+Self-signed подпись не устанавливает доверие Gatekeeper к разработчику. Первый скачанный DMG по-прежнему может потребовать «Открыть всё равно»; notarization/stapler не применяются. Keychain `safeStorage` также может запросить доступ один раз при смене идентичности. [Apple: идентичность кода и доверие Gatekeeper](https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/AboutCS/AboutCS.html).
 
 `npm run package` создаёт локальную сборку без канала обновлений. `npm run release` создаёт выпуск с нативным Sparkle через pinned `electron-sparkle-updater@0.5.2`. Отдельная Ed25519 подпись архива проверяется публичным ключом, встроенным в `Info.plist`; она не является Apple code signing. Проверка обязательна **до распаковки** (`SUVerifyUpdateBeforeExtraction`). Подпись ZIP и публичный ключ дополнительно проверяются Node.js при выпуске. Открытые GitHub Releases служат единственным хранилищем; отдельный сервер и GitHub Pages не требуются.
 
@@ -65,7 +69,29 @@ Sparkle создаёт ключ в login Keychain; при наличии клю�
 
 Workflow берёт версию приложения и имена архивов из тега GitHub Release (с необязательным префиксом `v`); appcast ссылается на исходный тег. Менять `package.json` для выпуска не требуется.
 
-Для локального выпуска передайте через окружение `RELEASE_REPOSITORY=mishankov/polka`, `SPARKLE_PUBLIC_KEY`, `SPARKLE_PRIVATE_KEY` и, только для загрузки черновика, `GH_TOKEN`. Необязательный `RELEASE_TAG` задаёт тег и версию; без него используется `v` + версия `package.json`. Apple credentials не нужны. Переменные не сохраняются в конфигурацию сборки; приватный ключ передаётся `sign_update` через stdin.
+### Постоянный сертификат подписи (один раз)
+
+Нужен OpenSSL (входит в macOS как LibreSSL; также подходит OpenSSL 3). Создайте сертификат в **новом каталоге вне репозитория**:
+
+```sh
+npm run signing:create -- "$HOME/.config/polka-release-signing"
+```
+
+Команда создаёт `identity.p12`, `password.txt`, публичные `certificate.pem` и `fingerprint.txt`. Каталог закрыт для других пользователей, приватные файлы имеют mode 0600; существующий каталог не перезаписывается. Сертификат действует 10 лет. Сохраните защищённую резервную копию всего каталога. Генерировать новый сертификат для каждого выпуска нельзя: это снова потребует выдачи разрешений. Истечение или потеря сертификата требуют плановой смены идентичности и повторного согласия пользователей.
+
+Настройте GitHub environment `release` (значения передаются через stdin, а не аргументы или логи):
+
+```sh
+base64 < "$HOME/.config/polka-release-signing/identity.p12" | tr -d '\n' | gh secret set POLKA_SIGNING_P12 --repo mishankov/polka --env release
+gh secret set POLKA_SIGNING_PASSWORD --repo mishankov/polka --env release < "$HOME/.config/polka-release-signing/password.txt"
+gh variable set POLKA_SIGNING_CERT_SHA1 --repo mishankov/polka --env release < "$HOME/.config/polka-release-signing/fingerprint.txt"
+```
+
+Secrets содержат защищённый PKCS#12 и его пароль. Variable закрепляет конкретный сертификат: случайная смена P12 без обновления fingerprint прерывает выпуск. Пользователям не нужно устанавливать сертификат в Keychain или менять настройки доверия.
+
+Для локального выпуска передайте через окружение `RELEASE_REPOSITORY=mishankov/polka`, `SPARKLE_PUBLIC_KEY`, `SPARKLE_PRIVATE_KEY`, `POLKA_SIGNING_P12` (абсолютный путь к `identity.p12` или base64 содержимое), `POLKA_SIGNING_PASSWORD`, `POLKA_SIGNING_CERT_SHA1` и, только для загрузки черновика, `GH_TOKEN`. Необязательный `RELEASE_TAG` задаёт тег и версию; без него используется `v` + версия `package.json`. Apple credentials не нужны.
+
+`release.mjs` импортирует identity в отдельный временный keychain и удаляет его после сборки, в том числе при ошибке. Login keychain, список keychains и настройки доверия не изменяются. Секреты подписи удаляются из окружения дочерних сборочных процессов; в конфигурацию и артефакты они не записываются. Sparkle private key передаётся `sign_update` через stdin. В `release-config.json` остаётся `mac.identity: "-"` для входа в custom hook builder без поиска Apple identity; сам hook обязательно использует закреплённый сертификат и проверяет результат. Production-команда не имеет fallback на ad-hoc.
 
 ## Полный поток выпуска
 
@@ -76,7 +102,7 @@ Workflow берёт версию приложения и имена архиво
 
 Feed: `https://github.com/mishankov/polka/releases/latest/download/appcast.xml`. Он содержит точный immutable URL ZIP вида `.../releases/download/TAG/polka-VERSION-arm64.zip`, версию, минимальную macOS и Ed25519 signature. GitHub latest должен указывать на новейший стабильный выпуск с appcast; не выбирайте старый выпуск вручную как latest. Приложение сверяет версии через Sparkle и не предлагает downgrade. DMG предназначен для первой установки; обновления используют ZIP. Squirrel `latest-mac.yml` и blockmap не используются (builder может создать неиспользуемый ZIP blockmap, он не публикуется).
 
-В `.github/workflows/release.yml` используется тот же hosted Apple silicon `xcode-27`, что в CI. Сначала `npm run verify`, затем `npm run release`, загрузка архивов, appcast и публикация черновика при ручном запуске. Защищённая environment `release` хранит ключ и может требовать approval владельца.
+В `.github/workflows/release.yml` macOS-проверки и упаковка используют hosted Apple silicon `xcode-27`, подготовка и публикация — Ubuntu. Desktop/workflows-проверки выполняются отдельно от упаковки; публикация ждёт успеха всех проверок. Готовые app/native outputs повторно используются через `npm run release -- --prebuilt`, затем загружаются архивы и appcast и публикуется черновик при ручном запуске. Защищённая environment `release` хранит ключ Sparkle и сертификат подписи и может требовать approval владельца.
 
 ## Поведение приложения
 
@@ -90,4 +116,13 @@ Feed: `https://github.com/mishankov/polka/releases/latest/download/appcast.xml`.
 
 `npm run test:updates` собирает два реальных ad-hoc `.app` с отдельным appId, временным Ed25519 ключом и localhost feed. Проверяет отклонение неправильной подписи, автоматическую загрузку, отсутствие установки до подтверждения, отмену staging при обычном выходе, установку/перезапуск новой версии и сохранность пользовательской настройки. Тест использует отдельный временный AES-ключ вместо login Keychain, поэтому не вызывает системные запросы пароля и не проверяет перенос Keychain-разрешений. Тест ничего не публикует, не использует production ключи и удаляет свои bundles/profile. Нужна desktop-сессия macOS; в T3 при необходимости снять `ELECTRON_RUN_AS_NODE` (`env -u ELECTRON_RUN_AS_NODE npm run test:updates`).
 
-Отдельная приёмка перед первым production выпуском: две последовательные версии в GitHub, чистый Mac, первая установка в /Applications, обновление через настоящий HTTPS feed, сохранность истории, Keychain-доступа и Accessibility-разрешений. Локальный smoke проверяет реальный native installer/relaunch, но не первый Gatekeeper launch, права администратора, сохранность системных разрешений или доставку GitHub. Старые установки без Sparkle требуют одного ручного обновления.
+`npm run test:updates:self-signed` проверяет тот же installer/relaunch с двумя self-signed Electron bundles и одноразовым тестовым сертификатом. До упаковки и после установки сверяет DR приложения и всех Swift helpers. `npm run test:updates:signing-migration` проверяет установку self-signed версии поверх прежней ad-hoc версии через Sparkle с неизменным Ed25519 ключом. `tests/mac-signing.test.ts` дополнительно собирает два разных Mach-O, проверяет соответствие новой версии прежним requirements, отказ при неправильном сертификате/identifier/ad-hoc helper и удаление временного keychain при ошибке. Эти тесты не запрашивают Accessibility-разрешение и не доказывают сохранение TCC grants.
+
+Приёмка разрешений перед production выпуском:
+
+1. Установить первую self-signed версию в `/Applications/Polka.app`, заново выдать Accessibility-разрешение и убедиться, что история вставляется в другую программу.
+2. Обновить через настоящий Sparkle feed на вторую версию с тем же сертификатом, сохранив ключ Sparkle и appId.
+3. Без переключения разрешения в Settings вставить элемент истории в другую программу. Повторить после обычного перезапуска Polka. Проверить доступ к сохранённой истории через `safeStorage`.
+4. Зафиксировать macOS version/build и результат. Если переключатель включён, а helper возвращает `trusted: false`, собрать TCC diagnostics и не считать сохранение разрешений подтверждённым.
+
+Отдельная приёмка перед первым production выпуском также включает чистый Mac, первый Gatekeeper launch, права администратора и доставку через GitHub. Старые установки без Sparkle требуют одного ручного обновления.

@@ -1,4 +1,5 @@
 import { sparkleBuilderConfig } from 'electron-sparkle-updater/builder';
+import { signingFingerprint } from './signing-certificate.mjs';
 
 /** Keep bundle version, archive names and feed URL aligned with the selected release tag. */
 export function releasePackage(pkg, env) {
@@ -20,7 +21,7 @@ export function releaseArtifactNames(pkg) {
   return [`${base}.dmg`, `${base}.zip`, 'appcast.xml'];
 }
 
-export function releaseConfig(pkg, env) {
+export function releaseConfig(pkg, env, { adHoc = false } = {}) {
   const repository = env.RELEASE_REPOSITORY;
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository || ''))
     throw Error('Set RELEASE_REPOSITORY=owner/repository to the public GitHub release repository.');
@@ -31,6 +32,7 @@ export function releaseConfig(pkg, env) {
     Buffer.from(publicKey, 'base64').length !== 32
   )
     throw Error('SPARKLE_PUBLIC_KEY must be the base64 Ed25519 public key from generate_keys.');
+  if (!adHoc) signingFingerprint(env);
   const feedUrl = `https://github.com/${repository}/releases/latest/download/appcast.xml`;
   const sparkle = sparkleBuilderConfig({
     feedUrl,
@@ -42,6 +44,7 @@ export function releaseConfig(pkg, env) {
   return {
     ...pkg.build,
     buildVersion: pkg.version,
+    forceCodeSigning: !adHoc,
     npmRebuild: false, // The N-API bridge is built explicitly for the target Electron version.
     files: [
       ...(pkg.build.files || []).filter(
@@ -57,7 +60,10 @@ export function releaseConfig(pkg, env) {
     dmg: { ...pkg.build.dmg, ...sparkle.dmg },
     mac: {
       ...pkg.build.mac,
+      // Enter builder's custom signing hook without Apple certificate discovery.
+      // The hook always signs with the pinned certificate; fixtures omit the hook.
       identity: '-',
+      sign: adHoc ? undefined : './scripts/sign-macos.mjs',
       hardenedRuntime: false,
       notarize: false,
       artifactName: '${name}-${version}-${arch}.${ext}',

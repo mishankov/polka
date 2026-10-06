@@ -11,10 +11,19 @@ import { releaseConfig, releaseArtifactNames } from './release-config.mjs';
 // @ts-expect-error Build-time JavaScript.
 import { appcastXml, verifyReleaseMetadata } from './release-metadata.mjs';
 // @ts-expect-error Build-time JavaScript.
+import { createSigningCertificate, withSigningKeychain } from './signing-certificate.mjs';
+// @ts-expect-error Build-time JavaScript.
+import { verifySignedBundle } from './sign-macos.mjs';
+
+// @ts-expect-error Build-time JavaScript.
 import { assertPreparedApp } from './prepared-app.mjs';
 
-// Two real ad-hoc bundles, a disposable trust key and localhost feed. Nothing is published.
+// Real bundles, disposable signing keys and localhost feed. Nothing is published.
 async function main() {
+  const migrateSigning = process.argv.includes('--migrate-self-signed');
+  const selfSigned = migrateSigning || process.argv.includes('--self-signed');
+  let fingerprint = '';
+  let originalRequirements: Record<string, string> | undefined;
   const directory = await mkdtemp(join(tmpdir(), 'polka-update-smoke-'));
   const pkg = JSON.parse(await readFile('package.json', 'utf8'));
   const productName = `Polka Update Smoke ${Date.now()}`;
@@ -53,15 +62,15 @@ async function main() {
       ([key, value]) => key !== 'ELECTRON_RUN_AS_NODE' && value !== undefined,
     ),
   ) as Record<string, string>;
-  env.CSC_FOR_PULL_REQUEST = 'true'; // Fixture signing uses no certificate or release secret.
+  env.CSC_FOR_PULL_REQUEST = 'true'; // Disposable fixtures use no production credentials.
   let running: ElectronApplication | undefined;
   const profile = join(directory, 'profile');
   const bootstrap = join(directory, 'bootstrap');
   const relaunchReceipt = join(directory, 'relaunch.json');
   const fixtureStorageKey = randomBytes(32).toString('base64');
   let executable = '';
-  function run(command: string, args: string[]) {
-    const result = spawnSync(command, args, { stdio: 'inherit', env });
+  function run(command: string, args: string[], commandEnv = env) {
+    const result = spawnSync(command, args, { stdio: 'inherit', env: commandEnv });
     assert.equal(result.status, 0, `${command} ${args.join(' ')} failed`);
   }
   function version(bundle: string) {
@@ -139,44 +148,69 @@ app.on('browser-window-created', (_event, window) => {
 require('./index.js');
 `,
     );
-    for (const [fixture, folder, target] of [
-      [pkg, 'old', 'dir'],
-      [newPkg, 'new', 'zip'],
-    ] as const) {
-      const config = releaseConfig(fixture, {
-        RELEASE_REPOSITORY: 'smoke/app',
-        SPARKLE_PUBLIC_KEY: publicKey,
-      });
-      config.appId = appId;
-      config.productName = productName;
-      config.buildVersion = fixture.version;
-      // These localhost fixtures test authentication and installation, not compression.
-      config.compression = 'store';
-      config.directories.output = join(directory, folder);
-      config.extraMetadata.main = 'out/main/update-smoke-bootstrap.js';
-      config.files.push({ from: bootstrap, to: 'out/main', filter: ['update-smoke-bootstrap.js'] });
-      config.extraMetadata.version = fixture.version;
-      config.extraMetadata.productName = productName;
-      config.extraMetadata.release.feedUrl = `${origin}/appcast.xml`;
-      config.mac.extendInfo.SUFeedURL = `${origin}/appcast.xml`;
-      config.mac.extendInfo.NSAppTransportSecurity = { NSAllowsLocalNetworking: true };
-      // Keep real production archive names even though this app has a disposable name.
-      config.mac.artifactName = releaseArtifactNames(fixture).find((name: string) =>
-        name.endsWith('.zip'),
+    const packageFixtures = async (buildEnv: Record<string, string>) => {
+      for (const [fixture, folder, target] of [
+        [pkg, 'old', 'dir'],
+        [newPkg, 'new', 'zip'],
+      ] as const) {
+        const config = releaseConfig(
+          fixture,
+          { ...buildEnv, RELEASE_REPOSITORY: 'smoke/app', SPARKLE_PUBLIC_KEY: publicKey },
+          { adHoc: !selfSigned || (migrateSigning && folder === 'old') },
+        );
+        config.appId = appId;
+        config.productName = productName;
+        config.buildVersion = fixture.version;
+        // These localhost fixtures test authentication and installation, not compression.
+        config.compression = 'store';
+        config.directories.output = join(directory, folder);
+        config.extraMetadata.main = 'out/main/update-smoke-bootstrap.js';
+        config.files.push({
+          from: bootstrap,
+          to: 'out/main',
+          filter: ['update-smoke-bootstrap.js'],
+        });
+        config.extraMetadata.version = fixture.version;
+        config.extraMetadata.productName = productName;
+        config.extraMetadata.release.feedUrl = `${origin}/appcast.xml`;
+        config.mac.extendInfo.SUFeedURL = `${origin}/appcast.xml`;
+        config.mac.extendInfo.NSAppTransportSecurity = { NSAllowsLocalNetworking: true };
+        // Keep real production archive names even though this app has a disposable name.
+        config.mac.artifactName = releaseArtifactNames(fixture).find((name: string) =>
+          name.endsWith('.zip'),
+        );
+        const path = join(directory, `${folder}.json`);
+        await writeFile(path, JSON.stringify(config));
+        run(
+          'node_modules/.bin/electron-builder',
+          ['--config', path, '--mac', target, '--arm64', '--publish', 'never'],
+          buildEnv,
+        );
+      }
+    };
+    if (selfSigned) {
+      const certificate = join(directory, 'certificate');
+      fingerprint = await createSigningCertificate(certificate);
+      await withSigningKeychain(
+        {
+          ...env,
+          POLKA_SIGNING_CERT_SHA1: fingerprint,
+          POLKA_SIGNING_P12: join(certificate, 'identity.p12'),
+          POLKA_SIGNING_PASSWORD: await readFile(join(certificate, 'password.txt'), 'utf8'),
+        },
+        packageFixtures,
       );
-      const path = join(directory, `${folder}.json`);
-      await writeFile(path, JSON.stringify(config));
-      run('node_modules/.bin/electron-builder', [
-        '--config',
-        path,
-        '--mac',
-        target,
-        '--arm64',
-        '--publish',
-        'never',
-      ]);
-    }
+    } else await packageFixtures(env);
     const bundle = join(directory, 'old/mac-arm64', `${productName}.app`);
+    if (selfSigned) {
+      originalRequirements = verifySignedBundle(
+        join(directory, 'new/mac-arm64', `${productName}.app`),
+        appId,
+        fingerprint,
+      );
+      if (!migrateSigning)
+        assert.deepEqual(verifySignedBundle(bundle, appId, fingerprint), originalRequirements);
+    }
     executable = join(bundle, 'Contents/MacOS', productName);
     const zip = releaseArtifactNames(newPkg).find((name: string) => name.endsWith('.zip'));
     const archive = join(directory, 'new', zip);
@@ -281,6 +315,14 @@ require('./index.js');
     assert.equal(receipt.status.status, 'current');
     assert.equal(receipt.status.currentVersion, newPkg.version);
     assert.equal(receipt.marker, 'preserved');
+    if (selfSigned) {
+      assert.deepEqual(verifySignedBundle(bundle, appId, fingerprint), originalRequirements);
+      console.log(
+        migrateSigning
+          ? 'Ad-hoc to self-signed migration completed through Sparkle.'
+          : 'Self-signed app and native helper identities preserved after Sparkle installation.',
+      );
+    }
     console.log(
       'Packaged update passed: signature rejection, automatic download, ordinary quit cancellation, explicit install, relaunch and preserved data.',
     );
