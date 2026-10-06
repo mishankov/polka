@@ -14,8 +14,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  macos-arm64:
-    name: Verify and package macOS arm64
+  verify:
+    name: Verify macOS source (${{ matrix.suite }})
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [desktop, workflows]
     # This app requires macOS 27; xcode-27 is the hosted Apple silicon image.
     runs-on: xcode-27
     timeout-minutes: 30
@@ -37,16 +41,47 @@ jobs:
       - name: Prepare Electron binary
         # Electron downloads lazily; finish before Playwright resolves its executable.
         run: node -e 'console.log(require("electron"))'
-      - name: Verify types, build, native helpers, unit tests and desktop workflows
+      - name: Build app and native helpers once
+        run: npm run build:prepare
+      - name: Verify types, unit tests and desktop workflows
         timeout-minutes: 10
-        run: npm run verify
+        run: npm run verify:${{ matrix.suite }}
 
+      - name: Upload desktop screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-arm64-${{ matrix.suite }}-smoke-screenshots
+          path: |
+            /tmp/everything-*.png
+            artifacts/emoji/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  package:
+    name: Package and test macOS arm64
+    runs-on: xcode-27
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+      - name: Check Apple silicon and macOS version
+        run: |
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
+          xcodebuild -version
+      - run: npm ci
+      - name: Build app and native helpers once
+        run: npm run build:prepare
       - name: Package arm64 DMG and ZIP
         env:
           # electron-builder skips even ad-hoc signing for pull requests by default.
           # Force the certificate-free identity below; no release secrets are used.
           CSC_FOR_PULL_REQUEST: 'true'
-        run: npm run package -- --publish never -c.mac.identity=-
+        run: npm run package:prepared -- --publish never -c.mac.identity=-
 
       - name: Verify packaged app signature and disk image
         run: |
@@ -59,10 +94,6 @@ jobs:
         timeout-minutes: 5
         run: npm run test:packaged
 
-      - name: Test authenticated ad-hoc update and relaunch
-        timeout-minutes: 8
-        run: npm run test:updates
-
       - uses: actions/upload-artifact@v7
         with:
           name: Polka-macos-arm64
@@ -71,6 +102,7 @@ jobs:
             release/*.zip
           if-no-files-found: error
           retention-days: 7
+          compression-level: 0
 
       - name: Upload desktop screenshots
         if: always()
@@ -80,3 +112,41 @@ jobs:
           path: /tmp/everything-*.png
           if-no-files-found: ignore
           retention-days: 7
+
+  updates:
+    name: Test authenticated macOS update and relaunch
+    # GUI workflows use separate runners: clipboard, focus and shortcuts are shared.
+    runs-on: xcode-27
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+      - name: Check Apple silicon and macOS version
+        run: |
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
+          xcodebuild -version
+      - run: npm ci
+      - name: Prepare Electron binary
+        run: node -e 'console.log(require("electron"))'
+      - name: Build app and native helpers once
+        run: npm run build:prepare
+      - name: Test authenticated ad-hoc update and relaunch
+        timeout-minutes: 8
+        run: npm run test:updates -- --prebuilt
+
+  macos-arm64:
+    # Retain the existing check name for branch protection and require every job.
+    name: Verify and package macOS arm64
+    needs: [verify, package, updates]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all macOS checks to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'all(.[]; .result == "success")' <<< "$RESULTS"

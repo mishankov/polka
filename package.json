@@ -15,9 +15,9 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "native:build": "swiftc -O native/MediaProbe.swift -o build/media-probe -framework CoreAudio -framework CoreMediaIO -framework AVFoundation && swiftc -O native/ClipboardProbe.swift -o build/clipboard-probe -framework AppKit && swiftc -O native/SyncDiscovery.swift -o build/sync-discovery",
-    "package": "npm run build && npm run native:build && electron-builder --mac dmg zip --arm64",
-    "package:dir": "npm run build && npm run native:build && electron-builder --mac dir --arm64",
-    "verify": "npm run typecheck && npm run build && npm run native:build && npm test && npm run test:desktop && npm run test:workflows && npm run test:media",
+    "package": "npm run build:prepare && npm run package:prepared --",
+    "package:dir": "npm run build:prepare && electron-builder --mac dir --arm64",
+    "verify": "npm run build:prepare && npm run verify:desktop && npm run verify:workflows",
     "test:desktop": "npm run test:shelf && npm run test:emoji",
     "test:packaged": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Polka.app/Contents/MacOS/Polka\" tsx scripts/shelf-smoke.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"tests/**/*.ts\" \"scripts/**/*.ts\" electron.vite.config.ts",
@@ -41,7 +41,11 @@
     "sparkle:build": "node scripts/build-sparkle.mjs",
     "test:updates": "tsx scripts/updates-smoke.ts",
     "test:clipboard:sync": "tsx --test tests/clipboard-sync.test.ts",
-    "test:clipboard:sync:desktop": "tsx scripts/clipboard-sync-smoke.ts"
+    "test:clipboard:sync:desktop": "tsx scripts/clipboard-sync-smoke.ts",
+    "build:prepare": "npm run build && npm run native:build",
+    "package:prepared": "electron-builder --mac dmg zip --arm64",
+    "verify:desktop": "npm run typecheck && npm test && npm run test:desktop",
+    "verify:workflows": "npm run test:workflows && npm run test:media"
   },
   "build": {
     "appId": "app.everything.desktop",
@@ -93,15 +97,13 @@
     "npmRebuild": false
   },
   "dependencies": {
-    "@tabler/icons-react": "3.48.0",
     "electron-sparkle-updater": "0.5.2",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
     "zod": "4.6.5",
     "selfsigned": "5.5.0"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
+    "@tabler/icons-react": "3.48.0",
     "@types/node": "26.6.4",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
@@ -109,9 +111,11 @@
     "electron": "44.5.1",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
+    "esbuild": "0.28.2",
     "fast-xml-parser": "5.11.2",
-    "js-yaml": "4.3.2",
     "prettier": "3.9.9",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vite": "7.3.6"

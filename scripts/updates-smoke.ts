@@ -10,6 +10,8 @@ import { join, resolve } from 'node:path';
 import { releaseConfig, releaseArtifactNames } from './release-config.mjs';
 // @ts-expect-error Build-time JavaScript.
 import { appcastXml, verifyReleaseMetadata } from './release-metadata.mjs';
+// @ts-expect-error Build-time JavaScript.
+import { assertPreparedApp } from './prepared-app.mjs';
 
 // Two real ad-hoc bundles, a disposable trust key and localhost feed. Nothing is published.
 async function main() {
@@ -70,8 +72,8 @@ async function main() {
     ).trim();
   }
   try {
-    run('npm', ['run', 'build']);
-    run('npm', ['run', 'native:build']);
+    if (process.argv.includes('--prebuilt')) await assertPreparedApp();
+    else run('npm', ['run', 'build:prepare']);
     run('npm', ['run', 'sparkle:build']);
     // The rebranded app deliberately keeps the legacy user-data location. Bake a
     // fixture-only entry point into both bundles so Sparkle's native relaunch
@@ -148,6 +150,8 @@ require('./index.js');
       config.appId = appId;
       config.productName = productName;
       config.buildVersion = fixture.version;
+      // These localhost fixtures test authentication and installation, not compression.
+      config.compression = 'store';
       config.directories.output = join(directory, folder);
       config.extraMetadata.main = 'out/main/update-smoke-bootstrap.js';
       config.files.push({ from: bootstrap, to: 'out/main', filter: ['update-smoke-bootstrap.js'] });

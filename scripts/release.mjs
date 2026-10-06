@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { releasePackage, releaseConfig, releaseArtifactNames } from './release-config.mjs';
 import { appcastXml } from './release-metadata.mjs';
 import { join } from 'node:path';
+import { assertPreparedApp } from './prepared-app.mjs';
 const pkg = releasePackage(
   JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')),
   process.env,
@@ -21,8 +22,8 @@ function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit', env: publicEnv });
   if (result.status !== 0) process.exit(result.status || 1);
 }
-run('npm', ['run', 'build']);
-run('npm', ['run', 'native:build']);
+if (process.argv.includes('--prebuilt')) await assertPreparedApp();
+else run('npm', ['run', 'build:prepare']);
 run('npm', ['run', 'sparkle:build']);
 run('npx', [
   'electron-builder',
