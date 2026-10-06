@@ -9,6 +9,7 @@
   "scripts": {
     "emoji:generate": "node scripts/generate-emoji-data.mjs",
     "test:emoji": "tsx scripts/emoji-smoke.ts --empty-clipboard-item",
+    "predev": "node -e \"require('electron')\"",
     "dev": "electron-vite dev",
     "build": "node -e \"require('node:fs').rmSync('out', { recursive: true, force: true })\" && electron-vite build",
     "start": "electron-vite preview",

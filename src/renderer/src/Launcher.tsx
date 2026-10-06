@@ -219,7 +219,7 @@ export default function Launcher({
           )
         ) {
           event.preventDefault();
-          if (settings) void api('launcher.show').catch(report);
+          if (settings) void api('launcher.show', { destination: 'apps' }).catch(report);
           else hide();
         }
       }}
@@ -232,13 +232,21 @@ export default function Launcher({
       ) : entry.destination === 'emoji' ? (
         <EmojiPicker
           key={entry.revision}
-          onBack={() => void api('launcher.show').catch((error) => setError(errorMessage(error)))}
+          onBack={() =>
+            void api('launcher.show', { destination: 'apps' }).catch((error) =>
+              setError(errorMessage(error)),
+            )
+          }
         />
       ) : builtin ? (
         <ClipboardHistory
           key={entry.revision}
           initialQuery={entry.searchQuery}
-          onBack={() => void api('launcher.show').catch((error) => setError(errorMessage(error)))}
+          onBack={() =>
+            void api('launcher.show', { destination: 'apps' }).catch((error) =>
+              setError(errorMessage(error)),
+            )
+          }
         />
       ) : (
         <>

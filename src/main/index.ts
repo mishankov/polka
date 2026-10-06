@@ -270,7 +270,7 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
   if (method.startsWith('clipboardHistory.') || method.startsWith('shelf.'))
     return shelf.handle(method, params);
   if (method === 'launcher.show') {
-    await shelf.show();
+    await shelf.show('keyboard', z.literal('apps').optional().parse(params.destination));
     return true;
   }
   if (method === 'launcher.hide') {

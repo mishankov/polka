@@ -158,7 +158,11 @@ export function createShelf(
   }
   async function show(
     source: 'hover' | 'keyboard' = 'keyboard',
-    destination: ShelfDestination = 'apps',
+    // Ordinary shelf openings resume its built-in app; explicit navigation wins.
+    destination: ShelfDestination = presentation.destination === 'clipboard' ||
+    presentation.destination === 'emoji'
+      ? presentation.destination
+      : 'apps',
     searchQuery = '',
   ) {
     if (disposed || suspensions.size > 0) return;
@@ -310,7 +314,13 @@ export function createShelf(
     window.webContents.send('platform:event', { type: 'shelf.presentation', presentation });
   }
   async function toggle(destination: 'apps' | 'clipboard') {
-    if (requested && presentation.destination === destination && !expanded) hide();
+    if (
+      requested &&
+      !expanded &&
+      (destination === 'apps' || presentation.destination === destination)
+    )
+      hide();
+    else if (destination === 'apps') await show();
     else await show('keyboard', destination);
   }
   async function capture() {

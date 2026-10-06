@@ -151,7 +151,7 @@ async function main() {
       );
     const readClipboard = () => app.evaluate(({ clipboard }) => clipboard.readText());
     const openPicker = async () => {
-      await page.evaluate(() => window.platform.call('launcher.show'));
+      await page.evaluate(() => window.platform.call('launcher.show', { destination: 'apps' }));
       await launcherReady();
       await mainSearch.fill('эмодзи');
       await expect(page.getByRole('option', { name: /^Эмодзи / })).toHaveAttribute(
@@ -185,7 +185,9 @@ async function main() {
         };
         contents.send = wrapper.send;
       });
-      const reopening = page.evaluate(() => window.platform.call('launcher.show'));
+      const reopening = page.evaluate(() =>
+        window.platform.call('launcher.show', { destination: 'apps' }),
+      );
       void reopening.catch(() => {});
       await expect
         .poll(() => app.evaluate(() => !!(globalThis as any).__pendingShelfShow))

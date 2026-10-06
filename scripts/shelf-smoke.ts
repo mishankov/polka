@@ -60,6 +60,59 @@ async function main() {
       apps.map((item: any) => item.id),
       ['builtin:clipboard', 'builtin:emoji'],
     );
+    const originalShortcut = (
+      await page.evaluate(() => window.platform.call('launcher.getPreferences'))
+    ).accelerator;
+    await app.evaluate(({ globalShortcut }) => {
+      const register = globalShortcut.register.bind(globalShortcut);
+      globalShortcut.register = (accelerator, callback) => {
+        (globalThis as any).__shelfToggle = callback;
+        globalShortcut.register = register;
+        return register(accelerator, callback);
+      };
+    });
+    await page.evaluate(() =>
+      window.platform.call('launcher.setShortcut', {
+        accelerator: 'CommandOrControl+Alt+Shift+9',
+      }),
+    );
+    for (const [method, searchName] of [
+      ['clipboardHistory.show', 'Найти в истории'],
+      ['shelf.showEmoji', 'Найти эмодзи'],
+    ]) {
+      await page.evaluate((method) => window.platform.call(method), method);
+      await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+      await app.evaluate(({ app }) => app.emit('activate'));
+      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
+      await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+      // Invoke the registered callback to exercise the shelf shortcut's toggle.
+      await app.evaluate(() => (globalThis as any).__shelfToggle());
+      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+      await app.evaluate(() => (globalThis as any).__shelfToggle());
+      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
+      await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+      await page.evaluate(() => window.platform.call('launcher.show'));
+      await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+      await page.getByRole('button', { name: 'Назад к приложениям', exact: true }).click();
+      await expect(
+        page.getByRole('combobox', { name: 'Поиск по полке', exact: true }),
+      ).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+      await app.evaluate(({ app }) => app.emit('activate'));
+      await expect(
+        page.getByRole('combobox', { name: 'Поиск по полке', exact: true }),
+      ).toBeFocused();
+    }
+    await page.evaluate(
+      (accelerator) => window.platform.call('launcher.setShortcut', { accelerator }),
+      originalShortcut,
+    );
+    await app.evaluate(() => delete (globalThis as any).__shelfToggle);
     for (const method of [
       'apps.list',
       'apps.create',
@@ -199,6 +252,8 @@ async function main() {
     await Promise.all([settings.waitForEvent('close'), settings.evaluate(() => window.close())]);
     // Reopening through macOS must reuse the shelf without adding a Dock icon.
     await app.evaluate(({ app }) => app.emit('activate'));
+    await expect(page.getByRole('combobox', { name: 'Найти в истории' })).toBeFocused();
+    await page.getByRole('button', { name: 'Назад к приложениям', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Поиск по полке', exact: true })).toBeFocused();
     // A fresh macOS runner can still be discovering apps and extracting their icons.
     // Wait for the catalog before asserting an empty search; input focus alone does
@@ -254,7 +309,7 @@ async function main() {
     await expect(reopened.locator('.shelf-welcome')).toHaveCount(0);
     assert.equal(await app.evaluate(({ app }) => app.dock?.isVisible()), false);
     console.log(
-      'Shelf smoke passed: hidden Dock icon, quiet startup, settings, native shortcuts, clipboard navigation, removed workspace entry points and persisted settings.',
+      'Shelf smoke passed: hidden Dock icon, quiet startup, settings, native shortcuts, built-in app restoration, clipboard navigation, removed workspace entry points and persisted settings.',
     );
   } catch (error) {
     console.error('Shelf smoke failed:', error);
