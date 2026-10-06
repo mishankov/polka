@@ -11,6 +11,7 @@ export function createShelfSearchFixture() {
   const listeners = new Set<(event: PlatformEvent) => void>();
   const actions: { method: string; params: Record<string, unknown> }[] = [];
   const shownRevisions: number[] = [];
+  const catalogAtShow: number[] = [];
   const usage: LauncherUsageStats = {};
   let release: (() => void) | undefined;
   let hold = false;
@@ -31,6 +32,11 @@ export function createShelfSearchFixture() {
   let accessError = '';
   let updateState: UpdateState = { status: 'unavailable', currentVersion: '0.4.0' };
   let acknowledgeShows = true;
+  let holdMacApps = false;
+  const macAppWaiters = new Set<() => void>();
+  let macAppRequests = 0;
+  let macAppError = '';
+  let extraMacApp = '';
   const changed = () => {
     for (const listener of listeners) listener({ type: 'clipboardHistory.changed' });
   };
@@ -65,6 +71,25 @@ export function createShelfSearchFixture() {
   return {
     actions,
     shownRevisions,
+    catalogAtShow,
+    get macAppRequests() {
+      return macAppRequests;
+    },
+    holdMacApps: () => {
+      holdMacApps = true;
+    },
+    releaseMacApps: (error = '') => {
+      macAppError = error;
+      holdMacApps = false;
+      for (const finish of macAppWaiters) finish();
+      macAppWaiters.clear();
+    },
+    setExtraMacApp: (name: string) => {
+      extraMacApp = name;
+    },
+    resetUsage: () => {
+      for (const id of Object.keys(usage)) delete usage[id];
+    },
     navigate,
     setAcknowledgeShows: (enabled: boolean) => {
       acknowledgeShows = enabled;
@@ -135,6 +160,12 @@ export function createShelfSearchFixture() {
             },
           ];
         case 'launcher.macApps':
+          macAppRequests++;
+          if (holdMacApps)
+            await new Promise<void>((resolve) => {
+              macAppWaiters.add(resolve);
+            });
+          if (macAppError) throw Error(macAppError);
           return [
             'Calculator',
             'Calendar',
@@ -146,6 +177,7 @@ export function createShelfSearchFixture() {
             'Safari',
             'Terminal',
             'TextEdit',
+            ...(extraMacApp ? [extraMacApp] : []),
           ].map((name) => ({
             kind: 'mac',
             id: `mac:${name}`,

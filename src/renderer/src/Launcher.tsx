@@ -27,6 +27,76 @@ import type { ShelfEntry } from '../../shared/shelf';
 import type { BuiltinContext } from './shelf-context';
 import { consumedKey, numberShortcut } from './shelf-keyboard';
 
+// Catalog data outlives a presentation; navigation only resets browsing state.
+function useLauncherCatalog() {
+  const [apps, setApps] = useState<LauncherApp[]>([]);
+  const [macApps, setMacApps] = useState<MacLauncherApp[]>([]);
+  const [usage, setUsage] = useState<LauncherUsageStats>({});
+  const [loading, setLoading] = useState(true);
+  const [macLoading, setMacLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [macError, setMacError] = useState('');
+  const request = useRef(0);
+  const macRequest = useRef(0);
+  const usageRevision = useRef(0);
+  const updateUsage = useCallback((next: LauncherUsageStats) => {
+    usageRevision.current++;
+    setUsage(next);
+  }, []);
+  const refreshMac = useCallback(async () => {
+    const id = ++macRequest.current;
+    const usageAtRequest = usageRevision.current;
+    setMacError('');
+    try {
+      const [next, nextUsage] = await Promise.all([
+        api<MacLauncherApp[]>('launcher.macApps'),
+        api<LauncherUsageStats>('launcher.usage'),
+      ]);
+      if (id !== macRequest.current) return;
+      setMacApps(next);
+      // A launch while discovery is pending already returned newer statistics.
+      if (usageAtRequest === usageRevision.current) setUsage(nextUsage || {});
+    } catch (error) {
+      if (id === macRequest.current) setMacError(errorMessage(error));
+    } finally {
+      if (id === macRequest.current) setMacLoading(false);
+    }
+  }, []);
+  const refresh = useCallback(async () => {
+    const id = ++request.current;
+    setError('');
+    try {
+      const next = await api<LauncherApp[]>('launcher.apps');
+      if (id !== request.current) return;
+      setApps(next);
+    } catch (error) {
+      if (id === request.current) setError(errorMessage(error));
+    } finally {
+      if (id === request.current) setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void refresh();
+    void refreshMac();
+    return () => {
+      request.current++;
+      macRequest.current++;
+    };
+  }, [refresh, refreshMac]);
+  return {
+    apps,
+    macApps,
+    usage,
+    setUsage: updateUsage,
+    loading,
+    macLoading,
+    error,
+    macError,
+    refresh,
+    refreshMac,
+  };
+}
+
 export default function Launcher({
   entry,
   committedRevision,
@@ -34,6 +104,12 @@ export default function Launcher({
   entry: ShelfEntry;
   committedRevision: number;
 }) {
+  const catalog = useLauncherCatalog();
+  const initialRevision = useRef(entry.revision);
+  useEffect(() => {
+    if (entry.destination === 'apps' && entry.revision !== initialRevision.current)
+      void catalog.refreshMac();
+  }, [entry.destination, entry.revision, catalog.refreshMac]);
   const snapshot = useRef<BuiltinContext | undefined>(undefined);
   const draft = useRef<BuiltinContext | undefined>(undefined);
   const saveContext = useCallback(
@@ -57,6 +133,7 @@ export default function Launcher({
       entry={entry}
       context={entry.entryMode === 'resume' ? snapshot.current : undefined}
       saveContext={saveContext}
+      catalog={catalog}
     />
   );
 }
@@ -65,34 +142,30 @@ function LauncherEntry({
   entry,
   context,
   saveContext,
+  catalog,
 }: {
   entry: ShelfEntry;
   context?: BuiltinContext;
   saveContext: (context: BuiltinContext) => void;
+  catalog: ReturnType<typeof useLauncherCatalog>;
 }) {
   // Apply the entry destination in this render. Mirroring it in an effect briefly
   // remounts clipboard history when a closed shelf reopens on the app list.
   const settings = entry.destination === 'settings' || entry.destination === 'about';
   const builtin = entry.destination === 'clipboard' || entry.destination === 'emoji';
   const navigation = useRef(0);
-  const [apps, setApps] = useState<LauncherApp[]>([]);
-  const [macApps, setMacApps] = useState<MacLauncherApp[]>([]);
-  const [usage, setUsage] = useState<LauncherUsageStats>({});
-  const [macLoading, setMacLoading] = useState(true);
-  const [macError, setMacError] = useState('');
+  const { apps, macApps, usage, setUsage, macLoading, macError, loading, refresh, refreshMac } =
+    catalog;
   const [clipboard, setClipboard] = useState<ClipboardState>();
   const [clipboardError, setClipboardError] = useState('');
   const [clipboardLoading, setClipboardLoading] = useState(true);
   const [copied, setCopied] = useState('');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string>();
-  const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState('');
   const input = useRef<HTMLInputElement>(null);
   const launchPending = useRef(false);
-  const request = useRef(0);
-  const macRequest = useRef(0);
   const clipboardRequest = useRef(0);
   // Keep an undated conversion anchored while the user reviews and copies it.
   const calculationNow = useMemo(() => new Date(), [query, entry.revision]);
@@ -144,44 +217,6 @@ function LauncherEntry({
       unsubscribe();
     };
   }, [builtin, settings, entry.revision, refreshClipboard]);
-  const refreshMac = useCallback(async () => {
-    const id = ++macRequest.current;
-    try {
-      const [next, nextUsage] = await Promise.all([
-        api<MacLauncherApp[]>('launcher.macApps'),
-        api<LauncherUsageStats>('launcher.usage'),
-      ]);
-      if (id !== macRequest.current) return;
-      setMacApps(next);
-      setUsage(nextUsage || {});
-      setMacError('');
-    } catch (error) {
-      if (id === macRequest.current) setMacError(errorMessage(error));
-    } finally {
-      if (id === macRequest.current) setMacLoading(false);
-    }
-  }, []);
-  const refresh = useCallback(async () => {
-    const id = ++request.current;
-    try {
-      const next = await api<LauncherApp[]>('launcher.apps');
-      if (id !== request.current) return;
-      setApps(next);
-      setError('');
-    } catch (error) {
-      if (id === request.current) setError(errorMessage(error));
-    } finally {
-      if (id === request.current) setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    void refresh();
-    void refreshMac();
-    return () => {
-      request.current++;
-      macRequest.current++;
-    };
-  }, [refresh, refreshMac]);
   useEffect(
     () => () => {
       navigation.current++;
@@ -403,12 +438,13 @@ function LauncherEntry({
             <span className="sr-only" role="status">
               {copied === selection?.id ? 'Результат скопирован' : ''}
             </span>
-            {(error || macError) && (
+            {(error || catalog.error || macError) && (
               <Alert color="red" mx="sm" mt="sm">
-                {error || macError}
+                {error || catalog.error || macError}
                 <Button
                   variant="subtle"
                   onClick={() => {
+                    setError('');
                     void refresh();
                     void refreshMac();
                   }}

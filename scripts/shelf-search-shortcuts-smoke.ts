@@ -18,7 +18,13 @@ async function main() {
     app.setPath('userData', ${JSON.stringify(profile)});
     ${fixtureSource}
     const fixture = createShelfSearchFixture();
-    ipcMain.handle('platform:call', (_, method, params) => fixture.call(method, params));
+    ipcMain.handle('platform:call', async (event, method, params) => {
+      if (method === 'shelf.didShow') {
+        const count = await event.sender.executeJavaScript('document.querySelector(".launcher-search") ? document.querySelectorAll(".launcher-result[data-kind=mac]").length : -1');
+        if (count >= 0) fixture.catalogAtShow.push(count);
+      }
+      return fixture.call(method, params);
+    });
     global.fixture = fixture;
     app.whenReady().then(() => {
       // This renderer fixture must not receive native mouse input from the desktop.
@@ -61,6 +67,78 @@ async function main() {
       path: '/tmp/everything-shelf-search-shortcuts-apps.png',
       scale: 'css',
     });
+
+    // An Apps presentation must already contain the cached catalog when it is
+    // acknowledged, even if the refresh request is held or ultimately fails.
+    const catalogRequests = await app.evaluate(() => (globalThis as any).fixture.macAppRequests);
+    await app.evaluate(() => (globalThis as any).fixture.holdMacApps());
+    await app.evaluate(() => (globalThis as any).fixture.navigate('clipboard'));
+    await expect(page.getByRole('combobox', { name: 'Найти в истории' })).toBeFocused();
+    await page.getByRole('button', { name: 'Назад к приложениям', exact: true }).click();
+    await expect(input).toBeFocused();
+    await expect
+      .poll(() => app.evaluate(() => (globalThis as any).fixture.catalogAtShow.at(-1)))
+      .toBe(10);
+    await expect(rows).toHaveCount(11);
+    await expect
+      .poll(() => app.evaluate(() => (globalThis as any).fixture.macAppRequests))
+      .toBeGreaterThan(catalogRequests);
+    await input.fill('Calculator');
+    await expect(rows).toHaveCount(1);
+    await input.fill('');
+    // Reopening in the same renderer must retain the same catalog too.
+    await app.evaluate(() => (globalThis as any).fixture.hide());
+    await app.evaluate(() => (globalThis as any).fixture.navigate('apps'));
+    await expect(input).toBeFocused();
+    await expect
+      .poll(() => app.evaluate(() => (globalThis as any).fixture.catalogAtShow.at(-1)))
+      .toBe(10);
+    await expect(rows).toHaveCount(11);
+    await app.evaluate(() => {
+      (globalThis as any).fixture.setExtraMacApp('New app');
+      (globalThis as any).fixture.releaseMacApps();
+    });
+    await expect(rows).toHaveCount(12);
+    await expect(rows.filter({ hasText: 'New app' })).toHaveCount(1);
+    // Launching a cached result during refresh must retain the newly learned
+    // ranking when the earlier usage response finally completes.
+    const beforeUsageRefresh = await app.evaluate(() => (globalThis as any).fixture.macAppRequests);
+    await app.evaluate(() => {
+      (globalThis as any).fixture.holdMacApps();
+      (globalThis as any).fixture.navigate('apps');
+    });
+    await expect(input).toBeFocused();
+    await expect
+      .poll(() => app.evaluate(() => (globalThis as any).fixture.macAppRequests))
+      .toBeGreaterThan(beforeUsageRefresh);
+    await rows.filter({ hasText: 'TextEdit' }).click();
+    await lastAction('launcher.openMac', { id: 'mac:TextEdit' });
+    await expect(rows.nth(1)).toContainText('TextEdit');
+    await app.evaluate(() => {
+      (globalThis as any).fixture.setExtraMacApp('Updated catalog');
+      (globalThis as any).fixture.releaseMacApps();
+    });
+    await expect(rows.filter({ hasText: 'Updated catalog' })).toHaveCount(1);
+    await expect(rows.nth(1)).toContainText('TextEdit');
+    await app.evaluate(() => {
+      (globalThis as any).fixture.holdMacApps();
+      (globalThis as any).fixture.navigate('apps');
+    });
+    await expect(input).toBeFocused();
+    await expect
+      .poll(() => app.evaluate(() => (globalThis as any).fixture.catalogAtShow.at(-1)))
+      .toBe(11);
+    await app.evaluate(() => (globalThis as any).fixture.releaseMacApps('Catalog unavailable'));
+    await expect(page.getByRole('alert')).toContainText('Catalog unavailable');
+    await expect(rows).toHaveCount(12);
+    await app.evaluate(() => {
+      (globalThis as any).fixture.setExtraMacApp('');
+      (globalThis as any).fixture.resetUsage();
+      (globalThis as any).fixture.releaseMacApps();
+    });
+    await page.getByRole('button', { name: 'Обновить список', exact: true }).click();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(rows).toHaveCount(11);
 
     await input.press('Meta+9');
     await lastAction('launcher.openMac', { id: 'mac:Safari' });
