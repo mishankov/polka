@@ -25,16 +25,15 @@ concurrency:
 jobs:
   prepare:
     name: Prepare release
-    runs-on: xcode-27
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       tag: ${{ steps.release.outputs.tag }}
+      commit: ${{ steps.release.outputs.commit }}
       safe_tag: ${{ steps.release.outputs.safe_tag }}
       publish_after_upload: ${{ steps.release.outputs.publish_after_upload }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Resolve release
         id: release
@@ -80,13 +79,66 @@ jobs:
             fi
           fi
 
+          # Every parallel macOS job must verify/package the same immutable commit.
+          git fetch --depth=1 origin "refs/tags/$tag"
+          commit=$(git rev-parse 'FETCH_HEAD^{commit}')
           safe_tag=$(printf '%s' "$tag" | sed 's/[^A-Za-z0-9._-]/-/g')
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "safe_tag=$safe_tag" >> "$GITHUB_OUTPUT"
           echo "publish_after_upload=$publish_after_upload" >> "$GITHUB_OUTPUT"
 
+  verify:
+    name: Verify macOS release source (${{ matrix.suite }})
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [desktop, workflows]
+    needs: prepare
+    runs-on: xcode-27
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+      - name: Validate runner
+        run: |
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
+          xcodebuild -version
+      - run: npm ci
+      - name: Prepare Electron binary
+        run: node -e 'console.log(require("electron"))'
+      - name: Build app and native helpers once
+        # Use longstanding commands so retries of older tags remain supported.
+        run: npm run build && npm run native:build
+      - name: Verify types, unit tests and desktop workflows
+        if: matrix.suite == 'desktop'
+        timeout-minutes: 10
+        run: npm run typecheck && npm test && npm run test:desktop
+      - name: Verify clipboard workflows and media indicator
+        if: matrix.suite == 'workflows'
+        timeout-minutes: 10
+        run: npm run test:workflows && npm run test:media
+      - name: Upload desktop screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos-arm64-${{ matrix.suite }}-smoke-screenshots
+          path: |
+            /tmp/everything-*.png
+            artifacts/emoji/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
   build:
-    name: Verify and build macOS arm64 release
+    name: Build and verify macOS arm64 release package
     needs: prepare
     environment: release
     env:
@@ -100,7 +152,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ needs.prepare.outputs.commit }}
       - uses: actions/setup-node@v7
         with:
           node-version: '24.18.0'
@@ -115,14 +167,13 @@ jobs:
       - run: npm ci
       - name: Prepare Electron binary
         run: node -e 'console.log(require("electron"))'
-      - name: Verify release source
-        timeout-minutes: 10
-        run: npm run verify
+      - name: Build app and native helpers once
+        run: npm run build && npm run native:build
       - name: Build and authenticate update archive, verify packaged app
         env:
           CSC_FOR_PULL_REQUEST: 'true'
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-        run: npm run release
+        run: npm run release -- --prebuilt
       - uses: actions/upload-artifact@v7
         with:
           name: release-asset-macos-arm64
@@ -132,6 +183,7 @@ jobs:
             release/appcast.xml
           if-no-files-found: error
           retention-days: 7
+          compression-level: 0
       - name: Upload desktop screenshots
         if: always()
         uses: actions/upload-artifact@v7
@@ -143,8 +195,8 @@ jobs:
 
   publish:
     name: Upload release assets
-    needs: [prepare, build]
-    runs-on: xcode-27
+    needs: [prepare, verify, build]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/download-artifact@v8
@@ -154,7 +206,7 @@ jobs:
 
       - name: Create checksums
         working-directory: release-assets
-        run: shasum -a 256 *.dmg *.zip > checksums.txt
+        run: sha256sum *.dmg *.zip > checksums.txt
 
       - name: Upload assets
         env:
