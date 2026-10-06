@@ -66,7 +66,9 @@ jobs:
           name: macos-arm64-${{ matrix.suite }}-smoke-screenshots
           path: |
             /tmp/everything-*.png
-            artifacts/emoji/**/*.png
+            artifacts/**/*.png
+            artifacts/desktop/**/*.zip
+            artifacts/desktop/**/failure.json
           if-no-files-found: ignore
           retention-days: 7
 
@@ -121,7 +123,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: macos-arm64-smoke-screenshots
-          path: /tmp/everything-*.png
+          path: |
+            /tmp/everything-*.png
+            artifacts/**/*.png
+            artifacts/desktop/**/*.zip
+            artifacts/desktop/**/failure.json
           if-no-files-found: ignore
           retention-days: 7
 
@@ -159,6 +165,15 @@ jobs:
       - name: Test update and relaunch (${{ matrix.mode }})
         timeout-minutes: 8
         run: npm run ${{ matrix.script }} -- --prebuilt
+
+      - name: Upload updater diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-arm64-update-${{ matrix.mode }}-diagnostics
+          path: artifacts/desktop/
+          if-no-files-found: ignore
+          retention-days: 7
 
   macos-arm64:
     # Retain the existing check name for branch protection and require every job.

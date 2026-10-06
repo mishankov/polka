@@ -1,12 +1,12 @@
-import { _electron as electron, expect } from '@playwright/test';
+import { runDesktopTest, type DesktopTest } from './desktop-test';
+import { expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-async function main() {
-  const profile = await mkdtemp(join(tmpdir(), 'polka-search-shortcuts-'));
+async function main(test: DesktopTest) {
+  const profile = test.profile;
   const entry = join(profile, 'main.cjs');
   const fixtureSource = stripTypeScriptTypes(
     await readFile(resolve('scripts/shelf-search-fixture.ts'), 'utf8'),
@@ -21,14 +21,15 @@ async function main() {
     ipcMain.handle('platform:call', (_, method, params) => fixture.call(method, params));
     global.fixture = fixture;
     app.whenReady().then(() => {
-      const window = new BrowserWindow({ width: 720, height: 740, webPreferences: { preload: ${JSON.stringify(resolve('out/preload/index.js'))} } });
+      // Renderer interactions do not require OS activation or compete for native focus.
+      const window = new BrowserWindow({ show: false, width: 720, height: 740, webPreferences: { preload: ${JSON.stringify(resolve('out/preload/index.js'))} } });
       fixture.onEvent(event => window.webContents.send('platform:event', event));
       window.loadFile(${JSON.stringify(resolve('out/renderer/index.html'))});
     });
   `,
   );
-  const app = await electron.launch({ args: [entry] });
-  try {
+  const app = await test.launch({ args: [entry] });
+  {
     const page = await app.firstWindow();
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -448,13 +449,10 @@ async function main() {
     console.log(
       'Shelf, clipboard history and emoji actions passed: shortcuts, selection/copy gestures, permission states, request retry, pending actions and navigation.',
     );
-  } finally {
-    await app.close();
-    await rm(profile, { recursive: true, force: true });
   }
 }
 
-void main().catch((error) => {
+void runDesktopTest('shelf-search-shortcuts', main).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

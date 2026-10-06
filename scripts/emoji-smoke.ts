@@ -1,27 +1,26 @@
+import { runDesktopTest, type DesktopTest } from './desktop-test';
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { SettingsStore } from '../src/main/settings-store';
 
-async function main() {
-  const profile = await mkdtemp(join(tmpdir(), 'polka-emoji-'));
+async function main(test: DesktopTest) {
+  const profile = test.profile;
   const settings = new SettingsStore(profile);
   await settings.handle('settings.set', { key: 'mediaIndicatorEnabled', value: false });
   settings.close();
   const artifacts = resolve('artifacts/emoji');
   await mkdir(artifacts, { recursive: true });
-  const app = await electron.launch({
+  const app = await test.launch({
     ...(process.env.EVERYTHING_EXECUTABLE
       ? { executablePath: resolve(process.env.EVERYTHING_EXECUTABLE), args: [], cwd: profile }
       : { args: [resolve('.')] }),
     env: { ...process.env, EVERYTHING_PROFILE: profile },
   });
   let target: Awaited<ReturnType<typeof electron.launch>> | undefined;
-  let backedUp = false;
   const errors: string[] = [];
-  try {
+  {
     const page = await app.firstWindow();
     page.on('pageerror', (error) => errors.push(error.message));
     await expect(page.getByRole('combobox', { name: 'Поиск по полке', exact: true })).toBeFocused();
@@ -35,24 +34,7 @@ async function main() {
         ];
       });
     }
-    await app.evaluate(async ({ clipboard, ClipboardItem }) => {
-      // An empty native pasteboard can expose an item with no readable MIME types.
-      (globalThis as any).__emojiClipboardBackup = await Promise.all(
-        (await clipboard.read())
-          .filter((item) => item.types.length > 0)
-          .map(
-            async (item) =>
-              new ClipboardItem(
-                Object.fromEntries(
-                  await Promise.all(
-                    item.types.map(async (type) => [type, await item.getType(type)]),
-                  ),
-                ),
-              ),
-          ),
-      );
-    });
-    backedUp = true;
+    await test.backupClipboard(app);
     await page.evaluate(() =>
       window.platform.call('clipboardHistory.preferences', {
         hoverEnabled: false,
@@ -264,9 +246,9 @@ async function main() {
     const fixture = join(profile, 'target.cjs');
     await writeFile(
       fixture,
-      `const {app,BrowserWindow,Menu}=require('electron');app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setApplicationMenu(Menu.buildFromTemplate([{role:'editMenu'}]));const w=new BrowserWindow({width:500,height:250,title:'Emoji paste target'});w.loadURL('data:text/html,<textarea id="first" autofocus></textarea><textarea id="second"></textarea>');});app.on('window-all-closed',()=>app.quit());`,
+      `const {app,BrowserWindow,Menu}=require('electron');app.setPath('userData', ${JSON.stringify(join(profile, 'target-profile'))});app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setApplicationMenu(Menu.buildFromTemplate([{role:'editMenu'}]));const w=new BrowserWindow({show:false,width:500,height:250,title:'Emoji paste target'});w.loadURL('data:text/html,<textarea id="first" autofocus></textarea><textarea id="second"></textarea>').then(()=>{w.show();w.focus();});});app.on('window-all-closed',()=>app.quit());`,
     );
-    target = await electron.launch({ args: [fixture] });
+    target = await test.launch({ args: [fixture] });
     const targetPage = await target.firstWindow();
     const accessibility = await target.context().newCDPSession(targetPage);
     await accessibility.send('Accessibility.enable');
@@ -331,21 +313,9 @@ async function main() {
     console.log(
       `Emoji smoke passed: bilingual search, categories, tones, keyboard navigation, full sequences, copy-only, calculator regression. Screenshots: ${artifacts}`,
     );
-  } finally {
-    if (target) await target.close();
-    if (backedUp)
-      await app
-        .evaluate(async ({ clipboard }) => {
-          const items = (globalThis as any).__emojiClipboardBackup;
-          if (items.length) await clipboard.write(items);
-          else clipboard.clear();
-        })
-        .catch(() => {});
-    await app.close();
-    await rm(profile, { recursive: true, force: true });
   }
 }
-void main().catch((error) => {
+void runDesktopTest('emoji', main).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

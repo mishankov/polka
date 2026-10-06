@@ -187,7 +187,9 @@ jobs:
           name: release-macos-arm64-${{ matrix.suite }}-smoke-screenshots
           path: |
             /tmp/everything-*.png
-            artifacts/emoji/**/*.png
+            artifacts/**/*.png
+            artifacts/desktop/**/*.zip
+            artifacts/desktop/**/failure.json
           if-no-files-found: ignore
           retention-days: 7
 
@@ -245,7 +247,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-macos-arm64-smoke-screenshots
-          path: /tmp/everything-*.png
+          path: |
+            /tmp/everything-*.png
+            artifacts/**/*.png
+            artifacts/desktop/**/*.zip
+            artifacts/desktop/**/failure.json
           if-no-files-found: ignore
           retention-days: 7
 

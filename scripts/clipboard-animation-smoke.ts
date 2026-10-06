@@ -1,21 +1,21 @@
-import { _electron as electron, expect } from '@playwright/test';
+import { runDesktopTest, type DesktopTest } from './desktop-test';
+import { expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
-async function main() {
-  const profile = await mkdtemp(join(tmpdir(), 'everything-shelf-animation-'));
-  const app = await electron.launch({
+async function main(test: DesktopTest) {
+  const profile = test.profile;
+  const app = await test.launch({
     ...(process.env.EVERYTHING_EXECUTABLE
       ? { executablePath: resolve(process.env.EVERYTHING_EXECUTABLE), args: [], cwd: profile }
       : { args: [resolve('.')] }),
     env: { ...process.env, EVERYTHING_PROFILE: profile },
   });
-  try {
+  {
     const shell = await app.firstWindow();
     await shell.locator('.launcher').waitFor();
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await test.clipboardReady(shell);
     // Reopen through hover without changing the Dock activation policy.
     await shell.evaluate(() => window.platform.call('launcher.hide'));
     const dockBefore = await app.evaluate(({ app, BrowserWindow, screen }) => {
@@ -190,12 +190,9 @@ async function main() {
     console.log(
       'Notch shelf passed: first-hover activation/focus, keyboard focus, square top corners, screen-top geometry, permanent black launcher and clipboard in both system themes, safe controls, reveal/hide, quick reopening and reduced motion.',
     );
-  } finally {
-    await app.close();
-    await rm(profile, { recursive: true, force: true });
   }
 }
-main().catch((error) => {
+runDesktopTest('clipboard-animation', main).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
