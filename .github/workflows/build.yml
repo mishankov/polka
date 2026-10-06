@@ -3,7 +3,19 @@ name: build
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'docs/**/*.md'
+      - '.agents/**'
+      - 'release-notes/**'
   pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'docs/**/*.md'
+      - '.agents/**'
+      - 'release-notes/**'
   workflow_dispatch:
 
 permissions:
