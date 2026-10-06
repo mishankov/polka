@@ -108,6 +108,8 @@ async function main() {
           (globalThis as any).__shelfClock.now += 59_999;
           app.emit('activate');
         });
+        // The hidden renderer retains input focus while native reopening is pending.
+        await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
         await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
         // A minute spent in the open app must not reset its destination.
         await app.evaluate(() => ((globalThis as any).__shelfClock.now += 60_000));
@@ -144,6 +146,7 @@ async function main() {
       await page.keyboard.press('Escape');
       await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
       await app.evaluate(({ app }) => app.emit('activate'));
+      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
       await expect(
         page.getByRole('combobox', { name: 'Поиск по полке', exact: true }),
       ).toBeFocused();
