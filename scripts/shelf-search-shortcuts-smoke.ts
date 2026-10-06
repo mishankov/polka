@@ -21,7 +21,8 @@ async function main() {
     ipcMain.handle('platform:call', (_, method, params) => fixture.call(method, params));
     global.fixture = fixture;
     app.whenReady().then(() => {
-      const window = new BrowserWindow({ width: 720, height: 740, webPreferences: { preload: ${JSON.stringify(resolve('out/preload/index.js'))} } });
+      // This renderer fixture must not receive native mouse input from the desktop.
+      const window = new BrowserWindow({ show: false, width: 720, height: 740, webPreferences: { preload: ${JSON.stringify(resolve('out/preload/index.js'))} } });
       fixture.onEvent(event => window.webContents.send('platform:event', event));
       window.loadFile(${JSON.stringify(resolve('out/renderer/index.html'))});
     });

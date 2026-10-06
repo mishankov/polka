@@ -97,6 +97,48 @@ async function main() {
       await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
       await page.evaluate(() => window.platform.call('launcher.show'));
       await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+      await app.evaluate(() => {
+        (globalThis as any).__shelfClock = { read: Date.now, now: Date.now() };
+        Date.now = () => (globalThis as any).__shelfClock.now;
+      });
+      try {
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+        await app.evaluate(({ app }) => {
+          (globalThis as any).__shelfClock.now += 59_999;
+          app.emit('activate');
+        });
+        // The hidden renderer retains input focus while native reopening is pending.
+        await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
+        await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+        // A minute spent in the open app must not reset its destination.
+        await app.evaluate(() => ((globalThis as any).__shelfClock.now += 60_000));
+        await page.evaluate(() => window.platform.call('launcher.show'));
+        await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+        await app.evaluate(() => ((globalThis as any).__shelfClock.now += 59_999));
+        // Repeated hide requests must not restart the closed shelf's timeout.
+        await page.evaluate(() => window.platform.call('launcher.hide'));
+        await app.evaluate(() => {
+          (globalThis as any).__shelfClock.now += 1;
+          (globalThis as any).__shelfToggle();
+        });
+        await expect(
+          page.getByRole('combobox', { name: 'Поиск по полке', exact: true }),
+        ).toBeFocused();
+        // An explicit built-in app opening still wins over the idle timeout.
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+        await app.evaluate(() => ((globalThis as any).__shelfClock.now += 60_000));
+        await page.evaluate((method) => window.platform.call(method), method);
+        await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+      } finally {
+        await app.evaluate(() => {
+          Date.now = (globalThis as any).__shelfClock.read;
+          delete (globalThis as any).__shelfClock;
+        });
+      }
       await page.getByRole('button', { name: 'Назад к приложениям', exact: true }).click();
       await expect(
         page.getByRole('combobox', { name: 'Поиск по полке', exact: true }),
@@ -104,6 +146,7 @@ async function main() {
       await page.keyboard.press('Escape');
       await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
       await app.evaluate(({ app }) => app.emit('activate'));
+      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
       await expect(
         page.getByRole('combobox', { name: 'Поиск по полке', exact: true }),
       ).toBeFocused();
