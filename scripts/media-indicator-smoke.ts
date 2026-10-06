@@ -5,6 +5,21 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 
+async function closeFixture(app: Awaited<ReturnType<typeof electron.launch>>) {
+  // Playwright can lose the quit acknowledgment when Electron disconnects its
+  // debugger. Tracking writes are awaited before restart; bound fixture cleanup.
+  const fixtureProcess = app.process();
+  const timer = setTimeout(() => {
+    console.warn('Media fixture quit timed out; terminating the disposable test process.');
+    fixtureProcess.kill('SIGKILL');
+  }, 10000);
+  try {
+    await app.close();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function main() {
   const profile = await mkdtemp(join(tmpdir(), 'everything-media-'));
   const entry = join(profile, 'fixture.cjs');
@@ -133,10 +148,7 @@ async function main() {
     await app.evaluate(async () => {
       const t = (globalThis as any).mediaTest;
       t.target.show();
-      await new Promise<void>((resolve) => {
-        t.target.once('enter-full-screen', resolve);
-        t.target.setFullScreen(true);
-      });
+      await t.setFullScreen(true);
     });
     await expect
       .poll(() => app.evaluate(() => (globalThis as any).mediaTest.target.isFullScreen()))
@@ -205,20 +217,16 @@ async function main() {
       unprotected: unprotectedCapture?.redPixels,
       bounds: protectedCapture?.bounds,
     });
-    await app.evaluate(
-      () =>
-        new Promise<void>((resolve) => {
-          const target = (globalThis as any).mediaTest.target;
-          target.once('leave-full-screen', resolve);
-          target.setFullScreen(false);
-        }),
-    );
+    await app.evaluate(() => (globalThis as any).mediaTest.setFullScreen(false));
+    // A repeated request must complete even though no native event is emitted.
+    await app.evaluate(() => (globalThis as any).mediaTest.setFullScreen(false));
     await expect
       .poll(() => app.evaluate(() => (globalThis as any).mediaTest.target.isFullScreen()))
       .toBe(false);
     await app.evaluate(() => (globalThis as any).mediaTest.indicator.setEnabled(false));
     assert.equal(await visible(), false);
-    await app.close();
+    console.log('Media fullscreen exit passed; restarting to verify saved preferences.');
+    await closeFixture(app);
     app = await launch();
     await expect
       .poll(() => app.evaluate(() => (globalThis as any).mediaTest?.indicator.state().enabled))
@@ -236,7 +244,7 @@ async function main() {
       ]);
       await indicator.setTracking('microphone', true);
     });
-    await app.close();
+    await closeFixture(app);
     app = await launch();
     await expect
       .poll(() =>
@@ -262,7 +270,7 @@ async function main() {
       `Media smoke passed: transitions, unknown/recovery, focus, protection flags, shelf independence, no-notch fallback, sleep/lock, fullscreen window visibility and persisted preference. OS capture: ${protectedCapture ? 'cropped comparison saved for inspection' : 'not tested; screen permission unavailable'}.`,
     );
   } finally {
-    await app.close();
+    await closeFixture(app);
     await rm(profile, { recursive: true, force: true });
   }
 }
