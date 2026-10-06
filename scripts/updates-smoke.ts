@@ -280,9 +280,13 @@ require('./index.js');
       'aria-selected',
       'true',
     );
-    await expect(notesPage.locator('[lang="ru"]')).toContainText(newPkg.releaseNotes.ru);
+    await expect(notesPage.locator('.update-release-notes-body[lang="ru"]')).toContainText(
+      newPkg.releaseNotes.ru,
+    );
     await notesPage.getByRole('button', { name: 'English', exact: true }).click();
-    await expect(notesPage.locator('[lang="en"]')).toContainText(newPkg.releaseNotes.en);
+    await expect(notesPage.locator('.update-release-notes-body[lang="en"]')).toContainText(
+      newPkg.releaseNotes.en,
+    );
     await Promise.all([notesPage.waitForEvent('close'), notesPage.evaluate(() => window.close())]);
     await page.evaluate(() => window.platform.call('launcher.show', { destination: 'apps' }));
     await notice.getByRole('button', { name: 'Напомнить завтра', exact: true }).click();
