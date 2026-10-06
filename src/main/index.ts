@@ -320,7 +320,7 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     app.setLoginItemSettings({ openAtLogin: !!params.enabled, args: ['--hidden'] });
     return app.getLoginItemSettings().openAtLogin;
   }
-  if (method.startsWith('updates.')) return updates.handle(method);
+  if (method.startsWith('updates.')) return updates.handle(method, params);
   return call(method, params);
 }
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -479,6 +479,7 @@ app
       release?.feedUrl || '',
       release?.publicKey || '',
     );
+    const settings = await call('settings.get');
     updates = new UpdateService(
       updateAdapter,
       app.getVersion(),
@@ -496,6 +497,10 @@ app
         for (const { window } of windows.values())
           if (!window.isDestroyed()) window.setEnabled(true);
       },
+      {
+        preferences: settings?.updatePreferences,
+        savePreferences: (value) => call('settings.set', { key: 'updatePreferences', value }),
+      },
     );
     updateAdapter.on('before-quit-for-update', () => {
       // Sparkle's native installer is staged; Electron owns orderly termination.
@@ -504,7 +509,6 @@ app
         app.quit();
       }
     });
-    const settings = await call('settings.get');
     launcherShortcut.initialize(
       typeof settings?.launcherShortcut === 'string'
         ? settings.launcherShortcut

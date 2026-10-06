@@ -32,8 +32,12 @@ jobs:
       commit: ${{ steps.release.outputs.commit }}
       safe_tag: ${{ steps.release.outputs.safe_tag }}
       publish_after_upload: ${{ steps.release.outputs.publish_after_upload }}
+      has_notes: ${{ steps.release.outputs.has_notes }}
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
 
       - name: Resolve release
         id: release
@@ -47,46 +51,96 @@ jobs:
         run: |
           if [[ "$EVENT_NAME" == "release" ]]; then
             tag="$RELEASE_TAG"
-            publish_after_upload=false
           else
             tag="$REQUESTED_TAG"
-            git check-ref-format "refs/tags/$tag"
+          fi
+          git check-ref-format "refs/tags/$tag"
+          version=$(node scripts/release-notes.mjs --version "$tag")
 
-            if release_is_draft=$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null); then
-              publish_after_upload="$release_is_draft"
-              echo "Reusing the existing release for $tag."
-            else
-              create_args=("$tag" --target "$DEFAULT_BRANCH" --generate-notes --draft)
-              if [[ "$PRERELEASE" == "true" ]]; then
-                create_args+=(--prerelease)
-              fi
-              gh release create "${create_args[@]}"
-              publish_after_upload=true
-            fi
+          release_exists=false
+          release_is_draft=false
+          target="$DEFAULT_BRANCH"
+          if release_metadata=$(gh release view "$tag" --json isDraft,targetCommitish --repo "$GITHUB_REPOSITORY" 2>/dev/null); then
+            release_exists=true
+            release_is_draft=$(jq -r '.isDraft' <<< "$release_metadata")
+            target=$(jq -r '.targetCommitish' <<< "$release_metadata")
+          elif [[ "$EVENT_NAME" == "release" ]]; then
+            echo "Published release $tag could not be read."
+            exit 1
+          fi
 
-            # Draft releases can exist before their Git tag is created.
-            # Ensure checkout can resolve the tag before starting downstream jobs.
-            remote_tag=$(git ls-remote --refs origin "refs/tags/$tag")
-            if [[ -z "$remote_tag" ]]; then
-              if [[ "$publish_after_upload" != "true" ]]; then
-                echo "Published release $tag is missing its Git tag. Refusing to recreate it."
-                exit 1
-              fi
-              target=$(gh release view "$tag" --json targetCommitish --jq '.targetCommitish')
-              target_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$target" --jq '.sha')
-              gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-                -f "ref=refs/tags/$tag" -f "sha=$target_sha"
+          # Resolve the immutable source before creating a draft or tag. --ref
+          # chooses workflow code; a new release still comes from DEFAULT_BRANCH.
+          remote_tag=$(git ls-remote --refs origin "refs/tags/$tag")
+          if [[ -n "$remote_tag" ]]; then
+            git fetch --depth=1 origin "refs/tags/$tag"
+          else
+            if [[ "$release_exists" == "true" && "$release_is_draft" != "true" ]]; then
+              echo "Published release $tag is missing its Git tag. Refusing to recreate it."
+              exit 1
             fi
+            target_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$target" --jq '.sha')
+            git fetch --depth=1 origin "$target_sha"
+          fi
+          commit=$(git rev-parse 'FETCH_HEAD^{commit}')
+
+          # Validate notes from that commit, never from the workflow checkout.
+          # The preflight is dependency-free and needs no macOS or signing keys.
+          has_notes=false
+          if git cat-file -e "$commit:scripts/release-notes.mjs" 2>/dev/null; then
+            git show "$commit:release-notes/$version.json" > "$RUNNER_TEMP/release-notes.json"
+            node scripts/release-notes.mjs "$tag" "$RUNNER_TEMP/release-notes.md" "$RUNNER_TEMP/release-notes.json"
+            has_notes=true
+          elif [[ "$release_exists" != "true" ]]; then
+            echo "New releases require bilingual release-notes/$version.json and the release-notes preflight."
+            exit 1
+          else
+            echo "Retrying a legacy release without bilingual note support."
+          fi
+
+          if [[ "$release_exists" != "true" ]]; then
+            create_args=("$tag" --target "$commit" --draft --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/release-notes.md")
+            if [[ "$PRERELEASE" == "true" ]]; then
+              create_args+=(--prerelease)
+            fi
+            gh release create "${create_args[@]}"
+            release_is_draft=true
+          else
+            echo "Reusing the existing release for $tag."
+          fi
+
+          # Drafts can exist before their Git tag. Pin it to the preflighted SHA.
+          current_tag=$(git ls-remote --refs origin "refs/tags/$tag")
+          if [[ -z "$current_tag" ]]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$tag" -f "sha=$commit"
           fi
 
           # Every parallel macOS job must verify/package the same immutable commit.
           git fetch --depth=1 origin "refs/tags/$tag"
-          commit=$(git rev-parse 'FETCH_HEAD^{commit}')
+          if [[ "$(git rev-parse 'FETCH_HEAD^{commit}')" != "$commit" ]]; then
+            echo "Release tag changed during preparation. Refusing to build a different source."
+            exit 1
+          fi
+          publish_after_upload=false
+          if [[ "$EVENT_NAME" != "release" && "$release_is_draft" == "true" ]]; then
+            publish_after_upload=true
+          fi
           safe_tag=$(printf '%s' "$tag" | sed 's/[^A-Za-z0-9._-]/-/g')
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "safe_tag=$safe_tag" >> "$GITHUB_OUTPUT"
           echo "publish_after_upload=$publish_after_upload" >> "$GITHUB_OUTPUT"
+          echo "has_notes=$has_notes" >> "$GITHUB_OUTPUT"
+
+      - name: Preserve validated bilingual release description
+        if: steps.release.outputs.has_notes == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-notes-${{ steps.release.outputs.safe_tag }}
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
+          retention-days: 7
 
   verify:
     name: Verify macOS release source (${{ matrix.suite }})
@@ -206,6 +260,13 @@ jobs:
           name: release-asset-macos-arm64
           path: release-assets
 
+      - name: Download validated bilingual release description
+        if: needs.prepare.outputs.has_notes == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: release-notes-${{ needs.prepare.outputs.safe_tag }}
+          path: release-notes
+
       - name: Create checksums
         working-directory: release-assets
         run: sha256sum *.dmg *.zip > checksums.txt
@@ -223,6 +284,13 @@ jobs:
           gh release upload "$TAG" release-assets/*.dmg release-assets/*.zip release-assets/checksums.txt "${upload_args[@]}" --repo "$GITHUB_REPOSITORY"
           # Publish the feed only after every referenced archive is available.
           gh release upload "$TAG" release-assets/appcast.xml "${upload_args[@]}" --repo "$GITHUB_REPOSITORY"
+
+      - name: Synchronize GitHub Release description
+        if: needs.prepare.outputs.has_notes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release edit "$TAG" --notes-file release-notes/release-notes.md --repo "$GITHUB_REPOSITORY"
 
       - name: Publish manually created release
         if: github.event_name == 'workflow_dispatch' && needs.prepare.outputs.publish_after_upload == 'true'

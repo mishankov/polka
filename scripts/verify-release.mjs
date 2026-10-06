@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { releasePackage, releaseConfig } from './release-config.mjs';
-import { verifyReleaseMetadata } from './release-metadata.mjs';
+import { verifyReleaseMetadata, readReleaseNotes } from './release-metadata.mjs';
 import { verifySignedBundle } from './sign-macos.mjs';
 import { signingFingerprint } from './signing-certificate.mjs';
 const pkg = releasePackage(
@@ -9,6 +9,7 @@ const pkg = releasePackage(
   process.env,
 );
 const config = releaseConfig(pkg, process.env);
+pkg.releaseNotes = await readReleaseNotes(pkg.version);
 const bundle = `release/mac-arm64/${pkg.build.productName}.app`;
 const image = `release/${pkg.name}-${pkg.version}-arm64.dmg`;
 verifySignedBundle(bundle, pkg.build.appId, signingFingerprint(process.env));

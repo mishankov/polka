@@ -3,6 +3,7 @@ import { createPublicKey, verify } from 'node:crypto';
 import { join } from 'node:path';
 import { XMLBuilder, XMLParser, XMLValidator } from 'fast-xml-parser';
 import { releaseArtifactNames } from './release-config.mjs';
+export { readReleaseNotes } from './release-notes.mjs';
 
 export function appcastXml(pkg, repository, signature, size, date = new Date()) {
   const zip = releaseArtifactNames(pkg).find((name) => name.endsWith('.zip'));
@@ -22,6 +23,7 @@ export function appcastXml(pkg, repository, signature, size, date = new Date()) 
             'sparkle:version': pkg.version,
             'sparkle:shortVersionString': pkg.version,
             'sparkle:minimumSystemVersion': pkg.build.mac.minimumSystemVersion,
+            ...(pkg.releaseNotes ? { description: JSON.stringify(pkg.releaseNotes) } : {}),
             enclosure: {
               '@_url': `https://github.com/${repository}/releases/download/${encodeURIComponent(pkg.releaseTag || `v${pkg.version}`)}/${zip}`,
               '@_length': String(size),
@@ -43,6 +45,8 @@ export async function verifyReleaseMetadata(pkg, directory, repository, publicKe
   if (XMLValidator.validate(xml) !== true) throw Error('Invalid appcast XML.');
   const parsed = new XMLParser({ ignoreAttributes: false, parseTagValue: false }).parse(xml);
   const item = parsed?.rss?.channel?.item;
+  if (pkg.releaseNotes && item?.description !== JSON.stringify(pkg.releaseNotes))
+    throw Error('Appcast release notes do not match this release.');
   if (
     !item ||
     Array.isArray(item) ||
