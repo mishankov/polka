@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -97,27 +97,52 @@ test('serialized concurrent writes and clear never resurrect removed clips; hist
   }
 });
 
-test('failed persistence leaves the committed state intact and later writes can recover', async () => {
+test('failed persistence preserves committed history and closes writes until restart', async () => {
   const root = await mkdtemp(join(tmpdir(), 'clipboard-history-test-'));
-  let fail = true;
+  const path = join(root, 'history');
+  const original = Object.assign(new Error('locked'), { code: 'EACCES' });
+  let fail = false;
   try {
     const history = new ClipboardHistory(
-      join(root, 'history'),
+      path,
       {
         ...codec,
         encode: (value) => {
-          if (fail) throw Error('locked');
+          if (fail) throw original;
           return codec.encode(value);
         },
       },
       () => {},
     );
     await history.initialize();
-    await assert.rejects(history.add('text', 'Uncommitted', 'Uncommitted'), /locked/);
-    assert.equal(history.snapshot().clips.length, 0);
-    fail = false;
     await history.add('text', 'Committed', 'Committed');
-    assert.equal(history.snapshot().clips.length, 1);
+    const before = history.snapshot();
+    const bytes = await readFile(path);
+    fail = true;
+    const queued = await Promise.allSettled([
+      history.add('text', 'Uncommitted', 'Uncommitted'),
+      history.clear(),
+    ]);
+    assert(
+      queued.every((result) => result.status === 'rejected' && result.reason.cause === original),
+    );
+    assert.deepEqual(history.snapshot(), before);
+    assert.equal(history.storage.failureReason, original);
+    assert.equal(history.storage.state().diagnostic?.stage, 'encrypt');
+    assert.equal(history.storage.state().diagnostic?.code, 'EACCES');
+    fail = false;
+    await history.prune();
+    await assert.rejects(history.preferences({ paused: true }), { cause: original });
+    await assert.rejects(history.add('text', 'Still blocked', 'Still blocked'), {
+      cause: original,
+    });
+    await history.flush();
+    assert.deepEqual(await readFile(path), bytes);
+    const restarted = new ClipboardHistory(path, codec, () => {});
+    await restarted.initialize();
+    assert.deepEqual(restarted.snapshot(), before);
+    await restarted.add('text', 'After restart', 'After restart');
+    assert.equal(restarted.snapshot().clips.length, 2);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -201,6 +226,66 @@ test('existing history gains paste preference without losing clips or prior sett
     const again = new ClipboardHistory(path, codec, () => {});
     await again.initialize();
     assert.equal(again.getPreferences().pasteOnSelect, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+for (const stage of ['decrypt', 'parse'] as const) {
+  test(`${stage} failure retains its original cause and preserves unreadable bytes through rejected mutations`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'clipboard-unreadable-'));
+    const path = join(root, 'history');
+    const bytes = Buffer.from(stage === 'parse' ? '{private clipboard input' : 'encrypted bytes');
+    const original = Object.assign(new Error('key unavailable'), { code: 'ENOENT' });
+    try {
+      await writeFile(path, bytes);
+      const history = new ClipboardHistory(
+        path,
+        {
+          ...codec,
+          decode: (data) => {
+            if (stage === 'decrypt') throw original;
+            return data.toString();
+          },
+        },
+        () => {},
+      );
+      await assert.rejects(history.initialize());
+      const rootCause = history.storage.failureReason;
+      if (stage === 'decrypt') assert.equal(rootCause, original);
+      assert.equal(history.storage.state().diagnostic?.stage, stage);
+      assert.equal(history.preferencesAvailable, false);
+      assert(!JSON.stringify(history.storage.state()).includes('private clipboard input'));
+      await assert.rejects(history.clear(), { cause: rootCause });
+      await assert.rejects(history.persistIdentity(), { cause: rootCause });
+      await assert.rejects(history.preferences({ paused: false }), { cause: rootCause });
+      await assert.rejects(history.initialize(), { cause: rootCause });
+      await history.prune();
+      await history.flush();
+      assert.deepEqual(await readFile(path), bytes);
+      assert.equal(history.storage.failureReason, rootCause);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test('a filesystem write failure retains committed bytes and disables later writes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'clipboard-write-failure-'));
+  const path = join(root, 'history');
+  try {
+    const history = new ClipboardHistory(path, codec, () => {});
+    await history.initialize();
+    await history.add('text', 'Committed', 'Committed');
+    const before = history.snapshot();
+    const bytes = await readFile(path);
+    await mkdir(path + '.tmp');
+    await assert.rejects(history.add('text', 'Not committed', 'Not committed'));
+    assert.equal(history.storage.state().diagnostic?.stage, 'write');
+    const original = history.storage.failureReason;
+    await assert.rejects(history.clear(), { cause: original });
+    assert.deepEqual(history.snapshot(), before);
+    assert.deepEqual(await readFile(path), bytes);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ClipboardHistory, clipId } from '../src/main/clipboard-history';
@@ -251,3 +251,51 @@ test('TLS peers pair once, transfer both histories, reconnect, revoke trust and 
     await env.cleanup();
   }
 });
+
+for (const stage of ['decrypt', 'encrypt'] as const) {
+  test(`sync ${stage} failure retains its cause and file while local history remains writable`, async () => {
+    const env = await setup();
+    const history = await env.make('local');
+    const path = join(env.root, 'sync');
+    const bytes = Buffer.from(JSON.stringify({ enabled: false, key: '', cert: '', peers: [] }));
+    const original = Object.assign(new Error('sync key unavailable'), { code: 'ENOENT' });
+    const sync = new ClipboardSync({
+      path,
+      history,
+      changed: () => {},
+      discovery: false,
+      codec: {
+        encode: (value) => {
+          if (stage === 'encrypt') throw original;
+          return codec.encode(value);
+        },
+        decode: (value) => {
+          if (stage === 'decrypt') throw original;
+          return codec.decode(value);
+        },
+      },
+    });
+    try {
+      await writeFile(path, bytes);
+      if (stage === 'decrypt') await assert.rejects(sync.initialize(), { cause: original });
+      else {
+        await sync.initialize();
+        await assert.rejects(sync.setEnabled(true), { cause: original });
+      }
+      assert.equal(sync.storage.failureReason, original);
+      assert.equal(sync.state().storage.diagnostic?.stage, stage);
+      assert.equal(sync.state().status, 'failed');
+      assert.equal(sync.state().enabled, false);
+      await assert.rejects(sync.setEnabled(false), { cause: original });
+      await sync.syncNow();
+      await history.add('text', 'Local still works', 'Local still works');
+      assert.equal(history.storage.state().status, 'ready');
+      assert.equal(history.snapshot().clips.length, 1);
+      await sync.stop();
+      assert.deepEqual(await readFile(path), bytes);
+    } finally {
+      await sync.stop();
+      await env.cleanup();
+    }
+  });
+}

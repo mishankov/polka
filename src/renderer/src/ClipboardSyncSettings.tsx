@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, Button, Group, Stack, Switch, Text, Textarea } from './NativeControls';
 import type { ClipboardSyncState } from '../../shared/clipboard';
 import { api, errorMessage } from './api';
+import ClipboardStorageFailure from './ClipboardStorageFailure';
 
 export default function ClipboardSyncSettings({
   state,
@@ -14,6 +15,11 @@ export default function ClipboardSyncSettings({
   save(method: string, params: Record<string, unknown>): Promise<boolean>;
   saving: boolean;
 }) {
+  const available =
+    !!state &&
+    state.storage.status === 'ready' &&
+    state.status !== 'blocked' &&
+    state.status !== 'starting';
   const [code, setCode] = useState('');
   const [copyError, setCopyError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -25,7 +31,7 @@ export default function ClipboardSyncSettings({
       <Switch
         label="Синхронизировать историю по локальной сети"
         checked={state?.enabled ?? false}
-        disabled={!state || saving}
+        disabled={!available || saving}
         onChange={(event) => void save('syncEnabled', { enabled: event.currentTarget.checked })}
       />
       <Text size="xs" c="dimmed">
@@ -33,8 +39,17 @@ export default function ClipboardSyncSettings({
         синхронизируются в зашифрованном виде, когда приложения запущены в одной сети. Текущий буфер
         обмена не меняется.
       </Text>
+      {state?.status === 'blocked' && (
+        <Alert color="red">Синхронизация остановлена: хранилище истории недоступно.</Alert>
+      )}
+      {state?.status === 'starting' && (
+        <Text size="xs" c="dimmed">
+          Загрузка настроек синхронизации…
+        </Text>
+      )}
+      <ClipboardStorageFailure storage={state?.storage} store="sync" />
       {state?.error && <Alert color="red">{state.error}</Alert>}
-      {state?.enabled && (
+      {state?.enabled && available && (
         <>
           <Text size="xs" c="dimmed">
             Этот Mac: {state.deviceName}. При первом соединении и после перерыва объединяется вся

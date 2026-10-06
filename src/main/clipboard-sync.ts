@@ -12,6 +12,7 @@ import { isIP } from 'node:net';
 import { generate } from 'selfsigned';
 import { z } from 'zod';
 import { ClipboardHistory, MAX_CLIP_BYTES } from './clipboard-history';
+import { ClipboardStorage } from './clipboard-storage';
 import type { ClipboardSyncState } from '../shared/clipboard';
 
 const idSchema = z.string().uuid();
@@ -70,6 +71,7 @@ export class ClipboardSync {
   private queue: Promise<unknown> = Promise.resolve();
   private agents = new Set<https.Agent>();
   readonly deviceName: string;
+  readonly storage: ClipboardStorage;
   constructor(
     private options: {
       path: string;
@@ -82,6 +84,10 @@ export class ClipboardSync {
     },
   ) {
     this.deviceName = (options.name || hostname()).slice(0, 100);
+    this.storage = new ClipboardStorage(options.path, () => {
+      if (this.storage.state().status === 'failed') void this.close();
+      options.changed();
+    });
   }
   private fingerprint() {
     return new X509Certificate(this.credentials!.cert).fingerprint256;
@@ -103,6 +109,8 @@ export class ClipboardSync {
         : undefined;
     return {
       enabled: this.credentials?.enabled ?? false,
+      status: this.serviceStatus(),
+      storage: this.storage.state(),
       deviceName: this.deviceName,
       nearby: Array.from(this.nearby, ([id, value]) => ({ id, name: value.name })).filter(
         ({ id }) => !this.credentials?.peers.some((peer) => peer.id === id),
@@ -116,19 +124,29 @@ export class ClipboardSync {
       error: this.error || undefined,
     };
   }
+  private serviceStatus(): ClipboardSyncState['status'] {
+    if (this.options.history.storage.state().status === 'failed') return 'blocked';
+    if (!this.options.history.storage.ready) return 'starting';
+    if (this.storage.state().status === 'failed' || this.error) return 'failed';
+    if (!this.storage.ready) return 'starting';
+    if (!this.credentials?.enabled) return 'disabled';
+    return this.options.history.getPreferences().paused ? 'paused' : 'active';
+  }
   private async mutate(operation: () => void) {
     const result = this.queue.then(async () => {
+      this.requireReady();
       if (!this.credentials) throw Error('Синхронизация ещё не готова');
       const before = structuredClone(this.credentials);
       try {
         operation();
-        await fs.mkdir(dirname(this.options.path), { recursive: true, mode: 0o700 });
-        await fs.writeFile(
-          this.options.path + '.tmp',
+        const encoded = await this.storage.run('encrypt', () =>
           this.options.codec.encode(JSON.stringify(this.credentials)),
-          { mode: 0o600 },
         );
-        await fs.rename(this.options.path + '.tmp', this.options.path);
+        await this.storage.run('write', async () => {
+          await fs.mkdir(dirname(this.options.path), { recursive: true, mode: 0o700 });
+          await fs.writeFile(this.options.path + '.tmp', encoded, { mode: 0o600 });
+          await fs.rename(this.options.path + '.tmp', this.options.path);
+        });
       } catch (error) {
         this.credentials = before;
         throw error;
@@ -139,22 +157,46 @@ export class ClipboardSync {
     return result;
   }
   async initialize() {
-    await this.options.history.persistIdentity();
     try {
-      this.credentials = credentialsSchema.parse(
-        JSON.parse(this.options.codec.decode(await fs.readFile(this.options.path))),
-      );
+      await this.load();
     } catch (reason) {
-      if ((reason as NodeJS.ErrnoException).code !== 'ENOENT') throw reason;
+      if (this.options.history.storage.ready && this.storage.state().status !== 'failed') {
+        this.error = reason instanceof Error ? reason.message : String(reason);
+      }
+      await this.close();
+      throw reason;
+    }
+  }
+  private async load() {
+    this.options.history.storage.requireReady();
+    const data = await this.storage.run('read', async () => {
+      try {
+        return await fs.readFile(this.options.path);
+      } catch (reason) {
+        if ((reason as NodeJS.ErrnoException).code !== 'ENOENT') throw reason;
+      }
+    });
+    if (data) {
+      const decoded = await this.storage.run('decrypt', () => this.options.codec.decode(data));
+      this.credentials = await this.storage.run('parse', () =>
+        credentialsSchema.parse(JSON.parse(decoded)),
+      );
+    } else {
       const pems = await generate([{ name: 'commonName', value: 'Everything clipboard sync' }], {
         algorithm: 'sha256',
         keyType: 'ec',
         notAfterDate: new Date('2046-01-01'),
       });
       this.credentials = { enabled: false, key: pems.private, cert: pems.cert, peers: [] };
-      await this.mutate(() => {});
     }
+    await this.options.history.persistIdentity();
+    this.storage.loaded();
+    if (!data) await this.mutate(() => {});
     if (this.credentials.enabled) await this.open();
+  }
+  private requireReady() {
+    this.options.history.storage.requireReady();
+    this.storage.requireReady();
   }
   async setEnabled(enabled: boolean) {
     await this.mutate(() => {
@@ -162,10 +204,17 @@ export class ClipboardSync {
     });
     if (enabled) {
       this.stopped = false;
-      await this.open();
+      try {
+        await this.open();
+      } catch (reason) {
+        this.error = reason instanceof Error ? reason.message : String(reason);
+        await this.close();
+        throw reason;
+      }
     } else await this.close();
   }
   invite() {
+    this.requireReady();
     if (!this.server || !this.credentials?.enabled) throw Error('Сначала включите синхронизацию');
     if (this.credentials.peers.length >= 32) throw Error('Можно связать не больше 32 устройств');
     this.invitation = {
@@ -186,6 +235,7 @@ export class ClipboardSync {
     this.options.changed();
   }
   private async open() {
+    this.requireReady();
     if (this.server) return;
     this.error = '';
     const server = https.createServer(
@@ -296,6 +346,7 @@ export class ClipboardSync {
     void this.syncNow();
   }
   private async serve(request: IncomingMessage) {
+    this.requireReady();
     if (this.stopped || !this.credentials?.enabled) throw Error('Синхронизация отключена');
     const socket = request.socket as tls.TLSSocket;
     const fingerprint = socket.getPeerCertificate().fingerprint256;
@@ -423,6 +474,7 @@ export class ClipboardSync {
     });
   }
   async pair(code: string) {
+    this.requireReady();
     if (!this.server || !this.credentials?.enabled) throw Error('Сначала включите синхронизацию');
     if (this.credentials.peers.length >= 32) throw Error('Можно связать не больше 32 устройств');
     const invitation = z
@@ -466,7 +518,13 @@ export class ClipboardSync {
     return this.syncing;
   }
   private async exchange() {
-    if (this.stopped || !this.credentials?.enabled || this.options.history.getPreferences().paused)
+    if (
+      !this.storage.ready ||
+      !this.options.history.storage.ready ||
+      this.stopped ||
+      !this.credentials?.enabled ||
+      this.options.history.getPreferences().paused
+    )
       return;
     {
       await this.options.history.prune();
@@ -519,6 +577,8 @@ export class ClipboardSync {
   private activePeer(peer: Peer) {
     return (
       !this.stopped &&
+      this.storage.ready &&
+      this.options.history.storage.ready &&
       this.credentials?.enabled &&
       !this.options.history.getPreferences().paused &&
       this.credentials.peers.some((item) => item.id === peer.id && item.token === peer.token)
