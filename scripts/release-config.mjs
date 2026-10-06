@@ -1,18 +1,7 @@
 import { sparkleBuilderConfig } from 'electron-sparkle-updater/builder';
 import { signingFingerprint } from './signing-certificate.mjs';
 
-/** Keep bundle version, archive names and feed URL aligned with the selected release tag. */
-export function releasePackage(pkg, env) {
-  const tag = env.RELEASE_TAG || `v${pkg.version}`;
-  const version = tag.replace(/^v/, '');
-  if (
-    !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(
-      version,
-    )
-  )
-    throw Error('RELEASE_TAG must be a semantic version with an optional v prefix.');
-  return { ...pkg, version, releaseTag: tag };
-}
+export { releasePackage } from './release-version.mjs';
 
 export function releaseArtifactNames(pkg) {
   const base = `${pkg.name}-${pkg.version}-arm64`;

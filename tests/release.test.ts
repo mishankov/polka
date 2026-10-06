@@ -7,7 +7,9 @@ import { join } from 'node:path';
 // @ts-expect-error Pure build-time JavaScript shared with the release command.
 import { releasePackage, releaseConfig, releaseArtifactNames } from '../scripts/release-config.mjs';
 // @ts-expect-error Pure build-time JavaScript.
-import { appcastXml, verifyReleaseMetadata } from '../scripts/release-metadata.mjs';
+import * as releaseMetadata from '../scripts/release-metadata.mjs';
+const { appcastXml, verifyReleaseMetadata, readReleaseNotes } = releaseMetadata;
+import { parseReleaseNotes } from '../src/shared/updates';
 
 const pkg = {
   name: 'polka',
@@ -161,6 +163,53 @@ test('appcast authenticates exact ZIP bytes, version, platform requirements and 
     await assert.rejects(verifyReleaseMetadata(pkg, directory, 'owner/app', wrongKey), /signature/);
     await writeFile(join(directory, zip), Buffer.alloc(bytes.length, 1));
     await assert.rejects(check(), /signature/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('release notes require Russian and English and survive appcast XML escaping', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'polka-release-notes-'));
+  try {
+    const path = join(directory, 'notes.json');
+    const notes = {
+      ru: '• Исправлено <окно> & поиск.\nВторая строка.',
+      en: '• Fixed <window> & search.\nSecond line.',
+    };
+    await writeFile(path, JSON.stringify(notes));
+    assert.deepEqual(await readReleaseNotes('0.2.0', path), notes);
+    const bytes = Buffer.from('bilingual release');
+    for (const name of releaseArtifactNames(pkg)) await writeFile(join(directory, name), bytes);
+    const localized = { ...pkg, releaseNotes: notes };
+    const xml = appcastXml(
+      localized,
+      'owner/app',
+      sign(null, bytes, keys.privateKey).toString('base64'),
+      bytes.length,
+    );
+    await writeFile(join(directory, 'appcast.xml'), xml);
+    await verifyReleaseMetadata(localized, directory, 'owner/app', publicKey);
+    const { XMLParser } = await import('fast-xml-parser');
+    const item = new XMLParser({ parseTagValue: false }).parse(xml).rss.channel.item;
+    assert.deepEqual(parseReleaseNotes(item.description), notes);
+    await assert.rejects(
+      verifyReleaseMetadata(
+        { ...pkg, releaseNotes: { ...notes, en: 'Wrong version notes' } },
+        directory,
+        'owner/app',
+        publicKey,
+      ),
+      /release notes/,
+    );
+    for (const bad of [
+      { ru: 'Без перевода' },
+      { ru: ' ', en: 'English' },
+      { ru: 'Русский', en: 'x'.repeat(20_001) },
+    ]) {
+      await writeFile(path, JSON.stringify(bad));
+      await assert.rejects(readReleaseNotes('0.2.0', path), /ru and en/);
+    }
+    await assert.rejects(readReleaseNotes('0.2.0', join(directory, 'missing.json')), /ENOENT/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

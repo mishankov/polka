@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { UpdateService } from '../src/main/updates';
+import { parseReleaseNotes, UPDATE_REMINDER_DELAY } from '../src/shared/updates';
 class Adapter extends EventEmitter {
   checks = 0;
   downloads = 0;
@@ -193,7 +194,11 @@ test('Sparkle adapter registers events before initialization and never installs 
       listener = handler;
     },
     init() {
-      listener({ type: 'update-available', version: '0.2.0' });
+      listener({
+        type: 'update-available',
+        version: '0.2.0',
+        releaseNotes: JSON.stringify({ ru: 'Новая полка', en: 'A new shelf' }),
+      });
       return true;
     },
     setAutomaticChecks(enabled: boolean) {
@@ -225,10 +230,12 @@ test('Sparkle adapter registers events before initialization and never installs 
   assert(automatic);
   assert.equal(checks, 1);
   assert.equal(service.status().status, 'downloading');
+  assert.deepEqual(service.status().releaseNotes, { ru: 'Новая полка', en: 'A new shelf' });
   listener({ type: 'download-progress', percent: 70 });
   listener({ type: 'download-progress', phase: 'apply', percent: 10 });
   assert.equal(service.status().progress, 70);
   listener({ type: 'update-downloaded', version: '0.2.0' });
+  assert.deepEqual(service.status().releaseNotes, { ru: 'Новая полка', en: 'A new shelf' });
   assert.equal(installs, 0);
   await service.handle('updates.install');
   assert.equal(installs, 1);
@@ -277,4 +284,133 @@ test('ordinary quit during clipboard saving prevents a late native install reque
   saved();
   await install;
   assert.equal(adapter.installed, false);
+});
+
+test('skipping persists across restarts, permits manual install, and only hides the selected version', async () => {
+  let saved: unknown;
+  const make = (adapter: Adapter) =>
+    new UpdateService(
+      adapter,
+      '0.1.0',
+      true,
+      () => {},
+      async () => {},
+      () => {},
+      {
+        preferences: saved,
+        savePreferences: async (value) => {
+          saved = value;
+        },
+      },
+    );
+  const first = make(new Adapter());
+  await first.handle('updates.check');
+  assert.equal(first.status().notification, 'visible');
+  await first.handle('updates.skip', { version: '0.2.0' });
+  const adapter = new Adapter();
+  const restarted = make(adapter);
+  await restarted.handle('updates.check');
+  assert.equal(restarted.status().notification, 'skipped');
+  assert.equal(adapter.installed, false);
+  await restarted.handle('updates.install');
+  assert.equal(adapter.installed, true);
+  const newerAdapter = new Adapter();
+  const newer = make(newerAdapter);
+  newerAdapter.emit('update-available', { version: '0.3.0' });
+  assert.equal(newer.status().notification, 'visible');
+});
+
+test('reminders persist, expire after 24 hours, and never hide a newer version', async () => {
+  let now = 1_000;
+  let saved: unknown;
+  const make = (adapter: Adapter) =>
+    new UpdateService(
+      adapter,
+      '0.1.0',
+      true,
+      () => {},
+      async () => {},
+      () => {},
+      {
+        preferences: saved,
+        now: () => now,
+        savePreferences: async (value) => {
+          saved = value;
+        },
+      },
+    );
+  const first = make(new Adapter());
+  await first.handle('updates.check');
+  await first.handle('updates.remind', { version: '0.2.0' });
+  const restarted = make(new Adapter());
+  await restarted.handle('updates.check');
+  assert.equal(restarted.status().notification, 'deferred');
+  assert.equal(restarted.status().remindAfter, now + UPDATE_REMINDER_DELAY);
+  now += UPDATE_REMINDER_DELAY - 1;
+  assert.equal(restarted.status().notification, 'deferred');
+  now++;
+  assert.equal(restarted.status().notification, 'visible');
+  assert.equal(restarted.status().remindAfter, undefined);
+  now = 1_000;
+  const newerAdapter = new Adapter();
+  const newer = make(newerAdapter);
+  newerAdapter.emit('update-available', { version: '0.3.0' });
+  assert.equal(newer.status().notification, 'visible');
+  first.cancelForQuit();
+  restarted.cancelForQuit();
+  newer.cancelForQuit();
+});
+
+test('reminder expiry broadcasts without restarting the running app', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000 });
+  const states: string[] = [];
+  const service = new UpdateService(
+    new Adapter(),
+    '0.1.0',
+    true,
+    (state) => {
+      if (state.notification) states.push(state.notification);
+    },
+    async () => {},
+  );
+  await service.handle('updates.check');
+  await service.handle('updates.remind', { version: '0.2.0' });
+  assert.equal(states.at(-1), 'deferred');
+  context.mock.timers.tick(UPDATE_REMINDER_DELAY);
+  assert.equal(states.at(-1), 'visible');
+});
+
+test('dismissal cannot hide a stale version or disappear when preference storage fails', async () => {
+  const service = new UpdateService(
+    new Adapter(),
+    '0.1.0',
+    true,
+    () => {},
+    async () => {},
+    () => {},
+    {
+      savePreferences: async () => {
+        throw Error('disk full');
+      },
+    },
+  );
+  await service.handle('updates.check');
+  await assert.rejects(service.handle('updates.skip', { version: '0.1.9' }), /недоступна/);
+  await assert.rejects(service.handle('updates.remind', { version: '0.2.0' }), /disk full/);
+  assert.equal(service.status().notification, 'visible');
+  assert.equal(service.status().status, 'ready');
+});
+
+test('release notes require both languages and retain plain text safely', () => {
+  const notes = { ru: '• Обновление <script>alert(1)</script>', en: '• Update & fixes' };
+  assert.deepEqual(parseReleaseNotes(JSON.stringify(notes)), notes);
+  for (const bad of [
+    '<p>Legacy release</p>',
+    '{invalid',
+    {},
+    { ru: 'Без перевода' },
+    { ru: ' ', en: 'English' },
+    { ru: 'x'.repeat(20_001), en: 'English' },
+  ])
+    assert.equal(parseReleaseNotes(bad), undefined);
 });

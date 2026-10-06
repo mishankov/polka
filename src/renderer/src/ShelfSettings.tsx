@@ -4,6 +4,7 @@ import { Alert, Stack, Switch, Text } from './NativeControls';
 import LauncherSettings from './LauncherSettings';
 import ClipboardSettings from './ClipboardSettings';
 import Updates from './Updates';
+import UpdateNotice from './UpdateNotice';
 import { api, errorMessage, report } from './api';
 
 const panes = [
@@ -90,6 +91,7 @@ export default function ShelfSettings({ initialTab }: { initialTab?: 'general' |
           {error && <Alert>{error}</Alert>}
           {active.id === 'general' && (
             <Stack gap="lg">
+              <UpdateNotice />
               <Text c="dimmed">
                 Приложения и история буфера обмена — всегда под рукой. Открывайте полку через значок
                 в строке меню, наведением к вырезу камеры или сочетанием клавиш.

@@ -10,6 +10,7 @@ import ClipboardHistory from './ClipboardHistory';
 import EmojiPicker from './EmojiPicker';
 import ShelfSettings from './ShelfSettings';
 import ShelfWelcome from './ShelfWelcome';
+import UpdateNotice from './UpdateNotice';
 import type { ShelfDestination } from '../../shared/shelf';
 
 export default function Launcher({
@@ -289,7 +290,12 @@ export default function Launcher({
               </ActionIcon>
             </Tooltip>
           </div>
-          {!query.trim() && <ShelfWelcome />}
+          {!query.trim() && (
+            <div className="launcher-start">
+              <UpdateNotice />
+              <ShelfWelcome />
+            </div>
+          )}
           {query.trim() && clipboardError && (
             <Alert color="red" mx="sm" mt="sm" title="История буфера обмена">
               {clipboardError}

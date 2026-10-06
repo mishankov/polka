@@ -28,7 +28,7 @@ export class SparkleUpdateAdapter extends EventEmitter implements UpdateAdapter 
       } else if (event.type === 'error') {
         this.emit('error', Error('Sparkle update failed'));
       } else {
-        this.emit(event.type, { version: event.version });
+        this.emit(event.type, { version: event.version, releaseNotes: event.releaseNotes });
       }
     });
     if (!bridge.init({ appcastUrl: this.feedUrl, publicEdKey: this.publicKey }))

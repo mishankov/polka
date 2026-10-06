@@ -1,16 +1,8 @@
-import { useEffect, useState } from 'react';
 import { Button, Group, Progress, Stack, Text, Title } from './NativeControls';
-import type { UpdateState } from '../../main/updates';
-import { api, report } from './api';
+import { useUpdates } from './useUpdates';
+import UpdateReleaseNotes from './UpdateReleaseNotes';
 export default function Updates() {
-  const [state, setState] = useState<UpdateState>();
-  useEffect(() => {
-    api('updates.status').then(setState).catch(report);
-    return window.platform.onEvent((e) => {
-      if (e.type === 'updates.state') setState(e.state);
-    });
-  }, []);
-  const action = (name: string) => api(`updates.${name}`).then(setState).catch(report);
+  const { state, pending, action } = useUpdates();
   return (
     <section className="settings-section" aria-labelledby="updates-heading">
       <div className="settings-section-intro">
@@ -38,6 +30,18 @@ export default function Updates() {
             {state.status === 'ready' ? 'Готова к установке' : 'Доступна версия'} {state.version}
           </Text>
         )}
+        {state?.notification === 'skipped' && (
+          <Text size="sm" c="dimmed">
+            Вы пропустили эту версию. Её можно установить здесь.
+          </Text>
+        )}
+        {state?.notification === 'deferred' && (
+          <Text size="sm" c="dimmed">
+            Напомним {new Date(state.remindAfter!).toLocaleString('ru-RU')}. Можно обновиться
+            сейчас.
+          </Text>
+        )}
+        {state?.version && <UpdateReleaseNotes key={state.version} notes={state.releaseNotes} />}
         {state?.status === 'downloading' && (
           <>
             <Progress aria-label="Загрузка обновления" value={state.progress || 0} />
@@ -56,13 +60,18 @@ export default function Updates() {
             <Button
               variant="default"
               loading={state.status === 'checking'}
+              disabled={!!pending}
               onClick={() => action('check')}
             >
               Проверить обновления
             </Button>
           )}
           {state && ['ready', 'installing'].includes(state.status) && (
-            <Button loading={state.status === 'installing'} onClick={() => action('install')}>
+            <Button
+              disabled={!!pending}
+              loading={state.status === 'installing' || pending === 'install'}
+              onClick={() => action('install')}
+            >
               Установить и перезапустить
             </Button>
           )}

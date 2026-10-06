@@ -38,7 +38,14 @@ async function main() {
     .subarray(-32)
     .toString('base64');
   const [major, minor, patch] = pkg.version.split('.').map(Number);
-  const newPkg = { ...pkg, version: `${major}.${minor}.${patch + 1}` };
+  const newPkg = {
+    ...pkg,
+    version: `${major}.${minor}.${patch + 1}`,
+    releaseNotes: {
+      ru: '• Новое уведомление об обновлении.\n• Русские примечания <без HTML> & с символами.',
+      en: '• A new update notice.\n• English release notes <without HTML> & with symbols.',
+    },
+  };
   let feed = '';
   let zipBytes = Buffer.alloc(0);
   const server = createServer((request, response) => {
@@ -259,6 +266,17 @@ require('./index.js');
     await page.evaluate(() => window.platform.call('updates.check'));
     await expect.poll(async () => (await status()).status, { timeout: 90000 }).toBe('ready');
     assert.equal(version(bundle), pkg.version, 'Download must not install or restart');
+    assert.deepEqual((await status()).releaseNotes, newPkg.releaseNotes);
+    const notice = page.getByRole('region', {
+      name: `Доступно обновление Полки ${newPkg.version}`,
+    });
+    await expect(notice).toBeVisible();
+    await expect(notice.locator('[lang="ru"]')).toContainText(newPkg.releaseNotes.ru);
+    await notice.getByRole('button', { name: 'English', exact: true }).click();
+    await expect(notice.locator('[lang="en"]')).toContainText(newPkg.releaseNotes.en);
+    await notice.getByRole('button', { name: 'Напомнить завтра', exact: true }).click();
+    await expect(notice).toHaveCount(0);
+    assert.equal((await status()).notification, 'deferred');
     console.log('Valid update ready; testing ordinary quit cancellation');
     // A normal quit must cancel staging rather than authorize installation.
     await running.close();
@@ -270,11 +288,28 @@ require('./index.js');
     running = await launch();
     page = await running.firstWindow();
     await expect.poll(async () => (await status()).status, { timeout: 90000 }).toBe('ready');
+    assert.equal((await status()).notification, 'deferred', 'Reminder must survive restart');
+    await page.evaluate(
+      (version) => window.platform.call('updates.skip', { version }),
+      newPkg.version,
+    );
+    assert.equal((await status()).notification, 'skipped');
+    const [settingsPage] = await Promise.all([
+      running.waitForEvent('window'),
+      page.getByRole('button', { name: 'Настройки', exact: true }).click(),
+    ]);
+    await settingsPage.getByRole('tab', { name: 'О приложении', exact: true }).click();
+    await expect(
+      settingsPage.getByText('Вы пропустили эту версию. Её можно установить здесь.'),
+    ).toBeVisible();
     console.log('Update ready after relaunch; requesting explicit install');
     const oldPid = running.process().pid;
     const exited = new Promise<void>((done) => running!.process().once('exit', () => done()));
     // IPC may close before its reply; the durable evidence is replacement and relaunch.
-    void page.evaluate(() => window.platform.call('updates.install')).catch(() => {});
+    void settingsPage
+      .getByRole('button', { name: 'Установить и перезапустить', exact: true })
+      .click()
+      .catch(() => {});
     await Promise.race([
       exited,
       new Promise<never>((_, reject) =>

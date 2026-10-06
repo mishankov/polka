@@ -1,7 +1,8 @@
 import { readFile, access, mkdir, writeFile, stat } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { releasePackage, releaseConfig, releaseArtifactNames } from './release-config.mjs';
-import { appcastXml } from './release-metadata.mjs';
+import { appcastXml, readReleaseNotes } from './release-metadata.mjs';
+import { releaseNotesMarkdown } from './release-notes.mjs';
 import { join } from 'node:path';
 import { assertPreparedApp } from './prepared-app.mjs';
 import { withSigningKeychain } from './signing-certificate.mjs';
@@ -10,6 +11,7 @@ const pkg = releasePackage(
   process.env,
 );
 const config = releaseConfig(pkg, process.env);
+pkg.releaseNotes = await readReleaseNotes(pkg.version);
 if (process.platform !== 'darwin' || process.arch !== 'arm64')
   throw Error('Build releases on an Apple silicon Mac.');
 if (!process.env.SPARKLE_PRIVATE_KEY)
@@ -19,6 +21,7 @@ if (process.argv.includes('--publish') && !process.env.GH_TOKEN)
 await withSigningKeychain(process.env, async (publicEnv) => {
   await mkdir('artifacts', { recursive: true });
   await writeFile('artifacts/release-config.json', JSON.stringify(config, null, 2));
+  await writeFile('artifacts/release-notes.md', releaseNotesMarkdown(pkg.releaseNotes));
   function run(command, args) {
     const result = spawnSync(command, args, { stdio: 'inherit', env: publicEnv });
     if (result.status !== 0)
@@ -72,8 +75,8 @@ await withSigningKeychain(process.env, async (publicEnv) => {
       sha.stdout.trim(),
       '--title',
       `${pkg.build.productName} ${pkg.version}`,
-      '--notes',
-      'Self-signed macOS arm64 build with a persistent code identity and authenticated Sparkle updates. Review acceptance results before publishing.',
+      '--notes-file',
+      'artifacts/release-notes.md',
     ]);
   }
 });
