@@ -50,8 +50,9 @@ test('GitHub notes include all installation methods in both languages with relea
     const body = releaseNotesMarkdown(notes, { tag, repository: 'owner/app' });
     assert.ok(body.startsWith(`# Polka ${version}\n`));
     assert.ok(body.includes('**macOS 27+ · Apple silicon**'));
-    const ru = body.slice(body.indexOf('## Русский'), body.indexOf('## English'));
-    const en = body.slice(body.indexOf('## English'));
+    assert.ok(body.indexOf('## English') < body.indexOf('## Русский'));
+    const en = body.slice(body.indexOf('## English'), body.indexOf('## Русский'));
+    const ru = body.slice(body.indexOf('## Русский'));
     for (const language of [ru, en]) {
       assert.equal((language.match(/^<details>$/gm) || []).length, 1);
       assert.equal((language.match(/^<\/details>$/gm) || []).length, 1);

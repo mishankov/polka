@@ -32,6 +32,56 @@ export function releaseNotesMarkdown(notes, { tag, repository = 'mishankov/polka
 
 **macOS 27+ · Apple silicon**
 
+## English
+
+### What's new
+
+${markdown(notes.en)}
+
+### Updating
+
+If Polka is already installed, open **About → Updates** in its settings and install the new version. Your history and settings are preserved. Polka's interface is in Russian: look for **«О приложении → Обновления»**.
+
+### Installation
+
+<details>
+<summary>Three ways to install</summary>
+
+Choose one of these three methods. Releases are self-signed and are not notarized by Apple.
+
+#### 1. Installation script
+
+Open Terminal, paste this command, and press Enter:
+
+\`\`\`sh
+${installCommand}
+\`\`\`
+
+The script installs the **latest stable release**, verifies the download, removes quarantine only from Polka, and opens it. If Polka is running, first choose **«Выйти из Полки»** (Quit Polka) in its menu. The installer asks for your Mac login password when needed.
+
+#### 2. Download and use Terminal
+
+1. [Download this release's DMG](${downloadUrl}), open it, and drag **Polka** to **Applications**.
+2. Run these commands in Terminal:
+
+\`\`\`sh
+xattr -dr com.apple.quarantine "/Applications/Polka.app"
+open "/Applications/Polka.app"
+\`\`\`
+
+If the first command reports a permission error, repeat only that command with \`sudo\` at the beginning. It removes quarantine only from the installed Polka app.
+
+#### 3. Download and allow in System Settings
+
+1. [Download this release's DMG](${downloadUrl}), open it, and drag **Polka** to **Applications**.
+2. Try opening Polka. If macOS blocks it, dismiss the warning.
+3. Open **System Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway** next to the message about Polka.
+4. Confirm and click **Open**. [Apple's instructions](https://support.apple.com/en-us/102445).
+
+After installation, use the menu bar icon or **⌘ ⇧ Space** to open the shelf. Grant **Accessibility** permission separately to enable automatic paste.
+
+</details>
+
 ## Русский
 
 ### Что нового
@@ -82,55 +132,6 @@ open "/Applications/Polka.app"
 
 </details>
 
-## English
-
-### What's new
-
-${markdown(notes.en)}
-
-### Updating
-
-If Polka is already installed, open **About → Updates** in its settings and install the new version. Your history and settings are preserved. Polka's interface is in Russian: look for **«О приложении → Обновления»**.
-
-### Installation
-
-<details>
-<summary>Three ways to install</summary>
-
-Choose one of these three methods. Releases are self-signed and are not notarized by Apple.
-
-#### 1. Installation script
-
-Open Terminal, paste this command, and press Enter:
-
-\`\`\`sh
-${installCommand}
-\`\`\`
-
-The script installs the **latest stable release**, verifies the download, removes quarantine only from Polka, and opens it. If Polka is running, first choose **«Выйти из Полки»** (Quit Polka) in its menu. The installer asks for your Mac login password when needed.
-
-#### 2. Download and use Terminal
-
-1. [Download this release's DMG](${downloadUrl}), open it, and drag **Polka** to **Applications**.
-2. Run these commands in Terminal:
-
-\`\`\`sh
-xattr -dr com.apple.quarantine "/Applications/Polka.app"
-open "/Applications/Polka.app"
-\`\`\`
-
-If the first command reports a permission error, repeat only that command with \`sudo\` at the beginning. It removes quarantine only from the installed Polka app.
-
-#### 3. Download and allow in System Settings
-
-1. [Download this release's DMG](${downloadUrl}), open it, and drag **Polka** to **Applications**.
-2. Try opening Polka. If macOS blocks it, dismiss the warning.
-3. Open **System Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway** next to the message about Polka.
-4. Confirm and click **Open**. [Apple's instructions](https://support.apple.com/en-us/102445).
-
-After installation, use the menu bar icon or **⌘ ⇧ Space** to open the shelf. Grant **Accessibility** permission separately to enable automatic paste.
-
-</details>
 `;
 }
 
