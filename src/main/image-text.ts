@@ -5,7 +5,7 @@ import type { ClipboardHistory } from './clipboard-history';
 import type { ImageText } from '../shared/clipboard';
 
 // Bump on any recognition/normalization change. OS upgrades may change models.
-export const IMAGE_TEXT_VERSION = `vision-r3-accurate-ru-en-correction-cpu-v3-${release()}`;
+export const IMAGE_TEXT_VERSION = `vision-r3-accurate-ru-en-correction-cpu-v4-${release()}`;
 const outputSchema = z.object({
   text: z.string().max(1024 * 1024),
   languages: z.array(z.string().max(40)).max(20),
@@ -38,10 +38,13 @@ export function recognizeImageText(path: string, content: string, signal: AbortS
               error: z.object({
                 domain: z.string().regex(/^[A-Za-z0-9_.-]{1,120}$/),
                 code: z.number().int(),
+                stage: z
+                  .enum(['configure', 'languages', 'decode', 'recognize', 'encode'])
+                  .optional(),
               }),
             })
             .parse(JSON.parse(Buffer.concat(output).toString('utf8')));
-          diagnostic = ` (${result.error.domain}:${result.error.code})`;
+          diagnostic = ` (${result.error.domain}:${result.error.code}${result.error.stage ? `, ${result.error.stage}` : ''})`;
         } catch {
           /* Missing helper, cancellation or invalid diagnostics. */
         }
