@@ -10,6 +10,13 @@ do {
     request.revision = VNRecognizeTextRequestRevision3
     request.recognitionLevel = .accurate
     request.usesLanguageCorrection = true
+    let supported = try request.supportedRecognitionLanguages()
+    let languages = ["ru-RU", "en-US"].filter { supported.contains($0) }
+    guard !languages.isEmpty else { throw NSError(domain: "ImageText", code: 1) }
+    request.recognitionLanguages = languages
+    // The configured languages already cover Russian/English and mixed lines.
+    // Avoid a separate automatic-language model with different device support.
+    request.automaticallyDetectsLanguage = false
     // Background indexing must also work on virtual Macs without Metal/ANE.
     // Select only CPU devices that Vision declares valid for each stage.
     for (stage, devices) in try request.supportedComputeStageDevices {
@@ -17,11 +24,6 @@ do {
             request.setComputeDevice(cpu, for: stage)
         }
     }
-    let supported = try request.supportedRecognitionLanguages()
-    let languages = ["ru-RU", "en-US"].filter { supported.contains($0) }
-    guard !languages.isEmpty else { throw NSError(domain: "ImageText", code: 1) }
-    request.recognitionLanguages = languages
-    request.automaticallyDetectsLanguage = true
     let data = FileHandle.standardInput.readDataToEndOfFile()
     guard data.count <= 32 * 1024 * 1024,
           let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -31,7 +33,10 @@ do {
           width > 0, height > 0, Double(width) * Double(height) <= 80_000_000 else {
         throw NSError(domain: "ImageText", code: 2)
     }
-    try VNImageRequestHandler(data: data).perform([request])
+    guard let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
+        throw NSError(domain: "ImageText", code: 2)
+    }
+    try VNImageRequestHandler(cgImage: image).perform([request])
     let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
         .joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     guard text.utf8.count <= 1024 * 1024 else { throw NSError(domain: "ImageText", code: 3) }
@@ -42,7 +47,13 @@ do {
     let failure = error as NSError
     let domain = failure.domain.range(of: "^[A-Za-z0-9_.-]{1,120}$", options: .regularExpression) != nil
         ? failure.domain : "Vision"
-    if let output = try? JSONSerialization.data(withJSONObject: ["error": ["domain": domain, "code": failure.code]]) {
+    var details: [String: Any] = ["domain": domain, "code": failure.code]
+    // Explicit CLI diagnostics are used only with the checked-in synthetic
+    // fixture by the failing unit test. The application never passes this flag.
+    if CommandLine.arguments.contains("--diagnostics") {
+        details["description"] = failure.description
+    }
+    if let output = try? JSONSerialization.data(withJSONObject: ["error": details]) {
         FileHandle.standardOutput.write(output)
     }
     exit(1)

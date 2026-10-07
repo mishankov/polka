@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { ClipboardHistory } from '../src/main/clipboard-history';
 import { ImageTextIndexer, recognizeImageText, IMAGE_TEXT_VERSION } from '../src/main/image-text';
 import { clipboardResults } from '../src/shared/clipboard';
@@ -212,11 +213,30 @@ test(
       ['empty', []],
     ] as const) {
       const content = (await readFile(`tests/fixtures/image-text/${name}.png`)).toString('base64');
-      const result = await recognizeImageText(
-        resolve('build/image-text'),
-        content,
-        new AbortController().signal,
-      );
+      let result: Awaited<ReturnType<typeof recognizeImageText>>;
+      try {
+        result = await recognizeImageText(
+          resolve('build/image-text'),
+          content,
+          new AbortController().signal,
+        );
+      } catch (error) {
+        // Diagnose this checked-in synthetic fixture only; keep the original
+        // failure even if the diagnostic invocation happens to succeed.
+        const diagnostic = spawnSync(resolve('build/image-text'), ['--diagnostics'], {
+          input: Buffer.from(content, 'base64'),
+          encoding: 'utf8',
+          timeout: 10000,
+          maxBuffer: 65536,
+        });
+        console.error('Synthetic Vision fixture diagnostic', {
+          fixture: name,
+          status: diagnostic.status,
+          output: diagnostic.stdout,
+          diagnostic: diagnostic.stderr,
+        });
+        throw error;
+      }
       assert(result.languages.includes('ru-RU'));
       assert(result.languages.includes('en-US'));
       const clip = {
