@@ -10,3 +10,5 @@ build/sync-discovery
 *.log
 .env*
 !.env.example
+build/image-text
+build/file-shelf-probe

@@ -183,6 +183,9 @@ jobs:
       - name: Verify types, unit tests and desktop workflows
         if: matrix.suite == 'desktop'
         timeout-minutes: 10
+        env:
+          # Native OCR fixtures run locally; retain synthetic OCR logic/UI checks.
+          POLKA_SKIP_NATIVE_OCR: '1'
         run: |
           if [[ -f scripts/verify.mjs ]]; then
             npm run verify -- desktop --prebuilt

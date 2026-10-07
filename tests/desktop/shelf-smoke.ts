@@ -57,7 +57,7 @@ async function main(test: DesktopTest) {
     const apps = await page.evaluate(() => window.platform.call('launcher.apps'));
     assert.deepEqual(
       apps.map((item: any) => item.id),
-      ['builtin:clipboard', 'builtin:emoji'],
+      ['builtin:snippets', 'builtin:files', 'builtin:clipboard', 'builtin:emoji'],
     );
     const originalShortcut = (
       await page.evaluate(() => window.platform.call('launcher.getPreferences'))
@@ -78,6 +78,7 @@ async function main(test: DesktopTest) {
     for (const [method, searchName] of [
       ['clipboardHistory.show', 'Найти в истории'],
       ['shelf.showEmoji', 'Найти эмодзи'],
+      ['shelf.showSnippets', 'Найти сниппет'],
     ]) {
       await page.evaluate((method) => window.platform.call(method), method);
       await test.shelfReady(app, page, searchName);
@@ -228,7 +229,7 @@ async function main(test: DesktopTest) {
         return String(error);
       }
     });
-    assert.match(emojiPasteDenied, /Вставка доступна только/);
+    assert.match(emojiPasteDenied, /Операция доступна только на полке/);
     await expect(settings.getByRole('tab', { name: 'Основные', exact: true })).toHaveAttribute(
       'aria-selected',
       'true',

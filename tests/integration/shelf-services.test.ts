@@ -125,9 +125,13 @@ async function fixture(
     return probe;
   }
   let spawns = 0;
+  let fileProbe: PassThrough | undefined;
+  let testWindow: Window | undefined;
+  let pointer = { x: 500, y: 500 };
   let shelf: ReturnType<typeof createShelf>;
   class Window extends EventEmitter {
     visible = false;
+    focused = false;
     webContents = Object.assign(new EventEmitter(), {
       setWindowOpenHandler() {},
       send(_channel: string, event: { type: string; presentation: { revision: number } }) {
@@ -141,7 +145,7 @@ async function fixture(
       return false;
     }
     isFocused() {
-      return this.visible;
+      return this.visible && this.focused;
     }
     isVisible() {
       return this.visible;
@@ -159,19 +163,30 @@ async function fixture(
     show() {
       this.visible = true;
     }
+    showInactive() {
+      this.visible = true;
+      this.focused = false;
+    }
     hide() {
       this.visible = false;
+      this.focused = false;
     }
-    focus() {}
+    focus() {
+      this.focused = true;
+    }
   }
   const display = { id: 1, bounds: { x: 0, y: 0, width: 1512, height: 982 } };
   const screen = Object.assign(new EventEmitter(), {
-    getCursorScreenPoint: () => ({ x: 500, y: 500 }),
+    getCursorScreenPoint: () => pointer,
     getDisplayNearestPoint: () => display,
     getAllDisplays: () => [display],
   });
   const electron = {
-    app: { isPackaged: false, getAppPath: () => process.cwd() },
+    app: {
+      isPackaged: false,
+      getAppPath: () => process.cwd(),
+      getFileIcon: async () => ({ toDataURL: () => '' }),
+    },
     BrowserWindow: Window,
     clipboard: {
       async read() {
@@ -236,7 +251,15 @@ async function fixture(
           }
         : name === 'node:child_process'
           ? {
-              spawn() {
+              spawn(path: string) {
+                if (path.endsWith('file-shelf-probe')) {
+                  const child = new EventEmitter() as any;
+                  child.stdout = fileProbe = new PassThrough();
+                  child.stderr = new PassThrough();
+                  child.stdin = new PassThrough();
+                  child.kill = () => {};
+                  return child;
+                }
                 spawns++;
                 return spawnProbe();
               },
@@ -251,7 +274,9 @@ async function fixture(
   let geometry = 0;
   shelf = module.exports.createShelf(
     root,
-    () => {},
+    (win) => {
+      testWindow = win as unknown as Window;
+    },
     () => {},
     () => false,
     () => {
@@ -285,6 +310,13 @@ async function fixture(
       encryptFailure = true;
     },
     releaseHistory,
+    fileEvent: (type: string, paths?: string[]) =>
+      fileProbe!.write(JSON.stringify({ type, paths }) + '\n'),
+    movePointer: (point: typeof pointer) => {
+      pointer = point;
+    },
+    visible: () => testWindow?.visible ?? false,
+    focused: () => testWindow?.isFocused() ?? false,
     line: (line: string, index = probes.length - 1) =>
       probes[index].child.stdout.write(line + '\n'),
     exit: (index = probes.length - 1) => probes[index].child.emit('exit', 7, null),
@@ -554,3 +586,87 @@ test('initial expiry write failure preserves loaded native preferences and commi
   assert.equal(state.sync?.status, 'blocked');
   assert.deepEqual(await readFile(env.path), bytes);
 });
+
+test(
+  'an incoming drag that ends without a drop closes its automatic shelf',
+  { skip: process.platform !== 'darwin' },
+  async (t) => {
+    const env = await fixture(t);
+    await env.start();
+    env.fileEvent('enter');
+    await until(env.visible);
+    env.fileEvent('incomingEnd');
+    await until(
+      async () =>
+        !((await env.shelf.handle('shelf.presentation', {})) as ShelfPresentation).visible,
+    );
+    await until(() => !env.visible());
+    assert.equal(
+      ((await env.shelf.handle('shelf.files.state', {})) as { items: unknown[] }).items.length,
+      0,
+    );
+  },
+);
+
+test(
+  'leaving an automatic file shelf during a drag closes it and permits reentry',
+  { skip: process.platform !== 'darwin' },
+  async (t) => {
+    const env = await fixture(t);
+    await env.start();
+    env.fileEvent('enter');
+    await until(env.visible);
+    env.movePointer({ x: 20, y: 800 });
+    await until(
+      async () =>
+        !((await env.shelf.handle('shelf.presentation', {})) as ShelfPresentation).visible,
+    );
+    await until(() => !env.visible());
+    env.movePointer({ x: 500, y: 500 });
+    env.fileEvent('enter');
+    await until(env.visible);
+  },
+);
+
+for (const route of ['native', 'renderer'] as const) {
+  test(
+    `a successful ${route} file drop remains available after the incoming drag ends`,
+    { skip: process.platform !== 'darwin' },
+    async (t) => {
+      const env = await fixture(t);
+      const path = join(env.root, 'Plan.txt');
+      await writeFile(path, 'Synthetic drag fixture');
+      await env.start();
+      env.fileEvent('enter');
+      await until(env.visible);
+      assert.equal(env.focused(), false, 'An incoming drag must not steal native focus');
+      if (route === 'native') env.fileEvent('drop', [path]);
+      else await env.shelf.handle('shelf.files.add', { paths: [path] });
+      await until(
+        async () =>
+          ((await env.shelf.handle('shelf.files.state', {})) as { items: unknown[] }).items
+            .length === 1,
+      );
+      await until(env.focused);
+      env.fileEvent('incomingEnd');
+      env.movePointer({ x: 20, y: 800 });
+      await delay(500);
+      assert.equal(env.visible(), true);
+      assert.equal(await readFile(path, 'utf8'), 'Synthetic drag fixture');
+    },
+  );
+}
+
+test(
+  'cancellation does not dismiss a manually opened file shelf',
+  { skip: process.platform !== 'darwin' },
+  async (t) => {
+    const env = await fixture(t);
+    await env.start();
+    await env.shelf.handle('shelf.showFiles', {});
+    env.fileEvent('enter');
+    env.fileEvent('incomingEnd');
+    await delay(500);
+    assert.equal(env.visible(), true);
+  },
+);

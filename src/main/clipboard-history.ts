@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { dirname } from 'node:path';
 import { z } from 'zod';
@@ -6,14 +6,19 @@ import { ClipboardStorage } from './clipboard-storage';
 import {
   DEFAULT_CLIPBOARD_PREFERENCES,
   type ClipboardClip,
+  type ClipboardSnippet,
   type ClipboardPreferences,
+  type ImageText,
 } from '../shared/clipboard';
 
 export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
+export const MAX_SNIPPET_TEXT_BYTES = 1024 * 1024;
 // Images are stored as base64. Apply the image limit to PNG bytes, not its encoded string.
 export const MAX_CLIP_BYTES = Math.ceil(MAX_IMAGE_BYTES / 3) * 4;
 export const MAX_HISTORY_BYTES = 128 * 1024 * 1024;
 export const MAX_HISTORY_ITEMS = 200;
+export const MAX_SNIPPET_ITEMS = 200;
+export const MAX_SNIPPETS_BYTES = 128 * 1024 * 1024;
 const preferencesSchema = z.object({
   paused: z.boolean(),
   pasteOnSelect: z.boolean().default(true),
@@ -28,7 +33,18 @@ export const clipSchema = z.object({
   preview: z.string().max(200000),
   createdAt: z.number().finite(),
   pinned: z.boolean(),
+  snippet: z.literal(true).optional(),
+  name: z.string().max(120).optional(),
   sourceDevice: z.string().max(100).optional(),
+});
+const snippetSchema = clipSchema.extend({
+  kind: z.literal('text'),
+  snippet: z.literal(true),
+  content: z
+    .string()
+    .min(1)
+    .max(MAX_SNIPPET_TEXT_BYTES)
+    .refine((content) => Buffer.byteLength(content) <= MAX_SNIPPET_TEXT_BYTES),
 });
 import {
   compareStamp,
@@ -52,13 +68,42 @@ const syncSchema = z.object({
 const savedSchema = z.object({
   version: z.literal(1),
   preferences: preferencesSchema,
-  clips: z.array(clipSchema).max(MAX_HISTORY_ITEMS),
+  clips: z
+    .array(
+      clipSchema.extend({
+        ocr: z
+          .object({
+            version: z.string().max(100),
+            status: z.enum(['ready', 'empty', 'failed']),
+            text: z.string().max(1024 * 1024),
+            languages: z.array(z.string().max(40)).max(20),
+          })
+          .optional(),
+      }),
+    )
+    .max(MAX_HISTORY_ITEMS),
+  snippets: z
+    .array(snippetSchema)
+    .max(MAX_SNIPPET_ITEMS)
+    .refine((snippets) => snippetBytes(snippets) <= MAX_SNIPPETS_BYTES)
+    .default([]),
   sync: syncSchema.optional(),
 });
 type Saved = z.infer<typeof savedSchema>;
 
 export function clipId(kind: ClipboardClip['kind'], content: string) {
   return createHash('sha256').update(kind).update('\0').update(content).digest('hex');
+}
+function snippetText(content: string, name: string) {
+  content = z
+    .string()
+    .min(1, 'Введите текст сниппета')
+    .max(MAX_SNIPPET_TEXT_BYTES, 'Текст сниппета не должен превышать 1 МБ')
+    .parse(content);
+  name = z.string().max(120, 'Название не должно превышать 120 символов').parse(name).trim();
+  if (Buffer.byteLength(content) > MAX_SNIPPET_TEXT_BYTES)
+    throw Error('Текст сниппета не должен превышать 1 МБ');
+  return { content, name };
 }
 export function excludedClipboardType(types: readonly string[]) {
   return types.some((type) =>
@@ -95,9 +140,28 @@ function trimHistory(state: Saved, now: number) {
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt - a.createdAt);
   let size = 0;
   state.clips = state.clips.filter((clip, index) => {
-    size += Buffer.byteLength(clip.content) + Buffer.byteLength(clip.preview);
+    size +=
+      Buffer.byteLength(clip.content) +
+      Buffer.byteLength(clip.preview) +
+      Buffer.byteLength(clip.ocr?.text ?? '');
     return index < MAX_HISTORY_ITEMS && size <= MAX_HISTORY_BYTES;
   });
+}
+function records(state: Saved): ClipboardClip[] {
+  return [...state.clips, ...state.snippets];
+}
+function snippetBytes(snippets: readonly { content: string; preview: string }[]) {
+  return snippets.reduce(
+    (size, snippet) =>
+      size + Buffer.byteLength(snippet.content) + Buffer.byteLength(snippet.preview),
+    0,
+  );
+}
+function validateSnippets(state: Saved) {
+  if (state.snippets.length > MAX_SNIPPET_ITEMS)
+    throw Error(`Можно сохранить не больше ${MAX_SNIPPET_ITEMS} сниппетов`);
+  if (snippetBytes(state.snippets) > MAX_SNIPPETS_BYTES)
+    throw Error('Хранилище сниппетов не должно превышать 128 МБ');
 }
 
 // One private, atomically replaced file; the caller supplies the platform encryption codec.
@@ -106,8 +170,10 @@ export class ClipboardHistory {
     version: 1,
     preferences: { ...DEFAULT_CLIPBOARD_PREFERENCES },
     clips: [],
+    snippets: [],
   };
   private queue: Promise<unknown> = Promise.resolve();
+  private incarnations = new Map<string, number>();
   readonly storage: ClipboardStorage;
   preferencesAvailable = false;
   constructor(
@@ -127,7 +193,8 @@ export class ClipboardHistory {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
         throw error;
       }
-      if (stat.size > MAX_HISTORY_BYTES * 3) throw Error('Файл истории слишком большой');
+      if (stat.size > (MAX_HISTORY_BYTES + MAX_SNIPPETS_BYTES) * 3)
+        throw Error('Файл истории слишком большой');
       return fs.readFile(this.path);
     });
     if (data) {
@@ -136,9 +203,10 @@ export class ClipboardHistory {
     }
     if (!this.state.sync) {
       this.state.sync = { device: randomUUID(), counter: 0, entries: {} };
-      for (const clip of this.state.clips) {
+      for (const clip of records(this.state)) {
         const stamp = this.stamp(this.state);
         this.state.sync.entries[clip.id] = {
+          ...(clip.snippet ? { snippet: true as const } : {}),
           added: stamp,
           seen: stamp,
           pin: { stamp, value: clip.pinned },
@@ -147,6 +215,30 @@ export class ClipboardHistory {
     }
     this.preferencesAvailable = true;
     this.storage.loaded();
+    // Earlier snippet builds stored both entity types in clips. Migrate once in
+    // the same atomic encrypted write, preserving IDs, revisions and tombstones.
+    if (this.state.clips.some((clip) => clip.snippet))
+      await this.update((next) => {
+        next.snippets = [
+          ...new Map(
+            [
+              ...next.clips.filter((clip) => clip.snippet).map((clip) => snippetSchema.parse(clip)),
+              ...next.snippets,
+            ].map((clip) => [clip.id, clip]),
+          ).values(),
+        ];
+        next.clips = next.clips.filter((clip) => !clip.snippet);
+        for (const clip of next.snippets) {
+          const stamp = next.sync!.entries[clip.id]?.added ?? this.stamp(next);
+          next.sync!.entries[clip.id] = {
+            added: stamp,
+            seen: stamp,
+            pin: { stamp, value: clip.pinned },
+            ...next.sync!.entries[clip.id],
+            snippet: true,
+          };
+        }
+      });
     await this.prune();
   }
   private stamp(next: Saved): Stamp {
@@ -172,19 +264,31 @@ export class ClipboardHistory {
         };
   }
   snapshot(includeImageContent = true) {
+    // Keep the public collections separate even while a legacy migration is
+    // pending or a failed migration leaves the original file available to read.
+    const clips = this.state.clips.filter((clip) => !clip.snippet);
+    const snippets = records(this.state).filter(
+      (clip): clip is ClipboardSnippet => clip.snippet === true && clip.kind === 'text',
+    );
     return structuredClone({
       version: this.state.version,
       preferences: this.getPreferences(),
+      snippets,
       clips: includeImageContent
-        ? this.state.clips
-        : this.state.clips.map((clip) => (clip.kind === 'image' ? { ...clip, content: '' } : clip)),
+        ? clips
+        : clips.map((clip) => (clip.kind === 'image' ? { ...clip, content: '' } : clip)),
     });
+  }
+  find(id: string) {
+    const clip = records(this.state).find((item) => item.id === id);
+    return clip ? structuredClone(clip) : undefined;
   }
   private update(operation: (next: Saved) => void, force = false) {
     const result = this.queue.then(async () => {
       this.storage.requireReady();
       const next = structuredClone(this.state);
       operation(next);
+      validateSnippets(next);
       trimHistory(next, this.now());
       if (!force && JSON.stringify(next) === JSON.stringify(this.state)) return;
       const encoded = await this.storage.run('encrypt', () =>
@@ -196,7 +300,13 @@ export class ClipboardHistory {
         await fs.writeFile(temporary, encoded, { mode: 0o600 });
         await fs.rename(temporary, this.path);
       });
+      const previousClips = this.state.clips;
       this.state = next;
+      // In-flight derived data belongs to this incarnation, even if the same
+      // image is copied again after a deletion or remote clear.
+      for (const clip of previousClips)
+        if (!next.clips.some((item) => item.id === clip.id))
+          this.incarnations.set(clip.id, (this.incarnations.get(clip.id) ?? 0) + 1);
       this.changed();
     });
     this.queue = result.catch(() => {});
@@ -224,8 +334,75 @@ export class ClipboardHistory {
         preview,
         createdAt: this.now(),
         pinned: existing?.pinned || false,
+        ...(existing?.ocr ? { ocr: existing.ocr } : {}),
       });
     });
+  }
+  async createSnippet(content: string, name: string) {
+    ({ content, name } = snippetText(content, name));
+    const id = randomBytes(32).toString('hex');
+    await this.update((next) => {
+      const stamp = this.stamp(next);
+      next.sync!.entries[id] = {
+        snippet: true,
+        added: stamp,
+        seen: stamp,
+        pin: { stamp, value: true },
+      };
+      next.snippets.unshift({
+        id,
+        kind: 'text',
+        snippet: true,
+        content,
+        preview: content.slice(0, 400),
+        ...(name ? { name } : {}),
+        pinned: true,
+        createdAt: this.now(),
+      });
+    });
+    return id;
+  }
+  async edit(
+    id: string,
+    content: string,
+    name: string,
+    expected?: { content: string; name?: string },
+  ) {
+    ({ content, name } = snippetText(content, name));
+    let editedId = id;
+    await this.update((next) => {
+      let clip = records(next).find((item) => item.id === id);
+      if (!clip) throw Error('Запись уже удалена');
+      if (clip.kind !== 'text') throw Error('Редактирование доступно только для текста');
+      if (expected && (clip.content !== expected.content || clip.name !== expected.name))
+        throw Error('Сниппет изменился на другом Mac. Откройте его заново перед сохранением.');
+      if (clip.snippet && clip.content === content && (clip.name || '') === name) return;
+      const stamp = this.stamp(next);
+      if (!clip.snippet) {
+        // Saving from history makes a separate record; the source copy and its
+        // content-hash identity stay untouched. Only snippets are editable.
+        editedId = randomBytes(32).toString('hex');
+        const snippet = {
+          ...clip,
+          id: editedId,
+          kind: 'text' as const,
+          snippet: true as const,
+          pinned: true,
+          createdAt: this.now(),
+        };
+        next.snippets.unshift(snippet);
+        clip = snippet;
+        next.sync!.entries[editedId] = { snippet: true, pin: { stamp, value: true } };
+      }
+      clip.content = content;
+      clip.preview = content.slice(0, 400);
+      if (name) clip.name = name;
+      else delete clip.name;
+      const entry = next.sync!.entries[editedId];
+      entry.added = stamp;
+      entry.seen = stamp;
+    });
+    return editedId;
   }
   preferences(patch: Partial<ClipboardPreferences>) {
     return this.update((next) => {
@@ -234,7 +411,7 @@ export class ClipboardHistory {
   }
   pin(id: string, pinned: boolean) {
     return this.update((next) => {
-      const clip = next.clips.find((item) => item.id === id);
+      const clip = records(next).find((item) => item.id === id);
       if (!clip) throw Error('Запись уже удалена');
       clip.pinned = pinned;
       next.sync!.entries[id] = {
@@ -246,6 +423,7 @@ export class ClipboardHistory {
   remove(id: string) {
     return this.update((next) => {
       next.clips = next.clips.filter((clip) => clip.id !== id);
+      next.snippets = next.snippets.filter((clip) => clip.id !== id);
       next.sync!.entries[id] = { ...next.sync!.entries[id], deleted: this.stamp(next) };
     });
   }
@@ -255,16 +433,21 @@ export class ClipboardHistory {
       next.sync!.clear = this.stamp(next);
     });
   }
-  manifest(): SyncManifest {
+  manifest(snippets = true): SyncManifest {
     this.storage.requireReady();
     const sync = this.state.sync!;
     return structuredClone({
       version: 1,
+      ...(snippets ? { snippets: true as const } : {}),
       clear: sync.clear,
       entries: Object.fromEntries(
-        Object.entries(sync.entries).map(([id, { seen: _seen, ...entry }]) => [id, entry]),
+        Object.entries(sync.entries)
+          .filter(([, entry]) => snippets || !entry.snippet)
+          .map(([id, { seen: _seen, ...entry }]) => [id, entry]),
       ),
-      available: this.state.clips.map((clip) => clip.id),
+      available: records(this.state)
+        .filter((clip) => snippets || !clip.snippet)
+        .map((clip) => clip.id),
     });
   }
   // Advance deletion/pin metadata before requesting content. Seen versions survive
@@ -292,7 +475,8 @@ export class ClipboardHistory {
           // receives the command. Record their exact versions, so newer copies
           // made on another Mac after clearing can still be retained.
           for (const entry of Object.values(sync.entries))
-            entry.deleted = newest(entry.deleted, newest(entry.added, remote.clear));
+            if (!entry.snippet)
+              entry.deleted = newest(entry.deleted, newest(entry.added, remote.clear));
         }
         sync.clear = newest(sync.clear, remote.clear);
         if (remote.clear) sync.counter = Math.max(sync.counter, remote.clear.counter);
@@ -303,18 +487,22 @@ export class ClipboardHistory {
           if (
             incoming.pin?.value &&
             compareStamp(incoming.pin.stamp, local.pin?.stamp) > 0 &&
-            !next.clips.some((clip) => clip.id === id)
+            !records(next).some((clip) => clip.id === id)
           )
             local.seen = undefined;
           sync.entries[id] = {
             ...local,
+            snippet: local.snippet || incoming.snippet,
             added: newest(local.added, incoming.added),
             deleted: newest(local.deleted, incoming.deleted),
             pin: compareStamp(incoming.pin?.stamp, local.pin?.stamp) > 0 ? incoming.pin : local.pin,
           };
         }
         next.clips = next.clips.filter((clip) => liveEntry(sync.entries[clip.id], sync.clear));
-        for (const clip of next.clips) clip.pinned = sync.entries[clip.id].pin?.value ?? false;
+        next.snippets = next.snippets.filter((clip) =>
+          liveEntry(sync.entries[clip.id], sync.clear),
+        );
+        for (const clip of records(next)) clip.pinned = sync.entries[clip.id].pin?.value ?? false;
       });
     return remote.available.filter((id) => {
       const entry = this.state.sync!.entries[id];
@@ -326,9 +514,10 @@ export class ClipboardHistory {
     });
   }
   transfer(id: string) {
-    const clip = this.state.clips.find((item) => item.id === id);
+    const clip = records(this.state).find((item) => item.id === id);
     const stamp = this.state.sync!.entries[id]?.seen;
-    return clip && stamp ? structuredClone({ clip, stamp }) : undefined;
+    // OCR is local derived data. Keep the v1 peer payload unchanged.
+    return clip && stamp ? structuredClone({ clip: clipSchema.parse(clip), stamp }) : undefined;
   }
   async receive(input: unknown, sourceDevice: string) {
     this.storage.requireReady();
@@ -336,7 +525,11 @@ export class ClipboardHistory {
     if (
       !clip.content ||
       Buffer.byteLength(clip.content) > MAX_CLIP_BYTES ||
-      clipId(clip.kind, clip.content) !== clip.id
+      (clip.snippet
+        ? clip.kind !== 'text' ||
+          Buffer.byteLength(clip.content) > MAX_SNIPPET_TEXT_BYTES ||
+          !this.state.sync!.entries[clip.id]?.snippet
+        : clipId(clip.kind, clip.content) !== clip.id)
     )
       throw Error('Некорректная запись буфера');
     if (clip.kind === 'image') {
@@ -354,18 +547,25 @@ export class ClipboardHistory {
       const entry = sync.entries[clip.id];
       if (
         !entry ||
+        !!clip.snippet !== !!entry.snippet ||
         compareStamp(stamp, entry.added) !== 0 ||
         !liveEntry(entry, sync.clear) ||
         compareStamp(stamp, entry.seen) <= 0
       )
         return;
       entry.seen = stamp;
+      const localOcr = next.clips.find((item) => item.id === clip.id)?.ocr;
       next.clips = next.clips.filter((item) => item.id !== clip.id);
-      next.clips.push({
+      next.snippets = next.snippets.filter((item) => item.id !== clip.id);
+      const received = {
         ...clip,
+        ...(localOcr ? { ocr: localOcr } : {}),
         pinned: entry.pin?.value ?? false,
         sourceDevice: clip.sourceDevice || sourceDevice,
-      });
+      };
+      if (received.snippet && received.kind === 'text')
+        next.snippets.push({ ...received, kind: 'text', snippet: true });
+      else next.clips.push(received);
     });
   }
   prune() {
@@ -382,5 +582,29 @@ export class ClipboardHistory {
   }
   flush() {
     return this.queue;
+  }
+  imageTextImages() {
+    return this.state.clips
+      .filter((clip) => clip.kind === 'image')
+      .map((clip) => ({
+        id: clip.id,
+        content: clip.content,
+        ocr: clip.ocr,
+        incarnation: this.incarnations.get(clip.id) ?? 0,
+      }));
+  }
+  saveImageText(id: string, incarnation: number, result: ImageText) {
+    return this.update((next) => {
+      const clip = next.clips.find((item) => item.id === id && item.kind === 'image');
+      if (clip && (this.incarnations.get(id) ?? 0) === incarnation) clip.ocr = result;
+    });
+  }
+  retryImageText(id: string) {
+    return this.update((next) => {
+      const clip = next.clips.find((item) => item.id === id && item.kind === 'image');
+      if (!clip) throw Error('Запись уже удалена');
+      if (clip.ocr?.status !== 'failed') throw Error('Распознавание не требует повтора');
+      delete clip.ocr;
+    });
   }
 }

@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
 import { assertPreparedApp } from './release/prepared-app.mjs';
-import { cli, run } from './lib/command.mjs';
+import { cli, run, runAll } from './lib/command.mjs';
 
 export function verificationPlan(args = []) {
   const { values, positionals } = parseArgs({
@@ -38,7 +38,13 @@ export async function main(args = process.argv.slice(2)) {
     return;
   }
   if (plan.prebuilt) await assertPreparedApp();
-  for (const [command, commandArgs] of plan.commands) run(command, commandArgs);
+  const commands = [...plan.commands];
+  // Build failures invalidate every check; prepared checks are independent.
+  if (!plan.prebuilt) {
+    const [command, args] = commands.shift();
+    run(command, args);
+  }
+  runAll(commands);
 }
 
 cli(import.meta.url, () => main());

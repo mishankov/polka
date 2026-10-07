@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { cli, run } from './lib/command.mjs';
+import { cli, run, runAll } from './lib/command.mjs';
 
 const suites = {
   core: [
@@ -8,6 +8,8 @@ const suites = {
     'shelf-search-shortcuts-smoke',
     'clipboard-startup-smoke',
     'emoji-smoke',
+    'image-text-smoke',
+    'file-shelf-smoke',
   ],
   shelf: ['shelf-smoke', 'shelf-search-shortcuts-smoke', 'clipboard-startup-smoke'],
   'shelf-search': ['shelf-search-shortcuts-smoke'],
@@ -19,6 +21,7 @@ const suites = {
     'clipboard-actions-smoke',
     'clipboard-screenshot-smoke',
     'clipboard-animation-smoke',
+    'clipboard-snippets-smoke',
   ],
   clipboard: ['clipboard-smoke'],
   'clipboard-actions': ['clipboard-actions-smoke'],
@@ -27,6 +30,10 @@ const suites = {
   'clipboard-storage': ['clipboard-storage-smoke'],
   'clipboard-paste': ['clipboard-paste-smoke'],
   'clipboard-sync': ['clipboard-sync-smoke'],
+  'clipboard-snippets': ['clipboard-snippets-smoke'],
+  'clipboard-ocr': ['image-text-smoke'],
+  'file-shelf': ['file-shelf-smoke'],
+  'file-shelf-native': ['file-shelf-native-smoke'],
   media: ['media-indicator-smoke'],
   updates: ['updates-smoke'],
 };
@@ -41,6 +48,7 @@ export function desktopPlan(args = [], env = process.env) {
         'prebuilt',
         'dev',
         'native',
+        'finder',
         'self-signed',
         'migrate-self-signed',
         'help',
@@ -61,7 +69,9 @@ export function desktopPlan(args = [], env = process.env) {
       'clipboard-images',
       'clipboard-animation',
       'emoji',
+      'clipboard-snippets',
     ],
+    finder: ['file-shelf-native'],
     prebuilt: ['updates'],
     dev: ['clipboard-paste'],
     native: ['clipboard-actions', 'clipboard-images'],
@@ -81,7 +91,7 @@ export function desktopPlan(args = [], env = process.env) {
     childEnv.EVERYTHING_EXECUTABLE = 'release/mac-arm64/Polka.app/Contents/MacOS/Polka';
   // Packaged shelf coverage has always used the native shelf smoke alone.
   const tests = values.packaged && suite === 'shelf' ? ['shelf-smoke'] : suites[suite];
-  const flags = ['prebuilt', 'dev', 'native', 'self-signed', 'migrate-self-signed']
+  const flags = ['prebuilt', 'dev', 'native', 'finder', 'self-signed', 'migrate-self-signed']
     .filter((name) => values[name])
     .map((name) => `--${name}`);
   if (values.case) flags.push('--case', values.case);
@@ -103,12 +113,11 @@ export function main(args = process.argv.slice(2), env = process.env, execute = 
   const plan = desktopPlan(args, env);
   if (plan.help) {
     console.log(
-      `Usage: npm run test:desktop -- [suite] [options]\nDefault: core; --packaged defaults to shelf. Build first, except for updates.\nSuites: ${Object.keys(suites).join(', ')}\nOptions: --packaged, --prebuilt (updates), --dev (clipboard-paste), --native (clipboard-actions or clipboard-images), --self-signed or --migrate-self-signed (updates), --case ID (shelf-search: catalog, calculations, search-actions, ranking, clipboard, emoji, restoration, updates).`,
+      `Usage: npm run test:desktop -- [suite] [options]\nDefault: core; --packaged defaults to shelf. Build first, except for updates.\nSuites: ${Object.keys(suites).join(', ')}\nOptions: --packaged, --prebuilt (updates), --dev (clipboard-paste), --native (clipboard-actions or clipboard-images), --finder (file-shelf-native), --self-signed or --migrate-self-signed (updates), --case ID (shelf-search: catalog, calculations, search-actions, ranking, clipboard, emoji, restoration, updates).`,
     );
     return;
   }
-  for (const [command, commandArgs] of plan.commands)
-    execute(command, commandArgs, { env: plan.env });
+  runAll(plan.commands, { env: plan.env }, execute);
 }
 
 cli(import.meta.url, () => main());

@@ -15,7 +15,7 @@ test('launcher searches native app names, descriptions and aliases and puts clip
   const apps = [native, ...BUILTIN_APPS];
   assert.deepEqual(
     launcherApps(apps, '').map((app) => app.id),
-    ['builtin:clipboard', 'builtin:emoji', 'mac:qa'],
+    ['builtin:clipboard', 'builtin:snippets', 'builtin:files', 'builtin:emoji', 'mac:qa'],
   );
   assert.deepEqual(
     launcherApps(apps, ' VISUAL studio ').map((app) => app.id),
@@ -29,6 +29,8 @@ test('launcher searches native app names, descriptions and aliases and puts clip
   assert.equal(apps[0], native);
   assert.equal(launcherApps(apps, 'emoji')[0].id, 'builtin:emoji');
   assert.equal(launcherApps(apps, 'смайлики')[0].id, 'builtin:emoji');
+  assert.equal(launcherApps(apps, 'snippets')[0].id, 'builtin:snippets');
+  assert.equal(launcherApps(apps, 'сниппеты')[0].id, 'builtin:snippets');
 });
 
 function shortcutFixture() {

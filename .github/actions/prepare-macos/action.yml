@@ -1,0 +1,64 @@
+name: Prepare macOS app
+description: Install dependencies, reuse matching native helpers, and build fresh JavaScript.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version-file: .node-version
+        cache: npm
+
+    - name: Check Apple silicon and macOS toolchain
+      id: toolchain
+      shell: bash
+      run: |
+        test "$(uname -m)" = arm64
+        test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
+        node -e 'if (process.platform !== "darwin" || process.arch !== "arm64") process.exit(1)'
+        xcodebuild -version
+        toolchain=$( { sw_vers -productVersion; xcodebuild -version; xcrun swiftc --version; xcrun --show-sdk-version; } | shasum -a 256 | cut -d' ' -f1)
+        echo "key=$toolchain" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Electron and packaging downloads
+      uses: actions/cache@v6
+      with:
+        path: |
+          ~/Library/Caches/electron
+          ~/Library/Caches/electron-builder
+        key: macos-downloads-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+
+    - name: Install dependencies
+      shell: bash
+      run: npm ci --prefer-offline --no-audit --no-fund
+
+    - name: Prepare Electron binary
+      shell: bash
+      # Electron downloads lazily; finish before Playwright resolves its executable.
+      run: node -e 'console.log(require("electron"))'
+
+    - name: Cache native helpers
+      id: native
+      uses: actions/cache@v6
+      with:
+        path: |
+          build/media-probe
+          build/clipboard-probe
+          build/sync-discovery
+          build/file-shelf-probe
+          build/image-text
+        # No partial restore: binaries must match sources, command and toolchain.
+        key: macos-native-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('native/**/*.swift', 'native/**/*.plist', 'scripts/build.mjs', '.github/actions/prepare-macos/action.yml') }}
+
+    - name: Build native helpers
+      if: steps.native.outputs.cache-hit != 'true'
+      shell: bash
+      run: npm run build -- --native
+
+    - name: Build app
+      shell: bash
+      run: npm run build -- --javascript
+
+    - name: Verify prepared outputs
+      shell: bash
+      run: node --input-type=module -e 'import { assertPreparedApp } from "./scripts/release/prepared-app.mjs"; await assertPreparedApp()'

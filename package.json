@@ -44,6 +44,14 @@
       {
         "from": "build/clipboard-probe",
         "to": "clipboard-probe"
+      },
+      {
+        "from": "build/image-text",
+        "to": "image-text"
+      },
+      {
+        "from": "build/file-shelf-probe",
+        "to": "file-shelf-probe"
       }
     ],
     "mac": {

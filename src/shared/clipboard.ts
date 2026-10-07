@@ -13,10 +13,20 @@ export interface ClipboardClip {
   preview: string;
   createdAt: number;
   pinned: boolean;
+  snippet?: boolean;
+  name?: string;
   sourceDevice?: string;
+  ocr?: ImageText;
+}
+export interface ImageText {
+  version: string;
+  status: 'ready' | 'empty' | 'failed';
+  text: string;
+  languages: string[];
 }
 export interface ClipboardState {
   clips: ClipboardClip[];
+  snippets: ClipboardSnippet[];
   preferences: ClipboardPreferences;
   registered: boolean;
   pasteAccess: 'granted' | 'required' | 'unavailable';
@@ -30,6 +40,7 @@ export interface ClipboardState {
   error?: string;
   sync?: ClipboardSyncState;
 }
+export type ClipboardSnippet = ClipboardClip & { kind: 'text'; snippet: true };
 export interface ClipboardStorageState {
   status: 'starting' | 'ready' | 'failed';
   path: string;
@@ -51,7 +62,12 @@ export function clipboardResults(clips: ClipboardClip[], query: string) {
   return clips
     .filter((clip) =>
       terms.every((term) =>
-        (clip.kind === 'text' ? clip.content : 'Изображение').toLocaleLowerCase().includes(term),
+        (clip.kind === 'text'
+          ? `${clip.name || ''} ${clip.content}`
+          : `Изображение ${clip.ocr?.text ?? ''}`
+        )
+          .toLocaleLowerCase()
+          .includes(term),
       ),
     )
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt - a.createdAt);

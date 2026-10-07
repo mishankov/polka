@@ -12,6 +12,8 @@ import {
   shell,
 } from 'electron';
 import { promises as fs } from 'node:fs';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import { z } from 'zod';
 import {
@@ -22,6 +24,7 @@ import {
 } from './clipboard-history';
 import { ClipboardHover, contains, shelfGeometry, type Notch } from './clipboard-hover';
 import { ClipboardSync } from './clipboard-sync';
+import { ImageTextIndexer, recognizeImageText } from './image-text';
 import { ClipboardPaste } from './clipboard-paste';
 import { ClipboardProbeSupervisor } from './clipboard-probe-supervisor';
 import { LauncherShortcut } from './launcher-shortcut';
@@ -34,6 +37,7 @@ import {
 import type { ShelfDestination, ShelfPresentation } from '../shared/shelf';
 import { calculate } from '../shared/calculator';
 import { emojiById } from '../shared/emoji';
+import { FileShelf } from './file-shelf';
 import { ShelfLifecycle } from './shelf-lifecycle';
 import { explainKeychainAccess } from './keychain-access-notice';
 import { KEYCHAIN_ACCESS_RECOVERY } from '../shared/keychain-access';
@@ -48,6 +52,20 @@ export function createShelf(
   let window: BrowserWindow | undefined;
   let loading: Promise<void> | undefined;
   let savingImage = false;
+  let fileProbe: ChildProcess | undefined;
+  let fileDrag = false;
+  let fileDropPending = false;
+  let fileDropEndTimer: ReturnType<typeof setTimeout> | undefined;
+  let fileTargetError = '';
+  const fileState = (state: import('../shared/file-shelf').FileShelfState) => ({
+    ...state,
+    error: state.error || fileTargetError,
+  });
+  const files = new FileShelf(async (path) =>
+    (await app.getFileIcon(path, { size: 'normal' })).toDataURL(),
+  );
+  const filesChanged = () =>
+    window?.webContents.send('platform:event', { type: 'fileShelf.changed' });
   let pendingSelection: { revision: number } | undefined;
   const lifecycle = new ShelfLifecycle();
   let captureTargetPending: Promise<void> | undefined;
@@ -65,7 +83,7 @@ export function createShelf(
     notchWidth: 96,
     notchHeight: 3,
   };
-  let openedBy: 'hover' | 'keyboard' = 'keyboard';
+  let openedBy: 'hover' | 'keyboard' | 'drag' = 'keyboard';
   let displayId: number | undefined;
   const probe = new ClipboardProbeSupervisor({
     path: () =>
@@ -153,8 +171,10 @@ export function createShelf(
   let storageAlerted = false;
   let notches: Notch[] = [];
   let receivedScreenGeometry = false;
+  let imageText: ImageTextIndexer | undefined;
   const hover = new ClipboardHover();
   function changed() {
+    imageText?.changed();
     if (history.storage.state().status === 'failed' && !storageAlerted) {
       storageAlerted = true;
       generation++;
@@ -205,6 +225,15 @@ export function createShelf(
       decode: (value) => safeStorage.decryptString(value),
     },
   });
+  imageText = new ImageTextIndexer(history, (content, signal) =>
+    recognizeImageText(
+      app.isPackaged
+        ? join(process.resourcesPath, 'image-text')
+        : join(app.getAppPath(), 'build/image-text'),
+      content,
+      signal,
+    ),
+  );
   const shortcut = new LauncherShortcut(
     globalShortcut,
     () => {
@@ -224,6 +253,7 @@ export function createShelf(
       clips: snapshot.clips.map((clip) => ({
         ...clip,
         content: clip.kind === 'image' ? '' : clip.content,
+        ocr: clip.ocr?.version === imageText?.version ? clip.ocr : undefined,
       })),
       sync: sync.state(),
       storage: history.storage.state(),
@@ -242,6 +272,8 @@ export function createShelf(
     if (window && !window.isDestroyed()) window.hide();
   }
   function hide(animate = true, reason: 'dismiss' | 'paste' = 'dismiss') {
+    fileDropPending = false;
+    clearTimeout(fileDropEndTimer);
     if (process.env.EVERYTHING_PASTE_DEBUG === '1')
       console.log('Clipboard paste closing', {
         phase: lifecycle.phase,
@@ -279,9 +311,10 @@ export function createShelf(
     hideTimer = setTimeout(() => finishHide(revision), 240);
   }
   async function show(
-    source: 'hover' | 'keyboard' = 'keyboard',
+    source: 'hover' | 'keyboard' | 'drag' = 'keyboard',
     destination?: ShelfDestination,
     searchQuery = '',
+    sourceClipId?: string,
   ) {
     if (disposed || suspensions.size > 0 || savingImage) return;
     pendingShow?.finish(false);
@@ -294,12 +327,16 @@ export function createShelf(
     // Target capture can wait on another app's accessibility tree. Establish the
     // opening context first so the hover timer cannot dismiss a keyboard opening.
     openedBy = source;
+    if (source !== 'drag') {
+      fileDropPending = false;
+      clearTimeout(fileDropEndTimer);
+    }
     const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     displayId = display.id;
     const revision = entry.revision;
     if (newSession) {
       paste.cancel();
-      captureTargetPending = paste.capture();
+      captureTargetPending = source === 'drag' ? undefined : paste.capture();
     }
     if (captureTargetPending) await captureTargetPending;
     if (process.env.EVERYTHING_PASTE_DEBUG === '1')
@@ -359,7 +396,15 @@ export function createShelf(
             focused: win.isFocused(),
           });
         // Hiding a closing panel can deliver blur after a reopen has begun.
-        if (!savingImage && !selecting() && win.isVisible() && !win.isFocused()) hide();
+        if (
+          !savingImage &&
+          !fileDrag &&
+          openedBy !== 'drag' &&
+          !selecting() &&
+          win.isVisible() &&
+          !win.isFocused()
+        )
+          hide();
       });
       win.on('close', (event) => {
         if (!isQuitting()) {
@@ -396,8 +441,9 @@ export function createShelf(
     presentation = {
       ...entry,
       visible: true,
-      focusSearch: true,
+      focusSearch: source !== 'drag',
       searchQuery,
+      sourceClipId,
       topInset: geometry.topInset,
       notchWidth: geometry.target.width,
       notchHeight: geometry.target.height,
@@ -431,8 +477,11 @@ export function createShelf(
     window.setIgnoreMouseEvents(false);
     // A macOS panel takes keyboard focus without activating its owning app.
     // Keep the previous app's menu bar while making both entry points type-ready.
-    window.show();
-    window.focus();
+    if (source === 'drag') window.showInactive();
+    else {
+      window.show();
+      window.focus();
+    }
     lifecycle.commit(shownRevision);
   }
   function updateGeometry() {
@@ -545,7 +594,7 @@ export function createShelf(
     }
   }
   function tick() {
-    if (suspensions.size > 0 || disposed || savingImage || selecting()) return;
+    if (suspensions.size > 0 || disposed || savingImage || fileDrag || selecting()) return;
     const point = screen.getCursorScreenPoint();
     const display = lifecycle.requested
       ? screen.getAllDisplays().find((display) => display.id === displayId)
@@ -560,6 +609,7 @@ export function createShelf(
       expanded,
     );
     if (lifecycle.requested && openedBy === 'keyboard') return;
+    if (lifecycle.requested && openedBy === 'drag' && !fileDropPending) return;
     if (!history.getPreferences().hoverEnabled && !lifecycle.requested) return;
     const action = hover.step(
       Date.now(),
@@ -610,7 +660,76 @@ export function createShelf(
     if (history.preferencesAvailable) shortcut.initialize(history.getPreferences().accelerator);
     if (history.storage.ready) await sync.initialize().catch(failed);
   }
+  function startFileProbe() {
+    if (process.platform !== 'darwin') return;
+    fileProbe = spawn(
+      app.isPackaged
+        ? join(process.resourcesPath, 'file-shelf-probe')
+        : join(app.getAppPath(), 'build/file-shelf-probe'),
+      [],
+      { stdio: ['pipe', 'pipe', 'pipe'] },
+    );
+    const targetFailed = (error: unknown) => {
+      if (disposed) return;
+      fileTargetError =
+        'Цель у выреза недоступна. Откройте файлы через список приложений и перетащите их на открытую полку. Перезапустите Полку, чтобы повторить запуск цели.';
+      fileDrag = false;
+      console.error('File shelf target unavailable', error);
+      filesChanged();
+    };
+    fileProbe.on('error', targetFailed);
+    fileProbe.stdin?.on('error', targetFailed);
+    fileProbe.on('exit', (code) => targetFailed(`Helper exited: ${code}`));
+    fileProbe.stderr?.on('data', (data) => console.error('File shelf target:', String(data)));
+    const lines = createInterface({ input: fileProbe.stdout! });
+    lines.on('line', (line) => {
+      try {
+        const message = JSON.parse(line);
+        if (disposed || suspensions.size) return;
+        if (message.type === 'incomingEnd' && fileDropPending) {
+          clearTimeout(fileDropEndTimer);
+          const revision = lifecycle.revision;
+          // Let a renderer drop IPC arrive before treating release as cancellation.
+          fileDropEndTimer = setTimeout(() => {
+            if (fileDropPending && lifecycle.revision === revision) hide();
+          }, 180);
+        }
+        if (message.type === 'dragEnd') {
+          fileDrag = false;
+          fileProbe?.stdin?.write(JSON.stringify({ enabled: true }) + '\n');
+          hide();
+        }
+        if (
+          message.type === 'enter' &&
+          (!lifecycle.requested || presentation.destination !== 'files')
+        ) {
+          fileDropPending = true;
+          clearTimeout(fileDropEndTimer);
+          void show('drag', 'files').catch(console.error);
+        }
+        if (message.type === 'drop') {
+          fileDropPending = false;
+          clearTimeout(fileDropEndTimer);
+          const paths = z.array(z.string().max(4096)).max(1000).parse(message.paths);
+          void files
+            .add(paths)
+            .then(() => {
+              filesChanged();
+              return show('drag', 'files');
+            })
+            .then(() => {
+              // A completed drop can receive keys; an in-progress drag stays inactive.
+              if (lifecycle.requested && presentation.destination === 'files') window?.focus();
+            })
+            .catch(console.error);
+        }
+      } catch (error) {
+        console.error('Invalid file shelf event', error);
+      }
+    });
+  }
   async function start() {
+    startFileProbe();
     hoverTimer = setInterval(tick, 80);
     screen.on('display-removed', displayChanged);
     screen.on('display-metrics-changed', displayMetricsChanged);
@@ -692,6 +811,42 @@ export function createShelf(
     return true;
   }
   async function handle(method: string, params: Record<string, unknown>) {
+    if (method === 'shelf.showSnippets') {
+      await show(
+        'keyboard',
+        'snippets',
+        z.string().max(10000).optional().parse(params.query),
+        z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional()
+          .parse(params.sourceClipId),
+      );
+      return true;
+    }
+    if (method === 'shelf.showFiles') {
+      await show('keyboard', 'files');
+      return true;
+    }
+    if (method === 'shelf.files.state') return fileState(await files.refresh());
+    if (method === 'shelf.files.add') {
+      fileDropPending = false;
+      clearTimeout(fileDropEndTimer);
+      const result = await files.add(
+        z.array(z.string().max(4096)).min(1).max(1000).parse(params.paths),
+      );
+      filesChanged();
+      if (presentation.destination !== 'files') await show('drag', 'files');
+      if (lifecycle.requested && presentation.destination === 'files') window?.focus();
+      return fileState(result);
+    }
+    if (method === 'shelf.files.remove' || method === 'shelf.files.clear') {
+      const result = method.endsWith('clear')
+        ? await files.clear()
+        : await files.remove(z.array(z.string().uuid()).max(200).parse(params.ids));
+      filesChanged();
+      return result;
+    }
     if (method === 'shelf.showEmoji') {
       await show('keyboard', 'emoji');
       return true;
@@ -787,7 +942,7 @@ export function createShelf(
       const owner = window;
       const revision = lifecycle.revision;
       await history.prune();
-      const clip = history.snapshot().clips.find((item) => item.id === z.string().parse(params.id));
+      const clip = history.find(z.string().parse(params.id));
       if (!clip) throw Error('Запись уже удалена');
       if (
         lifecycle.phase !== 'open' ||
@@ -910,6 +1065,38 @@ export function createShelf(
     } else if (method === 'clipboardHistory.remove') {
       generation++;
       await history.remove(z.string().parse(params.id));
+    } else if (method === 'clipboardHistory.retryImageText') {
+      await history.retryImageText(z.string().parse(params.id));
+    } else if (method === 'clipboardHistory.copyImageText') {
+      return selectContent(false, async () => {
+        await history.prune();
+        const clip = history
+          .snapshot()
+          .clips.find((item) => item.id === z.string().parse(params.id));
+        if (!clip) throw Error('Запись уже удалена');
+        if (
+          clip.kind !== 'image' ||
+          clip.ocr?.version !== imageText?.version ||
+          clip.ocr?.status !== 'ready'
+        )
+          throw Error('Распознанный текст ещё недоступен');
+        return { 'text/plain': clip.ocr.text };
+      });
+    } else if (method === 'clipboardHistory.createSnippet') {
+      return {
+        id: await history.createSnippet(
+          z.string().parse(params.content),
+          z.string().parse(params.name),
+        ),
+      };
+    } else if (method === 'clipboardHistory.edit') {
+      const id = await history.edit(
+        z.string().parse(params.id),
+        z.string().parse(params.content),
+        z.string().parse(params.name),
+        z.object({ content: z.string(), name: z.string().optional() }).parse(params.expected),
+      );
+      return { id };
     } else if (method === 'clipboardHistory.pin')
       await history.pin(z.string().parse(params.id), z.boolean().parse(params.pinned));
     else if (method === 'clipboardHistory.copy' || method === 'clipboardHistory.select') {
@@ -917,7 +1104,7 @@ export function createShelf(
         method === 'clipboardHistory.select',
         async (): Promise<Record<string, string | Blob>> => {
           await history.prune();
-          const clip = history.snapshot().clips.find((item) => item.id === params.id);
+          const clip = history.find(z.string().parse(params.id));
           if (!clip) throw Error('Запись уже удалена');
           const transformation = z
             .enum(TEXT_TRANSFORMATIONS)
@@ -941,17 +1128,22 @@ export function createShelf(
   }
   async function stop() {
     disposed = true;
+    const stoppingImageText = imageText?.stop();
     pendingShow?.finish(false);
     generation++;
     clearTimeout(hideTimer);
     clearInterval(hoverTimer);
+    clearTimeout(fileDropEndTimer);
     clearInterval(expiryTimer);
     paste.stop();
     if (helper.status !== 'failed') helper = { status: 'stopped' };
     probe.stop();
+    fileProbe?.stdin?.end();
+    fileProbe?.kill();
     screen.removeListener('display-removed', displayChanged);
     screen.removeListener('display-metrics-changed', displayMetricsChanged);
     await sync.stop();
+    await stoppingImageText;
     await history.flush();
   }
   return {
@@ -963,14 +1155,38 @@ export function createShelf(
     hide,
     toggle,
     getRevision: () => lifecycle.revision,
+    startFileDrag(ids: string[]) {
+      if (!window || window.isDestroyed() || !lifecycle.requested) return;
+      try {
+        const paths = files.drag(z.array(z.string().uuid()).min(1).max(200).parse(ids));
+        const item = files.snapshot().items.find((item) => item.path === paths[0]);
+        let icon = nativeImage.createFromDataURL(item?.icon || '');
+        if (icon.isEmpty())
+          icon = nativeImage.createFromBitmap(Buffer.alloc(32 * 32 * 4, 255), {
+            width: 32,
+            height: 32,
+          });
+        fileDrag = true;
+        fileProbe?.stdin?.write(JSON.stringify({ enabled: false, outgoing: true }) + '\n');
+        window.webContents.startDrag({ file: paths[0], files: paths, icon });
+        // AppKit's drag session is asynchronous. The helper observes release before closing.
+      } catch (error) {
+        console.error('File drag failed', error);
+        filesChanged();
+        fileDrag = false;
+        fileProbe?.stdin?.write(JSON.stringify({ enabled: suspensions.size === 0 }) + '\n');
+      }
+    },
     suspend(reason = 'sleep') {
       suspensions.add(reason);
+      fileProbe?.stdin?.write(JSON.stringify({ enabled: false }) + '\n');
       paste.cancel();
       generation++;
       hide(false);
     },
     resume(reason = 'sleep') {
       suspensions.delete(reason);
+      fileProbe?.stdin?.write(JSON.stringify({ enabled: suspensions.size === 0 }) + '\n');
     },
   };
 }

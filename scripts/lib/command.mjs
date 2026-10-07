@@ -22,3 +22,21 @@ export function cli(url, main) {
       process.exitCode = error.exitCode ?? 1;
     });
 }
+
+// Each child finishes before the next starts; GUI suites never overlap.
+export function runAll(commands, options = {}, execute = run) {
+  const failures = [];
+  for (const [command, args] of commands) {
+    try {
+      execute(command, args, options);
+    } catch (error) {
+      failures.push(error);
+      console.error(`Failed: ${command} ${args.join(' ')}: ${error.message}`);
+    }
+  }
+  if (failures.length) {
+    const error = new AggregateError(failures, `${failures.length} independent check(s) failed.`);
+    error.exitCode = 1;
+    throw error;
+  }
+}

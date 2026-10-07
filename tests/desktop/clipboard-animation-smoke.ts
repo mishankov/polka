@@ -22,10 +22,18 @@ async function main(test: DesktopTest) {
       (globalThis as any).__realCursor = screen.getCursorScreenPoint;
       const { bounds } = screen.getPrimaryDisplay();
       (globalThis as any).__qaCursor = { x: bounds.x, y: bounds.y + 500 };
-      screen.getCursorScreenPoint = () => (globalThis as any).__qaCursor;
+      (globalThis as any).__qaCursorReads = 0;
+      screen.getCursorScreenPoint = () => {
+        (globalThis as any).__qaCursorReads++;
+        return (globalThis as any).__qaCursor;
+      };
       return app.dock?.isVisible();
     });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await test.shelfHidden(app, shell);
+    // Dismissal suppresses hover until its timer observes a point outside the notch.
+    await expect
+      .poll(() => app.evaluate(() => (globalThis as any).__qaCursorReads))
+      .toBeGreaterThan(0);
     assert.equal(dockBefore, false, 'The running app stays out of the Dock');
     const opening = Promise.resolve(shell);
     await app.evaluate(({ screen }) => {
@@ -37,7 +45,7 @@ async function main(test: DesktopTest) {
     });
     const panel = await opening;
     const root = panel.locator('.clipboard-shelf');
-    await expect(root).toHaveClass(/is-open/);
+    await test.shelfReady(app, panel, 'Поиск по полке');
     const activation = await app.evaluate(({ app, BrowserWindow }) => ({
       dockVisible: app.dock?.isVisible(),
       windows: BrowserWindow.getAllWindows().map((win) => ({
@@ -126,20 +134,56 @@ async function main(test: DesktopTest) {
       )
       .toBe(false);
     await panel.screenshot({ path: join(test.artifacts, 'clipboard-notch-black.png') });
-    // Prolong only the exit animation so the intermediate closing state can be inspected.
-    await panel.addStyleTag({
-      content: '.clipboard-shelf.is-closed { animation-duration: 220ms; }',
+    // Freeze both clocks: cross-process assertions can take longer than the
+    // 150 ms CSS animation or the 240 ms native fallback on a loaded runner.
+    const pausedExit = await panel.addStyleTag({
+      content: '.clipboard-shelf.is-closed { animation-play-state: paused; }',
     });
-    await panel.evaluate(() => window.platform.call('clipboardHistory.hide'));
-    await expect(root).toHaveClass(/is-closed/);
-    assert(await visible(), 'Native window stays visible while the exit animation runs');
-    await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
-    await expect(root).toHaveClass(/is-open/);
-    await expect(panel.getByRole('combobox')).toBeFocused();
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert(await visible(), 'Reopening cancels the pending native hide');
-    await panel.evaluate(() => window.platform.call('clipboardHistory.hide'));
-    await expect.poll(visible).toBe(false);
+    await app.evaluate(() => {
+      const { mock } = process.getBuiltinModule('node:test');
+      mock.timers.enable({ apis: ['setTimeout'] });
+      (globalThis as any).__animationTimers = mock.timers;
+    });
+    try {
+      await panel.evaluate(() => window.platform.call('clipboardHistory.hide'));
+      await expect(root).toHaveClass(/is-closed/);
+      assert(await visible(), 'Native window stays visible while the exit animation runs');
+      const paused = await root.evaluate((element) =>
+        element.getAnimations().map((animation) => ({
+          name: (animation as CSSAnimation).animationName,
+          state: animation.playState,
+        })),
+      );
+      assert.deepEqual(paused, [{ name: 'clipboard-hide', state: 'paused' }]);
+      await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
+      await test.shelfReady(app, panel, 'Найти в истории');
+      await app.evaluate(() => (globalThis as any).__animationTimers.tick(240));
+      assert(await visible(), 'Reopening cancels the pending native hide');
+
+      // Exercise the real renderer acknowledgement before the fallback fires.
+      await panel.evaluate(() => window.platform.call('clipboardHistory.hide'));
+      await expect(root).toHaveClass(/is-closed/);
+      await root.evaluate((element) => {
+        for (const animation of element.getAnimations()) animation.finish();
+      });
+      await test.shelfHidden(app, panel);
+
+      // If the renderer cannot finish, the native safety timeout still hides it.
+      await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
+      await test.shelfReady(app, panel, 'Найти в истории');
+      await panel.evaluate(() => window.platform.call('clipboardHistory.hide'));
+      await expect(root).toHaveClass(/is-closed/);
+      await app.evaluate(() => (globalThis as any).__animationTimers.tick(239));
+      assert(await visible(), 'Native fallback does not hide the window early');
+      await app.evaluate(() => (globalThis as any).__animationTimers.tick(1));
+      assert.equal(await visible(), false, 'Native fallback hides an unresponsive renderer');
+    } finally {
+      await app.evaluate(() => {
+        (globalThis as any).__animationTimers.reset();
+        delete (globalThis as any).__animationTimers;
+      });
+      await pausedExit.evaluate((element) => element.parentNode?.removeChild(element));
+    }
     await shell.evaluate(() => window.platform.call('clipboardHistory.show'));
     await expect(root).toHaveClass(/is-open/);
     // Reduced motion keeps the same end states without the expansion/contraction.

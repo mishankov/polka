@@ -5,7 +5,6 @@ import { api, errorMessage } from './api';
 import { consumedKey } from './shelf-keyboard';
 import { TEXT_TRANSFORMATION_LABELS } from '../../shared/clipboard-actions';
 import type { useClipboardHistory } from './useClipboardHistory';
-
 function ClipboardPreviewContent({
   clip,
   text,
@@ -57,6 +56,7 @@ function ClipboardPreviewContent({
         </div>
       ) : image ? (
         <img
+          className="clipboard-preview-image"
           src={image}
           alt="Просмотр скопированного изображения"
           onLoad={() => {
@@ -67,10 +67,28 @@ function ClipboardPreviewContent({
       ) : (
         <Loader size="sm" color="gray" />
       )}
+      {clip.kind === 'image' && (
+        <section className="clipboard-image-text" aria-label="Распознанный текст">
+          <h2>Текст на изображении</h2>
+          {!clip.ocr ? (
+            <p role="status">Распознаём текст на этом Mac… Изображение уже можно копировать.</p>
+          ) : clip.ocr.status === 'failed' ? (
+            <p role="status">Не удалось распознать текст. Повторите распознавание.</p>
+          ) : clip.ocr.status === 'empty' ? (
+            <p role="status">Текст на изображении не найден.</p>
+          ) : (
+            <pre tabIndex={0} aria-label="Распознанный текст">
+              {clip.ocr.text}
+            </pre>
+          )}
+          {clip.ocr && clip.ocr.status !== 'failed' && !clip.ocr.languages.includes('ru-RU') && (
+            <p>Эта версия macOS не поддерживает распознавание русского текста.</p>
+          )}
+        </section>
+      )}
     </div>
   );
 }
-
 export function clipDate(timestamp: number) {
   const date = new Date(timestamp);
   const today = new Date();
@@ -84,7 +102,6 @@ export function clipDate(timestamp: number) {
         : date.toLocaleDateString('ru', { day: 'numeric', month: 'short' });
   return `${day}, ${date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}`;
 }
-
 type PreviewProps = Pick<
   ReturnType<typeof useClipboardHistory>,
   | 'canPaste'
@@ -94,10 +111,9 @@ type PreviewProps = Pick<
   | 'previewActions'
   | 'originalActionIndex'
   | 'previewText'
-> & {
-  preview: ClipboardClip;
-  scrollTop: number;
-};
+  | 'writable'
+  | 'editClip'
+> & { preview: ClipboardClip; scrollTop: number };
 export default function ClipboardPreview({
   preview,
   canPaste,
@@ -107,6 +123,8 @@ export default function ClipboardPreview({
   previewActions,
   originalActionIndex,
   previewText,
+  writable,
+  editClip,
   scrollTop,
 }: PreviewProps) {
   return (
@@ -128,7 +146,16 @@ export default function ClipboardPreview({
       }}
     >
       <div className="clipboard-preview-toolbar">
-        <span>{clipDate(preview.createdAt)}</span>
+        <span>{preview.name || clipDate(preview.createdAt)}</span>
+        {preview.kind === 'text' && (
+          <Button
+            variant="subtle"
+            disabled={!writable || busy}
+            onClick={() => void editClip(preview)}
+          >
+            {preview.snippet ? 'Изменить сниппет' : 'Создать сниппет'}
+          </Button>
+        )}
         {canPaste && (
           <Button
             size="compact-sm"

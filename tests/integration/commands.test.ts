@@ -13,7 +13,9 @@ import { verificationPlan } from '../../scripts/verify.mjs';
 // @ts-expect-error Build-time JavaScript.
 import { packagingPlan } from '../../scripts/package.mjs';
 // @ts-expect-error Build-time JavaScript.
-import { run } from '../../scripts/lib/command.mjs';
+import { run, runAll } from '../../scripts/lib/command.mjs';
+// @ts-expect-error Build-time JavaScript.
+import { nativeHelpers } from '../../scripts/build.mjs';
 // @ts-expect-error Build-time JavaScript.
 import { testPlan } from '../../scripts/test.mjs';
 
@@ -22,15 +24,13 @@ test('development preparation compiles only stale or missing native helpers', as
   const calls = join(root, 'compiler-calls');
   try {
     await Promise.all(['native', 'build', 'bin'].map((dir) => mkdir(join(root, dir))));
-    for (const [source, output] of [
-      ['MediaProbe.swift', 'media-probe'],
-      ['ClipboardProbe.swift', 'clipboard-probe'],
-      ['SyncDiscovery.swift', 'sync-discovery'],
-    ]) {
-      await writeFile(join(root, 'native', source), '// fixture');
-      await writeFile(join(root, 'build', output), 'previous build');
-      await utimes(join(root, 'native', source), 10, source === 'ClipboardProbe.swift' ? 30 : 10);
-      await utimes(join(root, 'build', output), 20, 20);
+    for (const { source, output, dependencies = [] } of nativeHelpers) {
+      for (const path of [source, ...dependencies]) {
+        await writeFile(join(root, path), '// fixture');
+        await utimes(join(root, path), 10, source.endsWith('ClipboardProbe.swift') ? 30 : 10);
+      }
+      await writeFile(join(root, output), 'previous build');
+      await utimes(join(root, output), 20, 20);
     }
     await writeFile(
       join(root, 'bin', 'swiftc'),
@@ -105,8 +105,13 @@ test('default desktop coverage retains the harness, shelf fixtures and emoji fau
     'tests/desktop/shelf-search-shortcuts-smoke.ts',
     'tests/desktop/clipboard-startup-smoke.ts',
     'tests/desktop/emoji-smoke.ts',
+    'tests/desktop/image-text-smoke.ts',
+    'tests/desktop/file-shelf-smoke.ts',
   ]);
-  assert.deepEqual(plan.commands.at(-1)[1].slice(2), ['--empty-clipboard-item']);
+  assert.deepEqual(
+    plan.commands.find(([, args]: any) => args[1].endsWith('/emoji-smoke.ts'))[1].slice(2),
+    ['--empty-clipboard-item'],
+  );
 });
 
 test('packaged tests retain their narrower coverage and isolate launch environment changes', () => {
@@ -119,7 +124,7 @@ test('packaged tests retain their narrower coverage and isolate launch environme
   assert.equal(env.ELECTRON_RUN_AS_NODE, '1');
   assert.equal(env.EVERYTHING_EXECUTABLE, '/custom/Polka');
   assert.equal(desktop.desktopPlan(['clipboard'], env).env.EVERYTHING_EXECUTABLE, '/custom/Polka');
-  assert.equal(desktop.desktopPlan(['workflows', '--packaged'], {}).commands.length, 4);
+  assert.equal(desktop.desktopPlan(['workflows', '--packaged'], {}).commands.length, 5);
 });
 
 test('updater modes and interactive fixture options reach only their intended suite', () => {
@@ -153,21 +158,41 @@ test('updater modes and interactive fixture options reach only their intended su
     assert.throws(() => desktop.desktopPlan(args, {}), /./, args.join(' '));
 });
 
-test('desktop suites stop at the first failed child instead of overlapping subsequent tests', () => {
+test('independent suites finish sequentially and retain every failure', () => {
   const calls: string[] = [];
   const failed = Error('Fixture failed');
   assert.throws(
     () =>
       desktop.main([], {}, (_command: string, args: string[]) => {
         calls.push(args[1]);
-        throw failed;
+        if (calls.length === 1 || calls.length === 3) throw failed;
       }),
-    (error) => error === failed,
+    (error: any) =>
+      error instanceof AggregateError &&
+      error.errors.length === 2 &&
+      error.errors.every((item: unknown) => item === failed),
   );
-  assert.deepEqual(calls, ['tests/desktop/desktop-harness-smoke.ts']);
+  assert.deepEqual(calls, entries(desktop.desktopPlan([], {})));
   assert.throws(
     () => run(process.execPath, ['-e', 'process.exit(7)'], { stdio: 'ignore' }),
     (error: any) => error.exitCode === 7,
+  );
+  assert.throws(
+    () =>
+      runAll(
+        [
+          ['first', []],
+          ['second', []],
+        ],
+        {},
+        () => {
+          throw failed;
+        },
+      ),
+    (error: any) =>
+      error instanceof AggregateError &&
+      error.errors.length === 2 &&
+      (error as { exitCode?: number }).exitCode === 1,
   );
 });
 
@@ -275,5 +300,75 @@ test('release source jobs support both consolidated commands and older checked-o
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  }
+});
+
+test('macOS CI shares source runners and caches only exact native builds', async () => {
+  const yaml = createRequire(resolve('package.json'))('js-yaml');
+  const workflow = yaml.load(readFileSync('.github/workflows/build.yml', 'utf8'));
+  const action = yaml.load(readFileSync('.github/actions/prepare-macos/action.yml', 'utf8'));
+  assert.equal(workflow.jobs.verify.strategy, undefined);
+  assert.equal(workflow.jobs.updates.strategy.matrix.include.length, 3);
+  assert.deepEqual(workflow.jobs['macos-arm64'].needs, ['verify', 'package', 'updates']);
+  for (const job of ['verify', 'package', 'updates'])
+    assert(
+      workflow.jobs[job].steps.some((step: any) => step.uses === './.github/actions/prepare-macos'),
+    );
+  const native = action.runs.steps.find((step: any) => step.id === 'native');
+  assert.deepEqual(
+    native.with.path.trim().split('\n').sort(),
+    nativeHelpers.map((helper: any) => helper.output).sort(),
+  );
+  assert.equal(native.with['restore-keys'], undefined);
+  for (const dependency of [
+    'native/**/*.swift',
+    'native/**/*.plist',
+    'scripts/build.mjs',
+    'steps.toolchain.outputs.key',
+  ])
+    assert(native.with.key.includes(dependency));
+  const toolchain = action.runs.steps.find((step: any) => step.id === 'toolchain').run;
+  for (const identity of [
+    'sw_vers -productVersion',
+    'xcodebuild -version',
+    'xcrun swiftc --version',
+    'xcrun --show-sdk-version',
+  ])
+    assert(toolchain.includes(identity));
+  assert.equal(action.runs.steps[0].with['node-version-file'], '.node-version');
+  const compile = action.runs.steps.find((step: any) => step.name === 'Build native helpers');
+  assert.equal(compile.if, "steps.native.outputs.cache-hit != 'true'");
+  const javascript = action.runs.steps.find((step: any) => step.name === 'Build app');
+  const root = await mkdtemp(join(tmpdir(), 'polka-ci-cache-'));
+  try {
+    await mkdir(join(root, 'bin'));
+    await writeFile(join(root, 'bin/npm'), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$NPM_CALLS"\n', {
+      mode: 0o755,
+    });
+    for (const hit of [false, true]) {
+      const calls = join(root, hit ? 'warm' : 'cold');
+      const result = spawnSync(
+        'bash',
+        ['-e', '-c', [!hit ? compile.run : '', javascript.run].join('\n')],
+        {
+          cwd: root,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+            NPM_CALLS: calls,
+          },
+        },
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(
+        (await readFile(calls, 'utf8')).trim().split('\n'),
+        hit
+          ? ['run build -- --javascript']
+          : ['run build -- --native', 'run build -- --javascript'],
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

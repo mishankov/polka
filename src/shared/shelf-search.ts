@@ -6,7 +6,7 @@ export type ShelfSearchResult =
   | { id: string; kind: 'app'; app: LauncherApp }
   | { id: string; kind: 'calculation'; calculation: Extract<Calculation, { status: 'result' }> }
   | { id: string; kind: 'clip'; clip: ClipboardClip }
-  | { id: string; kind: 'more-clips'; count: number; query: string };
+  | { id: string; kind: 'more-clips' | 'more-snippets'; count: number; query: string };
 
 export function shelfSearch(
   apps: LauncherApp[],
@@ -14,6 +14,7 @@ export function shelfSearch(
   query: string,
   usage: LauncherUsageStats = {},
   context: CalculationContext = {},
+  snippets: ClipboardClip[] = [],
 ) {
   const calculation = calculate(query, context);
   const results: ShelfSearchResult[] = [];
@@ -36,13 +37,26 @@ export function shelfSearch(
   );
   if (matches.length > 3)
     results.push({ id: 'more-clips', kind: 'more-clips', count: matches.length, query });
+  const snippetMatches = query.trim() ? clipboardResults(snippets, query) : [];
+  results.push(
+    ...snippetMatches
+      .slice(0, 3)
+      .map((clip) => ({ id: `clip:${clip.id}`, kind: 'clip' as const, clip })),
+  );
+  if (snippetMatches.length > 3)
+    results.push({
+      id: 'more-snippets',
+      kind: 'more-snippets',
+      count: snippetMatches.length,
+      query,
+    });
   return { calculation, results };
 }
 
 /** Show the matching part even when it lies beyond the history's saved preview. */
 export function clipboardSnippet(clip: ClipboardClip, query: string) {
-  if (clip.kind === 'image') return 'Изображение';
-  const text = clip.content.replace(/\s+/g, ' ').trim();
+  if (clip.kind === 'image' && !clip.ocr?.text) return 'Изображение';
+  const text = (clip.kind === 'image' ? clip.ocr!.text : clip.content).replace(/\s+/g, ' ').trim();
   const term = query.trim().split(/\s+/)[0]?.toLocaleLowerCase() || '';
   const start = Math.max(0, text.toLocaleLowerCase().indexOf(term) - 30);
   return `${start ? '…' : ''}${text.slice(start, start + 160)}${text.length > start + 160 ? '…' : ''}`;

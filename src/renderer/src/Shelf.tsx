@@ -2,9 +2,13 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { flushSync } from 'react-dom';
 import type { ShelfEntry, ShelfPresentation } from '../../shared/shelf';
 import { api, report } from './api';
+import { errorMessage } from './api';
 import Launcher from './Launcher';
 
 export default function Shelf() {
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const [dropError, setDropError] = useState('');
+  const dragDepth = useRef(0);
   const hasOpened = useRef(false);
   const [presentation, setPresentation] = useState<ShelfPresentation>({
     revision: -1,
@@ -61,10 +65,44 @@ export default function Shelf() {
     )
       void api('shelf.didHide', { revision: presentation.revision }).catch(report);
   }, [presentation]);
+  useEffect(() => {
+    if (!presentation.visible) {
+      dragDepth.current = 0;
+      setDraggingFiles(false);
+    }
+  }, [presentation.visible]);
   return (
     <main
       className={`clipboard-shelf ${presentation.visible ? 'is-open' : hasOpened.current ? 'is-closed' : 'is-idle'}`}
       aria-label="Полка"
+      data-file-drop={draggingFiles || undefined}
+      onDragEnter={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) return;
+        event.preventDefault();
+        dragDepth.current++;
+        setDraggingFiles(true);
+      }}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+      }}
+      onDragLeave={() => {
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (!dragDepth.current) setDraggingFiles(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        dragDepth.current = 0;
+        setDraggingFiles(false);
+        setDropError('');
+        const paths = window.platform.filePaths(Array.from(event.dataTransfer.files));
+        if (!paths.length) {
+          setDropError('Перетащите локальные файлы из Finder.');
+          return;
+        }
+        void api('shelf.files.add', { paths }).catch((error) => setDropError(errorMessage(error)));
+      }}
       data-notched={presentation.topInset > 0 || undefined}
       style={
         {
@@ -82,6 +120,14 @@ export default function Shelf() {
           void api('shelf.didHide', { revision: presentation.revision }).catch(report);
       }}
     >
+      {draggingFiles && (
+        <div className="file-shelf-drop-hint">Отпустите, чтобы оставить файлы на полке</div>
+      )}
+      {dropError && (
+        <div className="file-shelf-error" role="alert">
+          {dropError}
+        </div>
+      )}
       <Launcher entry={entry} committedRevision={committedRevision} />
     </main>
   );

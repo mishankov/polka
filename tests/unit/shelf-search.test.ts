@@ -112,6 +112,27 @@ test('clipboard matches include Russian, images and snippets beyond the saved pr
   assert.equal(shelfSearch([], [long, image], 'изображение').results[0].id, 'clip:image');
 });
 
+test('shelf searches snippet names and content independently and opens overflow in the correct app', () => {
+  const clips = [clip('history', 'Sample history')];
+  const snippets = Array.from({ length: 4 }, (_, i) => ({
+    ...clip(`snippet-${i}`, 'Reusable sample text', i),
+    name: `Address ${i}`,
+    snippet: true,
+  }));
+  assert.deepEqual(
+    shelfSearch([], clips, 'address sample', {}, {}, snippets).results.map((result) => result.id),
+    ['clip:snippet-3', 'clip:snippet-2', 'clip:snippet-1', 'more-snippets'],
+  );
+  assert.deepEqual(shelfSearch([], clips, 'address sample', {}, {}, snippets).results.at(-1), {
+    id: 'more-snippets',
+    kind: 'more-snippets',
+    count: 4,
+    query: 'address sample',
+  });
+  assert.equal(shelfSearch([], clips, 'address').results.length, 0);
+  assert.equal(shelfSearch([], clips, 'sample', {}, {}, snippets).results[0].id, 'clip:history');
+});
+
 test('app ranking preserves calculation priority and leaves clipboard matching literal', () => {
   const apps: LauncherApp[] = ['Calculator', 'Calendar'].map((name) => ({
     kind: 'mac',
