@@ -24,6 +24,7 @@ import {
 } from './clipboard-history';
 import { ClipboardHover, contains, shelfGeometry, type Notch } from './clipboard-hover';
 import { ClipboardSync } from './clipboard-sync';
+import { ImageTextIndexer, recognizeImageText } from './image-text';
 import { ClipboardPaste } from './clipboard-paste';
 import { LauncherShortcut } from './launcher-shortcut';
 import type { ClipboardState } from '../shared/clipboard';
@@ -87,8 +88,10 @@ export function createShelf(
   let storageAlerted = false;
   let notches: Notch[] = [];
   let receivedScreenGeometry = false;
+  let imageText: ImageTextIndexer | undefined;
   const hover = new ClipboardHover();
   function changed() {
+    imageText?.changed();
     if (history.storage.state().status === 'failed' && !storageAlerted) {
       storageAlerted = true;
       generation++;
@@ -139,6 +142,15 @@ export function createShelf(
       decode: (value) => safeStorage.decryptString(value),
     },
   });
+  imageText = new ImageTextIndexer(history, (content, signal) =>
+    recognizeImageText(
+      app.isPackaged
+        ? join(process.resourcesPath, 'image-text')
+        : join(app.getAppPath(), 'build/image-text'),
+      content,
+      signal,
+    ),
+  );
   const shortcut = new LauncherShortcut(
     globalShortcut,
     () => {
@@ -158,6 +170,7 @@ export function createShelf(
       clips: snapshot.clips.map((clip) => ({
         ...clip,
         content: clip.kind === 'image' ? '' : clip.content,
+        ocr: clip.ocr?.version === imageText?.version ? clip.ocr : undefined,
       })),
       sync: sync.state(),
       storage: history.storage.state(),
@@ -1011,6 +1024,23 @@ export function createShelf(
     } else if (method === 'clipboardHistory.remove') {
       generation++;
       await history.remove(z.string().parse(params.id));
+    } else if (method === 'clipboardHistory.retryImageText') {
+      await history.retryImageText(z.string().parse(params.id));
+    } else if (method === 'clipboardHistory.copyImageText') {
+      return selectContent(false, async () => {
+        await history.prune();
+        const clip = history
+          .snapshot()
+          .clips.find((item) => item.id === z.string().parse(params.id));
+        if (!clip) throw Error('Запись уже удалена');
+        if (
+          clip.kind !== 'image' ||
+          clip.ocr?.version !== imageText?.version ||
+          clip.ocr?.status !== 'ready'
+        )
+          throw Error('Распознанный текст ещё недоступен');
+        return { 'text/plain': clip.ocr.text };
+      });
     } else if (method === 'clipboardHistory.pin')
       await history.pin(z.string().parse(params.id), z.boolean().parse(params.pinned));
     else if (method === 'clipboardHistory.copy' || method === 'clipboardHistory.select') {
@@ -1042,6 +1072,7 @@ export function createShelf(
   }
   async function stop() {
     disposed = true;
+    const stoppingImageText = imageText?.stop();
     pendingShow?.finish(false);
     generation++;
     clearTimeout(hideTimer);
@@ -1053,6 +1084,7 @@ export function createShelf(
     screen.removeListener('display-removed', displayChanged);
     screen.removeListener('display-metrics-changed', displayMetricsChanged);
     await sync.stop();
+    await stoppingImageText;
     await history.flush();
   }
   return {

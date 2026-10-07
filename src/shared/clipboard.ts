@@ -14,6 +14,13 @@ export interface ClipboardClip {
   createdAt: number;
   pinned: boolean;
   sourceDevice?: string;
+  ocr?: ImageText;
+}
+export interface ImageText {
+  version: string;
+  status: 'ready' | 'empty' | 'failed';
+  text: string;
+  languages: string[];
 }
 export interface ClipboardState {
   clips: ClipboardClip[];
@@ -51,7 +58,9 @@ export function clipboardResults(clips: ClipboardClip[], query: string) {
   return clips
     .filter((clip) =>
       terms.every((term) =>
-        (clip.kind === 'text' ? clip.content : 'Изображение').toLocaleLowerCase().includes(term),
+        (clip.kind === 'text' ? clip.content : `Изображение ${clip.ocr?.text ?? ''}`)
+          .toLocaleLowerCase()
+          .includes(term),
       ),
     )
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt - a.createdAt);

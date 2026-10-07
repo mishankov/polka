@@ -41,8 +41,8 @@ export function shelfSearch(
 
 /** Show the matching part even when it lies beyond the history's saved preview. */
 export function clipboardSnippet(clip: ClipboardClip, query: string) {
-  if (clip.kind === 'image') return 'Изображение';
-  const text = clip.content.replace(/\s+/g, ' ').trim();
+  if (clip.kind === 'image' && !clip.ocr?.text) return 'Изображение';
+  const text = (clip.kind === 'image' ? clip.ocr!.text : clip.content).replace(/\s+/g, ' ').trim();
   const term = query.trim().split(/\s+/)[0]?.toLocaleLowerCase() || '';
   const start = Math.max(0, text.toLocaleLowerCase().indexOf(term) - 30);
   return `${start ? '…' : ''}${text.slice(start, start + 160)}${text.length > start + 160 ? '…' : ''}`;

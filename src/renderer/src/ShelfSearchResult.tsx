@@ -42,7 +42,7 @@ export default function SearchResult({
   const description = app
     ? app.description || 'Полка'
     : clip
-      ? `${clip.pinned ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+      ? `${clip.kind === 'image' ? 'Изображение · ' : ''}${clip.pinned ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
       : calculation
         ? calculation.interpretation || calculation.expression
         : result.kind === 'more-clips'

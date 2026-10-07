@@ -23,6 +23,7 @@ import {
 } from '../../shared/clipboard-actions';
 import { api, errorMessage } from './api';
 import ClipboardPasteHint from './ClipboardPasteHint';
+import { clipboardSnippet } from '../../shared/shelf-search';
 import type { ClipboardContext } from './shelf-context';
 import { consumedKey, editingTarget, numberShortcut } from './shelf-keyboard';
 import ClipboardStorageFailure from './ClipboardStorageFailure';
@@ -101,6 +102,7 @@ function ClipboardPreview({
         </div>
       ) : image ? (
         <img
+          className="clipboard-preview-image"
           src={image}
           alt="Просмотр скопированного изображения"
           onLoad={() => {
@@ -110,6 +112,25 @@ function ClipboardPreview({
         />
       ) : (
         <Loader size="sm" color="gray" />
+      )}
+      {clip.kind === 'image' && (
+        <section className="clipboard-image-text" aria-label="Распознанный текст">
+          <h2>Текст на изображении</h2>
+          {!clip.ocr ? (
+            <p role="status">Распознаём текст на этом Mac… Изображение уже можно копировать.</p>
+          ) : clip.ocr.status === 'failed' ? (
+            <p role="status">Не удалось распознать текст. Повторите распознавание.</p>
+          ) : clip.ocr.status === 'empty' ? (
+            <p role="status">Текст на изображении не найден.</p>
+          ) : (
+            <pre tabIndex={0} aria-label="Распознанный текст">
+              {clip.ocr.text}
+            </pre>
+          )}
+          {clip.ocr && clip.ocr.status !== 'failed' && !clip.ocr.languages.includes('ru-RU') && (
+            <p>Эта версия macOS не поддерживает распознавание русского текста.</p>
+          )}
+        </section>
       )}
     </div>
   );
@@ -208,6 +229,29 @@ export default function ClipboardHistory({
               void run('saveImage', { id: preview.id });
             },
           },
+          ...(preview.ocr?.status === 'ready'
+            ? [
+                {
+                  id: 'copyImageText',
+                  label: 'Копировать текст',
+                  disabled: busy,
+                  run: () => {
+                    void run('copyImageText', { id: preview.id });
+                  },
+                },
+              ]
+            : preview.ocr?.status === 'failed'
+              ? [
+                  {
+                    id: 'retryImageText',
+                    label: 'Повторить распознавание',
+                    disabled: busy || !writable,
+                    run: () => {
+                      void run('retryImageText', { id: preview.id });
+                    },
+                  },
+                ]
+              : []),
         ];
   const originalActionIndex = previewActions.findIndex((action) => action.id === 'original');
   const context = useRef<ClipboardContext>({
@@ -545,7 +589,7 @@ export default function ClipboardHistory({
             ref={input}
             autoFocus
             aria-label="Найти в истории"
-            placeholder="Найти скопированный текст…"
+            placeholder="Найти текст, в том числе на изображениях…"
             leftSection={<IconSearch size={17} />}
             value={query}
             onChange={(event) => {
@@ -826,12 +870,15 @@ export default function ClipboardHistory({
                   <span className="clipboard-row-content">
                     <span className="clipboard-text">
                       {clip.kind === 'image'
-                        ? 'Изображение'
+                        ? query.trim()
+                          ? clipboardSnippet(clip, query)
+                          : 'Изображение'
                         : clip.preview.trim() || 'Пустой текст'}
                     </span>
                     <span className="clipboard-meta">
                       {clip.pinned && <IconPin size={12} aria-label="Закреплено" />}
                       <span className="clipboard-origin" title={clip.sourceDevice}>
+                        {clip.kind === 'image' && query.trim() && 'Изображение · '}
                         {clipDate(clip.createdAt)}
                         {clip.sourceDevice && ` · ${clip.sourceDevice}`}
                       </span>

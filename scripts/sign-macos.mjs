@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { signingFingerprint } from './signing-certificate.mjs';
 
-export const nativeHelpers = ['clipboard-probe', 'media-probe', 'sync-discovery'];
+export const nativeHelpers = ['clipboard-probe', 'media-probe', 'sync-discovery', 'image-text'];
 
 export function helperIdentifier(appId, helper) {
   return `${appId}.${helper}`;

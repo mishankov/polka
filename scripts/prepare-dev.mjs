@@ -10,6 +10,7 @@ const helpers = [
   ['native/MediaProbe.swift', 'build/media-probe'],
   ['native/ClipboardProbe.swift', 'build/clipboard-probe'],
   ['native/SyncDiscovery.swift', 'build/sync-discovery'],
+  ['native/ImageText.swift', 'build/image-text'],
 ];
 const stale = await Promise.all(
   helpers.map(async ([source, output]) => {

@@ -811,3 +811,31 @@ html[data-window-mode='shelf'] .clipboard-paste-permission button {
     gap: 16px;
   }
 }
+
+.clipboard-preview-content > .clipboard-preview-image {
+  height: auto;
+  max-height: 180px;
+  object-fit: contain;
+}
+.clipboard-image-text {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.clipboard-image-text h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.clipboard-image-text p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.clipboard-image-text pre {
+  user-select: text;
+  cursor: text;
+}
+.clipboard-preview-content:has(.clipboard-image-text) > .clipboard-empty {
+  height: auto;
+}
