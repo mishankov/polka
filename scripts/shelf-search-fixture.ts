@@ -2,6 +2,7 @@ import type {} from '../src/shared/types';
 import type { ClipboardState } from '../src/shared/clipboard';
 import type { ShelfDestination } from '../src/shared/shelf';
 import type { LauncherUsageStats } from '../src/shared/launcher';
+import type { UpdateState } from '../src/main/updates';
 
 type PlatformEvent = Parameters<Parameters<Window['platform']['onEvent']>[0]>[0];
 
@@ -10,6 +11,7 @@ export function createShelfSearchFixture() {
   const listeners = new Set<(event: PlatformEvent) => void>();
   const actions: { method: string; params: Record<string, unknown> }[] = [];
   const shownRevisions: number[] = [];
+  const catalogAtShow: number[] = [];
   const usage: LauncherUsageStats = {};
   let release: (() => void) | undefined;
   let hold = false;
@@ -28,11 +30,20 @@ export function createShelfSearchFixture() {
   let pasteAccess: ClipboardState['pasteAccess'] = 'granted';
   let pasteReady = true;
   let accessError = '';
+  let updateState: UpdateState = { status: 'unavailable', currentVersion: '0.4.0' };
+  let acknowledgeShows = true;
+  let holdMacApps = false;
+  const macAppWaiters = new Set<() => void>();
+  let macAppRequests = 0;
+  let macAppError = '';
+  let extraMacApp = '';
   const changed = () => {
     for (const listener of listeners) listener({ type: 'clipboardHistory.changed' });
   };
   const presentation = {
     revision,
+    sessionId: 1,
+    entryMode: 'fresh' as 'fresh' | 'resume',
     destination: 'apps' as ShelfDestination,
     visible: true,
     focusSearch: true,
@@ -41,17 +52,64 @@ export function createShelfSearchFixture() {
     notchHeight: 3,
     searchQuery: '',
   };
-  const navigate = (destination: typeof presentation.destination, searchQuery = '') => {
-    Object.assign(presentation, { destination, searchQuery, revision: ++revision });
+  const navigate = (
+    destination: typeof presentation.destination,
+    searchQuery = '',
+    entryMode: 'fresh' | 'resume' = 'fresh',
+  ) => {
+    if (!presentation.visible) presentation.sessionId++;
+    Object.assign(presentation, {
+      destination,
+      searchQuery,
+      entryMode,
+      visible: true,
+      revision: ++revision,
+    });
     for (const listener of listeners)
       listener({ type: 'shelf.shown', presentation: { ...presentation } });
   };
   return {
     actions,
     shownRevisions,
+    catalogAtShow,
+    get macAppRequests() {
+      return macAppRequests;
+    },
+    holdMacApps: () => {
+      holdMacApps = true;
+    },
+    releaseMacApps: (error = '') => {
+      macAppError = error;
+      holdMacApps = false;
+      for (const finish of macAppWaiters) finish();
+      macAppWaiters.clear();
+    },
+    setExtraMacApp: (name: string) => {
+      extraMacApp = name;
+    },
+    resetUsage: () => {
+      for (const id of Object.keys(usage)) delete usage[id];
+    },
     navigate,
+    setAcknowledgeShows: (enabled: boolean) => {
+      acknowledgeShows = enabled;
+    },
+    hide: () => {
+      Object.assign(presentation, { visible: false, revision: ++revision });
+      for (const listener of listeners)
+        listener({ type: 'shelf.presentation', presentation: { ...presentation } });
+    },
+    setUpdateState: (state: UpdateState) => {
+      updateState = state;
+      for (const listener of listeners) listener({ type: 'updates.state', state });
+    },
     setClipCount: (count: number) => {
       clips = createClips(count);
+      changed();
+    },
+    setClipText: (id: string, content: string) => {
+      const clip = clips.find((clip) => clip.id === id);
+      if (clip) clip.content = content;
       changed();
     },
     setPasteOnSelect: (enabled: boolean) => {
@@ -81,9 +139,11 @@ export function createShelfSearchFixture() {
     },
     async call(method: string, params: Record<string, unknown> = {}) {
       switch (method) {
+        case 'updates.status':
+          return updateState;
         case 'shelf.didShow':
           shownRevisions.push(Number(params.revision));
-          return;
+          return acknowledgeShows && presentation.visible && Number(params.revision) === revision;
         case 'shelf.presentation':
           return { ...presentation };
         case 'shelf.appearance':
@@ -100,6 +160,12 @@ export function createShelfSearchFixture() {
             },
           ];
         case 'launcher.macApps':
+          macAppRequests++;
+          if (holdMacApps)
+            await new Promise<void>((resolve) => {
+              macAppWaiters.add(resolve);
+            });
+          if (macAppError) throw Error(macAppError);
           return [
             'Calculator',
             'Calendar',
@@ -111,6 +177,7 @@ export function createShelfSearchFixture() {
             'Safari',
             'Terminal',
             'TextEdit',
+            ...(extraMacApp ? [extraMacApp] : []),
           ].map((name) => ({
             kind: 'mac',
             id: `mac:${name}`,
@@ -146,7 +213,7 @@ export function createShelfSearchFixture() {
           navigate('apps');
           return;
         case 'shelf.settings':
-          navigate('settings');
+          navigate(params.section === 'about' ? 'about' : 'settings');
           return;
         case 'clipboardHistory.pin': {
           actions.push({ method, params });

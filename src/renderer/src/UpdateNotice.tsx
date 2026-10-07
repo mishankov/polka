@@ -1,5 +1,5 @@
-import { Button, Group, Progress, Text } from './NativeControls';
-import UpdateReleaseNotes from './UpdateReleaseNotes';
+import { Button, Group, Text } from './NativeControls';
+import { api, report } from './api';
 import { useUpdates } from './useUpdates';
 
 export default function UpdateNotice() {
@@ -13,58 +13,57 @@ export default function UpdateNotice() {
   const installing = state.status === 'installing';
   const downloading = state.status === 'downloading';
   const checking = state.status === 'checking';
+  const status = installing
+    ? 'Устанавливаем…'
+    : checking
+      ? 'Проверяем…'
+      : downloading
+        ? `Загружаем… ${Math.round(state.progress || 0)}%`
+        : state.status === 'ready'
+          ? 'Готова к установке'
+          : 'Ошибка обновления';
   return (
     <section className="update-notice" aria-label={`Доступно обновление Полки ${state.version}`}>
-      <Text fw={600} role="status">
-        Доступна Полка {state.version}
-      </Text>
-      <Text size="sm" c="dimmed">
-        {installing
-          ? 'Устанавливаем обновление…'
-          : checking
-            ? 'Проверяем обновление…'
-            : downloading
-              ? `Загружаем обновление… ${Math.round(state.progress || 0)}%`
-              : state.status === 'ready'
-                ? 'Обновление готово. Полка перезапустится после установки.'
-                : 'Не удалось обновить Полку. Повторите проверку.'}
-      </Text>
-      {state.message && (
-        <Text role="alert" size="sm">
-          {state.message}
+      <div className="update-notice-status" role={state.status === 'error' ? 'alert' : 'status'}>
+        <Text fw={600}>Доступна Полка {state.version}</Text>
+        <Text size="sm" c="dimmed" title={state.message || status}>
+          {status}
         </Text>
-      )}
-      {downloading && <Progress aria-label="Загрузка обновления" value={state.progress || 0} />}
-      <UpdateReleaseNotes key={state.version} notes={state.releaseNotes} />
-      <Group gap="xs">
+      </div>
+      <Group gap="xs" wrap="nowrap" className="update-notice-actions">
         <Button
           disabled={!!pending || downloading || installing || checking}
           loading={pending === 'install' || pending === 'check' || installing || checking}
           onClick={() => void action(state.status === 'error' ? 'check' : 'install')}
+          title="После установки Полка перезапустится"
         >
-          {state.status === 'error'
-            ? 'Повторить проверку'
-            : checking
-              ? 'Проверяем обновление…'
-              : downloading
-                ? 'Обновление загружается…'
-                : 'Обновить и перезапустить'}
+          {state.status === 'error' ? 'Повторить проверку' : 'Обновить и перезапустить'}
         </Button>
         <Button
           variant="default"
+          aria-label="Напомнить завтра"
+          title="Напомнить завтра"
           disabled={!!pending || installing}
           loading={pending === 'remind'}
           onClick={() => void action('remind')}
         >
-          Напомнить завтра
+          Завтра
         </Button>
         <Button
           variant="subtle"
+          aria-label="Пропустить эту версию"
+          title="Пропустить эту версию"
           disabled={!!pending || installing}
           loading={pending === 'skip'}
           onClick={() => void action('skip')}
         >
-          Пропустить эту версию
+          Пропустить
+        </Button>
+        <Button
+          variant="subtle"
+          onClick={() => void api('shelf.settings', { section: 'about' }).catch(report)}
+        >
+          Что нового
         </Button>
       </Group>
     </section>

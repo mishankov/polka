@@ -240,7 +240,7 @@ async function main(test: DesktopTest) {
     await expect(
       panel.getByRole('img', { name: 'Просмотр скопированного изображения' }),
     ).toBeVisible();
-    await panel.getByRole('button', { name: 'Назад', exact: true }).click();
+    await panel.getByRole('button', { name: 'Назад к списку', exact: true }).click();
     await expect(search).toBeFocused();
     await panel
       .getByRole('option')

@@ -6,6 +6,7 @@ import {
   IconMoodSmile,
 } from '@tabler/icons-react';
 import { clipboardSnippet, type ShelfSearchResult } from '../../shared/shelf-search';
+import { consumedKey } from './shelf-keyboard';
 
 export default function SearchResult({
   result,
@@ -75,9 +76,17 @@ export default function SearchResult({
       onFocus={onSelect}
       onClick={(event) => onActivate(event.shiftKey)}
       onKeyDown={(event) => {
+        if (consumedKey(event)) return;
         if (event.key === 'Enter') {
           event.preventDefault();
-          onActivate(event.shiftKey);
+          if (
+            !event.nativeEvent.isComposing &&
+            !event.repeat &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.altKey
+          )
+            onActivate(event.shiftKey);
         }
       }}
     >

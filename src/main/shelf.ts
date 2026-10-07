@@ -35,6 +35,7 @@ import {
 import type { ShelfDestination, ShelfPresentation } from '../shared/shelf';
 import { calculate } from '../shared/calculator';
 import { emojiById } from '../shared/emoji';
+import { ShelfLifecycle } from './shelf-lifecycle';
 
 export function createShelf(
   root: string,
@@ -46,14 +47,16 @@ export function createShelf(
   let window: BrowserWindow | undefined;
   let loading: Promise<void> | undefined;
   let savingImage = false;
-  let requested = false;
-  let lastHiddenAt: number | undefined;
+  let pendingSelection: { revision: number } | undefined;
+  const lifecycle = new ShelfLifecycle();
   let captureTargetPending: Promise<void> | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingShow: { revision: number; finish: (ready: boolean) => void } | undefined;
   let expanded: boolean | 'settings' = false;
   let presentation: ShelfPresentation = {
     revision: 0,
+    sessionId: 0,
+    entryMode: 'fresh',
     destination: 'apps',
     visible: false,
     focusSearch: false,
@@ -161,20 +164,35 @@ export function createShelf(
     };
   }
   function finishHide(revision: number) {
-    if (presentation.revision !== revision || requested) return;
+    if (!lifecycle.finishClose(revision)) return;
     clearTimeout(hideTimer);
     hideTimer = undefined;
     if (window && !window.isDestroyed()) window.hide();
   }
-  function hide(animate = true) {
-    requested = false;
+  function hide(animate = true, reason: 'dismiss' | 'paste' = 'dismiss') {
+    if (process.env.EVERYTHING_PASTE_DEBUG === '1')
+      console.log('Clipboard paste closing', {
+        phase: lifecycle.phase,
+        revision: lifecycle.revision,
+        reason,
+        visible: window?.isVisible(),
+        focused: window?.isFocused(),
+      });
+    const closing = lifecycle.close(Date.now());
     pendingShow?.finish(false);
     hover.dismiss();
-    if (!window || window.isDestroyed() || (!window.isVisible() && !presentation.visible)) return;
-    if (hideTimer && animate) return;
+    if (!closing) {
+      if (!animate && lifecycle.phase === 'closing') finishHide(lifecycle.revision);
+      return;
+    }
+    if (reason !== 'paste') paste.cancel();
+    captureTargetPending = undefined;
     clearTimeout(hideTimer);
-    if (presentation.visible) lastHiddenAt = Date.now();
-    presentation = { ...presentation, visible: false, revision: presentation.revision + 1 };
+    presentation = { ...presentation, visible: false, revision: lifecycle.revision };
+    if (!window || window.isDestroyed()) {
+      finishHide(presentation.revision);
+      return;
+    }
     window.setIgnoreMouseEvents(true);
     window.webContents.send('platform:event', {
       type: 'shelf.presentation',
@@ -193,28 +211,33 @@ export function createShelf(
     destination?: ShelfDestination,
     searchQuery = '',
   ) {
-    if (disposed || suspensions.size > 0) return;
-    // Resume a built-in app for one minute after closing; explicit navigation wins.
-    destination ??=
-      (presentation.destination === 'clipboard' || presentation.destination === 'emoji') &&
-      (presentation.visible || lastHiddenAt === undefined || Date.now() - lastHiddenAt < 60_000)
-        ? presentation.destination
-        : 'apps';
+    if (disposed || suspensions.size > 0 || savingImage) return;
     pendingShow?.finish(false);
+    // A closing window must not expose an old view while a new entry is prepared.
+    if (lifecycle.phase === 'closing') finishHide(lifecycle.revision);
     clearTimeout(hideTimer);
     hideTimer = undefined;
-    const captureTarget = !requested && !window?.isFocused();
-    requested = true;
+    const { entry, newSession } = lifecycle.begin(destination, Date.now(), searchQuery);
+    destination = entry.destination;
     // Target capture can wait on another app's accessibility tree. Establish the
     // opening context first so the hover timer cannot dismiss a keyboard opening.
     openedBy = source;
     const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     displayId = display.id;
-    const revision = presentation.revision + 1;
-    presentation = { ...presentation, revision };
-    if (captureTarget) captureTargetPending = paste.capture();
+    const revision = entry.revision;
+    if (newSession) {
+      paste.cancel();
+      captureTargetPending = paste.capture();
+    }
     if (captureTargetPending) await captureTargetPending;
-    if (!requested || presentation.revision !== revision || disposed) return;
+    if (process.env.EVERYTHING_PASTE_DEBUG === '1')
+      console.log('Clipboard paste opening', {
+        revision,
+        sessionId: lifecycle.sessionId,
+        newSession,
+        ready: paste.ready,
+      });
+    if (!lifecycle.requested || lifecycle.revision !== revision || disposed) return;
     expanded = destination === 'settings' || destination === 'about' ? 'settings' : false;
     const geometry = shelfGeometry(
       display.bounds,
@@ -257,7 +280,14 @@ export function createShelf(
       });
       win.setAlwaysOnTop(true, 'pop-up-menu');
       win.on('blur', () => {
-        if (!savingImage) hide();
+        if (process.env.EVERYTHING_PASTE_DEBUG === '1')
+          console.log('Clipboard paste blur', {
+            phase: lifecycle.phase,
+            visible: win.isVisible(),
+            focused: win.isFocused(),
+          });
+        // Hiding a closing panel can deliver blur after a reopen has begun.
+        if (!savingImage && !selecting() && win.isVisible() && !win.isFocused()) hide();
       });
       win.on('close', (event) => {
         if (!isQuitting()) {
@@ -268,7 +298,7 @@ export function createShelf(
       win.on('closed', () => {
         if (window === win) {
           window = undefined;
-          requested = false;
+          hide(false);
         }
       });
       win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -278,22 +308,21 @@ export function createShelf(
         ? win.loadURL(`${process.env.ELECTRON_RENDERER_URL}?mode=shelf`)
         : win.loadFile(join(__dirname, '../renderer/index.html'), { query: { mode: 'shelf' } });
       loading.catch(() => {
-        requested = false;
+        hide(false);
         win.destroy();
       });
     }
     await loading;
     if (
-      !requested ||
+      !lifecycle.requested ||
       !window ||
       window.isDestroyed() ||
       disposed ||
-      presentation.revision !== revision
+      lifecycle.revision !== revision
     )
       return;
     presentation = {
-      revision: revision + 1,
-      destination,
+      ...entry,
       visible: true,
       focusSearch: true,
       searchQuery,
@@ -319,7 +348,9 @@ export function createShelf(
       presentation,
     });
     const rendered = await ready;
-    if (!requested || disposed || presentation.revision !== shownRevision) return;
+    if (process.env.EVERYTHING_PASTE_DEBUG === '1')
+      console.log('Clipboard paste renderer acknowledgement', { shownRevision, rendered });
+    if (!lifecycle.requested || disposed || lifecycle.revision !== shownRevision) return;
     if (!rendered) {
       hide(false);
       throw Error('Не удалось открыть полку. Попробуйте ещё раз.');
@@ -330,6 +361,7 @@ export function createShelf(
     // Keep the previous app's menu bar while making both entry points type-ready.
     window.show();
     window.focus();
+    lifecycle.commit(shownRevision);
   }
   function updateGeometry() {
     if (!window || window.isDestroyed()) return;
@@ -351,7 +383,7 @@ export function createShelf(
   }
   async function toggle(destination: 'apps' | 'clipboard') {
     if (
-      requested &&
+      lifecycle.requested &&
       !expanded &&
       (destination === 'apps' || presentation.destination === destination)
     )
@@ -441,9 +473,9 @@ export function createShelf(
     }
   }
   function tick() {
-    if (suspensions.size > 0 || disposed || savingImage) return;
+    if (suspensions.size > 0 || disposed || savingImage || selecting()) return;
     const point = screen.getCursorScreenPoint();
-    const display = requested
+    const display = lifecycle.requested
       ? screen.getAllDisplays().find((display) => display.id === displayId)
       : screen.getDisplayNearestPoint(point);
     if (!display) {
@@ -455,13 +487,13 @@ export function createShelf(
       notches.find((item) => item.id === display.id),
       expanded,
     );
-    if (requested && openedBy === 'keyboard') return;
-    if (!history.getPreferences().hoverEnabled && !requested) return;
+    if (lifecycle.requested && openedBy === 'keyboard') return;
+    if (!history.getPreferences().hoverEnabled && !lifecycle.requested) return;
     const action = hover.step(
       Date.now(),
       contains(geometry.target, point),
       contains(geometry.corridor, point),
-      requested,
+      lifecycle.requested,
     );
     if (action === 'show') void show('hover').catch(failed);
     if (action === 'hide') hide();
@@ -571,7 +603,7 @@ export function createShelf(
                 .parse(message.displays);
               receivedScreenGeometry = true;
               screensChanged(notches);
-              if (requested) {
+              if (lifecycle.requested) {
                 // The first snapshot may arrive after the user opens the shelf.
                 // Apply its geometry without treating startup as a monitor change.
                 if (initialGeometry) updateGeometry();
@@ -610,18 +642,43 @@ export function createShelf(
     }
     changed();
   }
+  function selecting() {
+    return pendingSelection?.revision === lifecycle.revision;
+  }
   function selectionContext(select: boolean) {
-    if (select && (!requested || !window?.isFocused()))
+    if (select && (lifecycle.phase !== 'open' || savingImage || !window?.isFocused()))
       throw Error('Откройте полку, чтобы вставить выбранное');
     return {
-      revision: presentation.revision,
-      autoPaste: select && history.getPreferences().pasteOnSelect && paste.ready,
+      revision: lifecycle.revision,
+      sessionId: lifecycle.sessionId,
+      autoPaste:
+        select &&
+        history.getPreferences().pasteOnSelect &&
+        paste.access === 'granted' &&
+        paste.ready,
     };
+  }
+  async function selectContent(
+    select: boolean,
+    content: () => Record<string, string | Blob> | Promise<Record<string, string | Blob>>,
+  ) {
+    if (selecting()) throw Error('Дождитесь завершения копирования');
+    const context = selectionContext(select);
+    const operation = { revision: context.revision };
+    // Automatic dismissal must not cancel the target while content is being prepared.
+    // Explicit close and a new presentation still invalidate this revision.
+    pendingSelection = operation;
+    try {
+      return await copySelection(await content(), context);
+    } finally {
+      if (pendingSelection === operation) pendingSelection = undefined;
+    }
   }
   async function copySelection(
     content: Record<string, string | Blob>,
-    { revision, autoPaste }: ReturnType<typeof selectionContext>,
+    { revision, sessionId, autoPaste }: ReturnType<typeof selectionContext>,
   ) {
+    if (lifecycle.revision !== revision || disposed || suspensions.size > 0) return false;
     generation++;
     await clipboard.write([
       new ClipboardItem({
@@ -631,12 +688,17 @@ export function createShelf(
         ]),
       }),
     ]);
-    if (presentation.revision !== revision || disposed || suspensions.size > 0) return true;
+    if (lifecycle.revision !== revision || disposed || suspensions.size > 0) return true;
     if (autoPaste) {
       // Hide the native window before restoring focus; don't race the exit animation.
-      hide(false);
-      const sent = await paste.paste();
-      if (!sent && !requested && !disposed && Notification.isSupported()) {
+      const sent = await paste.paste(() => hide(false, 'paste'));
+      if (
+        !sent &&
+        lifecycle.sessionId === sessionId &&
+        !lifecycle.requested &&
+        !disposed &&
+        Notification.isSupported()
+      ) {
         new Notification({
           title: 'Скопировано',
           body: ['focus-not-restored', 'field-changed', 'window-changed'].includes(
@@ -655,10 +717,11 @@ export function createShelf(
       return true;
     }
     if (method === 'shelf.copyEmoji' || method === 'shelf.selectEmoji') {
-      const context = selectionContext(method === 'shelf.selectEmoji');
-      const emoji = emojiById(z.string().max(256).parse(params.id));
-      if (!emoji) throw Error('Эмодзи не найден');
-      return copySelection({ 'text/plain': emoji.value }, context);
+      return selectContent(method === 'shelf.selectEmoji', () => {
+        const emoji = emojiById(z.string().max(256).parse(params.id));
+        if (!emoji) throw Error('Эмодзи не найден');
+        return { 'text/plain': emoji.value };
+      });
     }
     if (method === 'shelf.copyCalculation') {
       const calculation = calculate(z.string().max(512).parse(params.expression), {
@@ -687,8 +750,11 @@ export function createShelf(
     if (method === 'shelf.presentation') return presentation;
     if (method === 'shelf.didShow') {
       const revision = z.number().int().parse(params.revision);
-      if (pendingShow?.revision === revision) pendingShow.finish(true);
-      return true;
+      if (pendingShow?.revision === revision) {
+        pendingShow.finish(true);
+        return true;
+      }
+      return lifecycle.phase === 'open' && lifecycle.revision === revision;
     }
     if (method === 'shelf.didHide') {
       finishHide(z.number().int().parse(params.revision));
@@ -736,21 +802,26 @@ export function createShelf(
         .toDataURL();
     }
     if (method === 'clipboardHistory.openUrl' || method === 'clipboardHistory.saveImage') {
-      if (!requested || !window?.isFocused() || savingImage)
+      if (lifecycle.phase !== 'open' || !window?.isFocused() || savingImage)
         throw Error('Откройте запись на полке, чтобы выполнить действие');
       const owner = window;
-      const revision = presentation.revision;
+      const revision = lifecycle.revision;
       await history.prune();
       const clip = history.snapshot().clips.find((item) => item.id === z.string().parse(params.id));
       if (!clip) throw Error('Запись уже удалена');
-      if (!requested || !owner.isFocused() || savingImage || presentation.revision !== revision)
+      if (
+        lifecycle.phase !== 'open' ||
+        !owner.isFocused() ||
+        savingImage ||
+        lifecycle.revision !== revision
+      )
         throw Error('Откройте запись на полке, чтобы выполнить действие');
       if (method === 'clipboardHistory.openUrl') {
         const url = clip.kind === 'text' ? clipboardWebUrl(clip.content) : undefined;
         if (!url)
           throw Error('Запись должна содержать одну ссылку HTTP или HTTPS без логина и пароля');
         await shell.openExternal(url);
-        if (presentation.revision === revision) hide();
+        if (lifecycle.revision === revision) hide();
         return true;
       }
       if (clip.kind !== 'image') throw Error('Сохранение в файл доступно только для изображений');
@@ -779,7 +850,12 @@ export function createShelf(
         throw Error(`Не удалось сохранить изображение. ${detail}`);
       } finally {
         savingImage = false;
-        if (requested && presentation.revision === revision && !disposed && !owner.isDestroyed())
+        if (
+          lifecycle.requested &&
+          lifecycle.revision === revision &&
+          !disposed &&
+          !owner.isDestroyed()
+        )
           owner.focus();
       }
     }
@@ -857,24 +933,28 @@ export function createShelf(
     } else if (method === 'clipboardHistory.pin')
       await history.pin(z.string().parse(params.id), z.boolean().parse(params.pinned));
     else if (method === 'clipboardHistory.copy' || method === 'clipboardHistory.select') {
-      const context = selectionContext(method === 'clipboardHistory.select');
-      if (process.env.EVERYTHING_PASTE_DEBUG === '1')
-        console.log('Clipboard paste selection', context);
-      await history.prune();
-      const clip = history.snapshot().clips.find((item) => item.id === params.id);
-      if (!clip) throw Error('Запись уже удалена');
-      const transformation = z.enum(TEXT_TRANSFORMATIONS).optional().parse(params.transformation);
-      if (transformation && clip.kind !== 'text')
-        throw Error('Преобразование доступно только для текста');
-      return copySelection(
-        clip.kind === 'text'
-          ? {
-              'text/plain': transformation
-                ? transformClipboardText(clip.content, transformation)
-                : clip.content,
-            }
-          : { 'image/png': new Blob([Buffer.from(clip.content, 'base64')], { type: 'image/png' }) },
-        context,
+      return selectContent(
+        method === 'clipboardHistory.select',
+        async (): Promise<Record<string, string | Blob>> => {
+          await history.prune();
+          const clip = history.snapshot().clips.find((item) => item.id === params.id);
+          if (!clip) throw Error('Запись уже удалена');
+          const transformation = z
+            .enum(TEXT_TRANSFORMATIONS)
+            .optional()
+            .parse(params.transformation);
+          if (transformation && clip.kind !== 'text')
+            throw Error('Преобразование доступно только для текста');
+          return clip.kind === 'text'
+            ? {
+                'text/plain': transformation
+                  ? transformClipboardText(clip.content, transformation)
+                  : clip.content,
+              }
+            : {
+                'image/png': new Blob([Buffer.from(clip.content, 'base64')], { type: 'image/png' }),
+              };
+        },
       );
     } else throw Error('Неизвестная операция истории буфера');
     return state();
@@ -902,7 +982,7 @@ export function createShelf(
     show,
     hide,
     toggle,
-    getRevision: () => presentation.revision,
+    getRevision: () => lifecycle.revision,
     suspend(reason = 'sleep') {
       suspensions.add(reason);
       paste.cancel();

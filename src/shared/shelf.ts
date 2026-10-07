@@ -1,11 +1,16 @@
 export type ShelfDestination = 'apps' | 'clipboard' | 'emoji' | 'settings' | 'about';
 
-export interface ShelfPresentation {
+export interface ShelfEntry {
   revision: number;
+  sessionId: number;
+  entryMode: 'fresh' | 'resume';
   destination: ShelfDestination;
+  searchQuery?: string;
+}
+
+export interface ShelfPresentation extends ShelfEntry {
   visible: boolean;
   focusSearch: boolean;
-  searchQuery?: string;
   topInset: number;
   notchWidth: number;
   notchHeight: number;
