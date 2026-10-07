@@ -11,6 +11,7 @@ const helpers = [
   ['native/ClipboardProbe.swift', 'build/clipboard-probe'],
   ['native/SyncDiscovery.swift', 'build/sync-discovery'],
   ['native/ImageText.swift', 'build/image-text', 'native/ImageTextInfo.plist'],
+  ['native/FileShelfProbe.swift', 'build/file-shelf-probe'],
 ];
 const stale = await Promise.all(
   helpers.map(async ([source, output, ...dependencies]) => {

@@ -1,5 +1,7 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 contextBridge.exposeInMainWorld('platform', {
+  filePaths: (files: File[]) => files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
+  startFileDrag: (ids: string[]) => ipcRenderer.send('shelf:fileDrag', ids),
   call: (method: string, params: unknown = {}) =>
     ipcRenderer.invoke('platform:call', method, params),
   onEvent: (callback: (event: unknown) => void) => {

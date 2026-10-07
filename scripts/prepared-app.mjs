@@ -13,6 +13,7 @@ export async function assertPreparedApp() {
     'build/clipboard-probe',
     'build/sync-discovery',
     'build/image-text',
+    'build/file-shelf-probe',
   ];
   for (const file of files) {
     try {

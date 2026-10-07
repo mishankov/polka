@@ -14,13 +14,21 @@ export interface MacLauncherApp {
 }
 export interface BuiltinLauncherApp {
   kind: 'builtin';
-  id: 'builtin:clipboard' | 'builtin:emoji';
+  id: 'builtin:clipboard' | 'builtin:emoji' | 'builtin:files';
   name: string;
   icon: string;
   description: string;
   searchTerms: string[];
 }
 export const BUILTIN_APPS: BuiltinLauncherApp[] = [
+  {
+    kind: 'builtin',
+    id: 'builtin:files',
+    name: 'Файлы на полке',
+    icon: 'files',
+    description: 'Временно оставить файлы и перетащить в другую программу',
+    searchTerms: ['files', 'shelf', 'файлы', 'перетащить'],
+  },
   {
     kind: 'builtin',
     id: 'builtin:clipboard',

@@ -2,7 +2,7 @@
   "name": "polka",
   "version": "0.1.15",
   "private": true,
-  "description": "Приложения и история буфера обмена на полке macOS",
+  "description": "\u041f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u044f \u0438 \u0438\u0441\u0442\u043e\u0440\u0438\u044f \u0431\u0443\u0444\u0435\u0440\u0430 \u043e\u0431\u043c\u0435\u043d\u0430 \u043d\u0430 \u043f\u043e\u043b\u043a\u0435 macOS",
   "author": "Polka contributors",
   "license": "MIT",
   "main": "out/main/index.js",
@@ -16,11 +16,11 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "native:build": "swiftc -O native/MediaProbe.swift -o build/media-probe -framework CoreAudio -framework CoreMediaIO -framework AVFoundation && swiftc -O native/ClipboardProbe.swift -o build/clipboard-probe -framework AppKit && swiftc -O native/SyncDiscovery.swift -o build/sync-discovery && swiftc -O native/ImageText.swift -o build/image-text -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker native/ImageTextInfo.plist -framework Vision -framework ImageIO -framework CoreImage",
+    "native:build": "swiftc -O native/MediaProbe.swift -o build/media-probe -framework CoreAudio -framework CoreMediaIO -framework AVFoundation && swiftc -O native/ClipboardProbe.swift -o build/clipboard-probe -framework AppKit && swiftc -O native/SyncDiscovery.swift -o build/sync-discovery && swiftc -O native/ImageText.swift -o build/image-text -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker native/ImageTextInfo.plist -framework Vision -framework ImageIO -framework CoreImage && swiftc -O native/FileShelfProbe.swift -o build/file-shelf-probe -framework AppKit",
     "package": "npm run build:prepare && npm run package:prepared --",
     "package:dir": "npm run build:prepare && electron-builder --mac dir --arm64",
     "verify": "npm run build:prepare && npm run verify:desktop && npm run verify:workflows",
-    "test:desktop": "npm run test:desktop:harness && npm run test:shelf && npm run test:emoji && npm run test:clipboard:ocr",
+    "test:desktop": "npm run test:desktop:harness && npm run test:shelf && npm run test:emoji && npm run test:clipboard:ocr && npm run test:file-shelf",
     "test:desktop:harness": "tsx scripts/desktop-harness-smoke.ts",
     "test:packaged": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Polka.app/Contents/MacOS/Polka\" tsx scripts/shelf-smoke.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"tests/**/*.ts\" \"scripts/**/*.ts\" electron.vite.config.ts",
@@ -53,7 +53,9 @@
     "package:prepared": "electron-builder --mac dmg zip --arm64",
     "verify:desktop": "npm run typecheck && npm test && npm run test:desktop",
     "verify:workflows": "npm run test:workflows && npm run test:media",
-    "test:clipboard:ocr": "tsx scripts/image-text-smoke.ts"
+    "test:clipboard:ocr": "tsx scripts/image-text-smoke.ts",
+    "test:file-shelf": "tsx scripts/file-shelf-smoke.ts",
+    "test:file-shelf:native": "tsx scripts/file-shelf-native-smoke.ts"
   },
   "build": {
     "appId": "app.everything.desktop",
@@ -83,6 +85,10 @@
       {
         "from": "build/image-text",
         "to": "image-text"
+      },
+      {
+        "from": "build/file-shelf-probe",
+        "to": "file-shelf-probe"
       }
     ],
     "mac": {
@@ -100,7 +106,7 @@
       "icon": "build/Everything.icon",
       "extendInfo": {
         "LSUIElement": true,
-        "NSLocalNetworkUsageDescription": "Полка синхронизирует историю буфера обмена между связанными Mac в вашей локальной сети.",
+        "NSLocalNetworkUsageDescription": "\u041f\u043e\u043b\u043a\u0430 \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0438\u0440\u0443\u0435\u0442 \u0438\u0441\u0442\u043e\u0440\u0438\u044e \u0431\u0443\u0444\u0435\u0440\u0430 \u043e\u0431\u043c\u0435\u043d\u0430 \u043c\u0435\u0436\u0434\u0443 \u0441\u0432\u044f\u0437\u0430\u043d\u043d\u044b\u043c\u0438 Mac \u0432 \u0432\u0430\u0448\u0435\u0439 \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u043e\u0439 \u0441\u0435\u0442\u0438.",
         "NSBonjourServices": [
           "_everyclip._tcp"
         ]
