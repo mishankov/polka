@@ -88,7 +88,6 @@ const installedApps = new InstalledApps({
     const icon = await app.getFileIcon(path, { size: 'normal' });
     return icon.isEmpty() ? '' : icon.resize({ width: 32, height: 32 }).toDataURL();
   },
-  openPath: (path) => shell.openPath(path),
 });
 const launcherUsage = new LauncherUsage({
   read: () => call('settings.get', { key: 'launcherUsage' }),

@@ -8,6 +8,11 @@ import { promisify } from 'node:util';
 import type { MacLauncherApp } from '../shared/launcher';
 
 const execFileAsync = promisify(execFile);
+export async function openMacApplication(path: string): Promise<void> {
+  // Launch the bundle explicitly instead of treating it as a document via shell.openPath.
+  // Pass the exact catalogued path as one argument; names and bundle IDs can be ambiguous.
+  await execFileAsync('/usr/bin/open', ['-a', path], { timeout: 15000, maxBuffer: 128 * 1024 });
+}
 // NSWorkspace resolves bundle-specific icons, including modern asset-catalog icons.
 // Run in batches so indexing does not start a process for every application.
 const iconScript = `function run(paths) {
@@ -186,7 +191,7 @@ interface Options {
   getIcon?: (path: string) => Promise<string>;
   getIcons?: (paths: string[]) => Promise<Map<string, string>>;
   getNames?: (paths: string[]) => Promise<Map<string, string>>;
-  openPath: (path: string) => Promise<string>;
+  openApplication?: (path: string) => Promise<void>;
 }
 
 /** The renderer receives IDs, never authority to launch an arbitrary filesystem path. */
@@ -316,8 +321,7 @@ export class InstalledApps {
       const info = await this.validate(entry.path);
       if (entry.bundleId && info.CFBundleIdentifier !== entry.bundleId)
         throw Error('Приложение изменилось');
-      const error = await this.options.openPath(entry.path);
-      if (error) throw Error(error);
+      await (this.options.openApplication || openMacApplication)(entry.path);
     } catch (error) {
       throw Error(
         `Не удалось открыть ${entry.app.name}. ${error instanceof Error ? error.message : String(error)}`,
