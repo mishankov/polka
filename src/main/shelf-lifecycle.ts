@@ -20,11 +20,11 @@ export class ShelfLifecycle {
     const remembered = this.remembered;
     const resume =
       destination === undefined &&
-      ((this.committedOpen && (this.destination === 'clipboard' || this.destination === 'emoji')) ||
+      ((this.committedOpen && ['clipboard', 'emoji', 'snippets'].includes(this.destination)) ||
         (!this.committedOpen &&
           !!remembered &&
           now - remembered.closedAt < 60_000 &&
-          (remembered.destination === 'clipboard' || remembered.destination === 'emoji')));
+          ['clipboard', 'emoji', 'snippets'].includes(remembered.destination)));
     const entry: ShelfEntry = {
       revision: ++this.revision,
       sessionId: this.sessionId,

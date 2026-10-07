@@ -7,6 +7,7 @@ import {
   IconTextSize,
   IconMoodSmile,
   IconFiles,
+  IconNotes,
 } from '@tabler/icons-react';
 import { clipboardSnippet, type ShelfSearchResult } from '../../shared/shelf-search';
 import { consumedKey } from './shelf-keyboard';
@@ -44,10 +45,12 @@ export default function SearchResult({
       : app
         ? app.name
         : clip
-          ? clipboardSnippet(clip, query)
+          ? clip.name || clipboardSnippet(clip, query)
           : calculation
             ? calculation.displayValue || calculation.value
-            : 'Показать все записи';
+            : result.kind === 'more-snippets'
+              ? 'Показать все сниппеты'
+              : 'Показать все записи';
   const description = folder
     ? `Папка · Команды: ${folder.count}`
     : command
@@ -57,12 +60,14 @@ export default function SearchResult({
       : app
         ? app.description || 'Полка'
         : clip
-          ? `${clip.pinned ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+          ? `${clip.name ? clipboardSnippet(clip, query) + ' · ' : ''}${clip.pinned && !clip.snippet ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
           : calculation
             ? calculation.interpretation || calculation.expression
             : result.kind === 'more-clips'
               ? `Найдено в истории: ${result.count}`
-              : '';
+              : result.kind === 'more-snippets'
+                ? `Найдено сниппетов: ${result.count}`
+                : '';
   const hint = command
     ? command.availability === 'available'
       ? 'Запустить'
@@ -134,7 +139,9 @@ export default function SearchResult({
           )
         ) : app ? (
           app.kind === 'builtin' ? (
-            app.id === 'builtin:files' ? (
+            app.id === 'builtin:snippets' ? (
+              <IconNotes size={22} stroke={1.5} />
+            ) : app.id === 'builtin:files' ? (
               <IconFiles size={22} stroke={1.5} />
             ) : app.id === 'builtin:emoji' ? (
               <IconMoodSmile size={22} stroke={1.5} />

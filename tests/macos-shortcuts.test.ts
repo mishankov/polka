@@ -125,18 +125,18 @@ test('shortcut folder follows apps, with folder and individual names searchable'
     { id, name: 'Resize Images', availability: 'available' as const },
     { id: second, name: 'Another Shortcut', availability: 'available' as const },
   ];
-  assert.deepEqual(shelfSearch([], [], '', {}, {}, commands).results, [
+  assert.deepEqual(shelfSearch([], [], '', {}, {}, [], commands).results, [
     { id: 'shortcut-folder', kind: 'shortcut-folder', count: 2 },
   ]);
   assert.equal(
-    shelfSearch([], [], 'Shortcuts', {}, {}, commands).results[0]?.kind,
+    shelfSearch([], [], 'Shortcuts', {}, {}, [], commands).results[0]?.kind,
     'shortcut-folder',
   );
   assert.equal(
-    shelfSearch([], [], 'команды', {}, {}, commands).results[0]?.kind,
+    shelfSearch([], [], 'команды', {}, {}, [], commands).results[0]?.kind,
     'shortcut-folder',
   );
-  assert.equal(shelfSearch([], [], 'another', {}, {}, commands).results[0]?.kind, 'shortcut');
+  assert.equal(shelfSearch([], [], 'another', {}, {}, [], commands).results[0]?.kind, 'shortcut');
   const apps = [
     {
       kind: 'mac' as const,
@@ -146,18 +146,18 @@ test('shortcut folder follows apps, with folder and individual names searchable'
       description: '',
     },
   ];
-  const matches = shelfSearch(apps, [], 'Resize Images', {}, {}, commands).results;
+  const matches = shelfSearch(apps, [], 'Resize Images', {}, {}, [], commands).results;
   assert.equal(matches[0]?.kind, 'app');
   assert.equal(matches[1]?.kind, 'shortcut');
   assert.deepEqual(
-    shelfSearch(apps, [], '', {}, {}, commands).results.map((r) => r.kind),
+    shelfSearch(apps, [], '', {}, {}, [], commands).results.map((r) => r.kind),
     ['app', 'shortcut-folder'],
   );
   assert.equal(shortcutSearch(commands, '').length, 2);
   assert.equal(shortcutSearch(commands, 'resize images')[0]?.id, `shortcut:${id}`);
   assert.equal(shortcutSearch(commands, 'unrelated').length, 0);
   assert.equal(shortcutSearch([], '').length, 0);
-  assert.equal(shelfSearch([], [], '2+2', {}, {}, commands).results[0]?.kind, 'calculation');
+  assert.equal(shelfSearch([], [], '2+2', {}, {}, [], commands).results[0]?.kind, 'calculation');
   assert(shelfMethodAllowed('macShortcuts.run'));
   assert(!shelfMethodAllowed('macShortcuts.select'));
   assert(!shelfMethodAllowed('macShortcuts.exec'));
