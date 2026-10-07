@@ -52,6 +52,8 @@ export function createShelf(
   let savingImage = false;
   let fileProbe: ChildProcess | undefined;
   let fileDrag = false;
+  let fileDropPending = false;
+  let fileDropEndTimer: ReturnType<typeof setTimeout> | undefined;
   let fileTargetError = '';
   const fileState = (state: import('../shared/file-shelf').FileShelfState) => ({
     ...state,
@@ -189,6 +191,8 @@ export function createShelf(
     if (window && !window.isDestroyed()) window.hide();
   }
   function hide(animate = true, reason: 'dismiss' | 'paste' = 'dismiss') {
+    fileDropPending = false;
+    clearTimeout(fileDropEndTimer);
     if (process.env.EVERYTHING_PASTE_DEBUG === '1')
       console.log('Clipboard paste closing', {
         phase: lifecycle.phase,
@@ -241,6 +245,10 @@ export function createShelf(
     // Target capture can wait on another app's accessibility tree. Establish the
     // opening context first so the hover timer cannot dismiss a keyboard opening.
     openedBy = source;
+    if (source !== 'drag') {
+      fileDropPending = false;
+      clearTimeout(fileDropEndTimer);
+    }
     const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     displayId = display.id;
     const revision = entry.revision;
@@ -517,7 +525,8 @@ export function createShelf(
       notches.find((item) => item.id === display.id),
       expanded,
     );
-    if (lifecycle.requested && (openedBy === 'keyboard' || openedBy === 'drag')) return;
+    if (lifecycle.requested && openedBy === 'keyboard') return;
+    if (lifecycle.requested && openedBy === 'drag' && !fileDropPending) return;
     if (!history.getPreferences().hoverEnabled && !lifecycle.requested) return;
     const action = hover.step(
       Date.now(),
@@ -761,6 +770,14 @@ export function createShelf(
       try {
         const message = JSON.parse(line);
         if (disposed || suspensions.size) return;
+        if (message.type === 'incomingEnd' && fileDropPending) {
+          clearTimeout(fileDropEndTimer);
+          const revision = lifecycle.revision;
+          // Let a renderer drop IPC arrive before treating release as cancellation.
+          fileDropEndTimer = setTimeout(() => {
+            if (fileDropPending && lifecycle.revision === revision) hide();
+          }, 180);
+        }
         if (message.type === 'dragEnd') {
           fileDrag = false;
           fileProbe?.stdin?.write(JSON.stringify({ enabled: true }) + '\n');
@@ -769,15 +786,24 @@ export function createShelf(
         if (
           message.type === 'enter' &&
           (!lifecycle.requested || presentation.destination !== 'files')
-        )
+        ) {
+          fileDropPending = true;
+          clearTimeout(fileDropEndTimer);
           void show('drag', 'files').catch(console.error);
+        }
         if (message.type === 'drop') {
+          fileDropPending = false;
+          clearTimeout(fileDropEndTimer);
           const paths = z.array(z.string().max(4096)).max(1000).parse(message.paths);
           void files
             .add(paths)
             .then(() => {
               filesChanged();
               return show('drag', 'files');
+            })
+            .then(() => {
+              // A completed drop can receive keys; an in-progress drag stays inactive.
+              if (lifecycle.requested && presentation.destination === 'files') window?.focus();
             })
             .catch(console.error);
         }
@@ -875,11 +901,14 @@ export function createShelf(
     }
     if (method === 'shelf.files.state') return fileState(await files.refresh());
     if (method === 'shelf.files.add') {
+      fileDropPending = false;
+      clearTimeout(fileDropEndTimer);
       const result = await files.add(
         z.array(z.string().max(4096)).min(1).max(1000).parse(params.paths),
       );
       filesChanged();
       if (presentation.destination !== 'files') await show('drag', 'files');
+      if (lifecycle.requested && presentation.destination === 'files') window?.focus();
       return fileState(result);
     }
     if (method === 'shelf.files.remove' || method === 'shelf.files.clear') {
@@ -1142,6 +1171,7 @@ export function createShelf(
     generation++;
     clearTimeout(hideTimer);
     clearInterval(hoverTimer);
+    clearTimeout(fileDropEndTimer);
     clearInterval(expiryTimer);
     paste.stop();
     if (helper.status !== 'failed') helper = { status: 'stopped' };

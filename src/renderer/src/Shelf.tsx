@@ -65,6 +65,12 @@ export default function Shelf() {
     )
       void api('shelf.didHide', { revision: presentation.revision }).catch(report);
   }, [presentation]);
+  useEffect(() => {
+    if (!presentation.visible) {
+      dragDepth.current = 0;
+      setDraggingFiles(false);
+    }
+  }, [presentation.visible]);
   return (
     <main
       className={`clipboard-shelf ${presentation.visible ? 'is-open' : hasOpened.current ? 'is-closed' : 'is-idle'}`}

@@ -3,11 +3,15 @@ import { IconArrowLeft, IconFile, IconFolder, IconX } from '@tabler/icons-react'
 import { ActionIcon, Button } from './NativeControls';
 import type { FileShelfState } from '../../shared/file-shelf';
 import { api, errorMessage, report } from './api';
+import { consumedKey } from './shelf-keyboard';
 
 export default function FileShelf() {
   const [state, setState] = useState<FileShelfState>({ items: [], error: '' });
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const view = useRef<HTMLDivElement>(null);
   const request = useRef(0);
   const anchor = useRef<string | undefined>(undefined);
   const refresh = useCallback(async () => {
@@ -22,6 +26,8 @@ export default function FileShelf() {
     }
   }, []);
   useEffect(() => {
+    // DOM focus prepares keyboard navigation without activating an incoming drag.
+    view.current?.focus();
     void refresh();
     const unsubscribe = window.platform.onEvent((event) => {
       if (event.type === 'fileShelf.changed') void refresh();
@@ -34,14 +40,27 @@ export default function FileShelf() {
     };
   }, [refresh]);
   async function remove(ids?: string[]) {
+    if (pending.current || (ids ? !ids.length : !state.items.length)) return;
+    pending.current = true;
+    setBusy(true);
     try {
       await api(ids ? 'shelf.files.remove' : 'shelf.files.clear', ids ? { ids } : {});
       setError('');
       await refresh();
     } catch (error) {
       setError(errorMessage(error));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+      view.current?.focus();
     }
   }
+  const goBack = () => {
+    if (!pending.current) void api('launcher.show', { destination: 'apps' }).catch(report);
+  };
+  const close = () => {
+    if (!pending.current) void api('launcher.hide').catch(report);
+  };
   function select(
     id: string,
     modifiers: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean },
@@ -63,14 +82,46 @@ export default function FileShelf() {
   return (
     <div
       className="file-shelf-view"
+      ref={view}
+      tabIndex={-1}
+      aria-busy={busy}
       onKeyDown={(event) => {
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
+        if (consumedKey(event)) return;
+        const command = event.metaKey || event.ctrlKey;
+        if (event.key === 'Escape') {
           event.preventDefault();
-          setSelected(state.items.map((item) => item.id));
+          event.stopPropagation();
+          if (!event.repeat) close();
+          return;
         }
-        if ((event.key === 'Backspace' || event.key === 'Delete') && selected.length) {
+        if (
+          command &&
+          !event.altKey &&
+          !event.shiftKey &&
+          (event.code === 'KeyA' || event.key.toLowerCase() === 'a')
+        ) {
           event.preventDefault();
-          void remove(selected);
+          if (!event.repeat && !pending.current) setSelected(state.items.map((item) => item.id));
+          return;
+        }
+        if (event.key === 'Backspace' && command && !event.altKey) {
+          event.preventDefault();
+          if (!event.repeat) {
+            const focused = (event.target as HTMLElement).closest<HTMLElement>('[data-file-remove]')
+              ?.dataset.fileRemove;
+            void remove(event.shiftKey ? undefined : focused ? [focused] : selected);
+          }
+          return;
+        }
+        if (event.key === 'Backspace' && !command && !event.altKey) {
+          event.preventDefault();
+          if (!event.repeat) goBack();
+        }
+        if (event.key === 'Delete' && !command && !event.altKey && !event.shiftKey) {
+          event.preventDefault();
+          const focused = (event.target as HTMLElement).closest<HTMLElement>('[data-file-remove]')
+            ?.dataset.fileRemove;
+          if (!event.repeat) void remove(focused ? [focused] : selected);
         }
       }}
     >
@@ -78,18 +129,30 @@ export default function FileShelf() {
         <ActionIcon
           variant="subtle"
           aria-label="Назад к приложениям"
-          onClick={() => void api('launcher.show', { destination: 'apps' }).catch(report)}
+          title="Назад к приложениям · ⌫"
+          aria-keyshortcuts="Backspace"
+          disabled={busy}
+          onClick={goBack}
         >
           <IconArrowLeft size={19} />
         </ActionIcon>
         <h1>Файлы на полке</h1>
-        <Button variant="subtle" disabled={!state.items.length} onClick={() => void remove()}>
+        <Button
+          variant="subtle"
+          title="Очистить полку · ⌘ ⇧ ⌫"
+          aria-keyshortcuts="Meta+Shift+Backspace"
+          disabled={busy || !state.items.length}
+          onClick={() => void remove()}
+        >
           Очистить полку
         </Button>
         <ActionIcon
           variant="subtle"
           aria-label="Закрыть полку"
-          onClick={() => void api('launcher.hide').catch(report)}
+          title="Закрыть полку · Esc"
+          aria-keyshortcuts="Escape"
+          disabled={busy}
+          onClick={close}
         >
           <IconX size={19} />
         </ActionIcon>
@@ -120,7 +183,8 @@ export default function FileShelf() {
               className="file-shelf-item"
               aria-pressed={selected.includes(item.id)}
               aria-label={item.name}
-              draggable={item.available}
+              disabled={busy}
+              draggable={item.available && !busy}
               onClick={(event) => select(item.id, event)}
               onDragStart={(event) => {
                 event.preventDefault();
@@ -144,7 +208,10 @@ export default function FileShelf() {
             <ActionIcon
               variant="subtle"
               aria-label={`Убрать ${item.name} с полки`}
-              title="Убрать ссылку с полки"
+              title="Убрать ссылку с полки · ⌘ ⌫"
+              aria-keyshortcuts="Meta+Backspace Delete"
+              data-file-remove={item.id}
+              disabled={busy}
               onClick={() => void remove([item.id])}
             >
               <IconX size={17} />

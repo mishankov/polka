@@ -33,6 +33,9 @@ class Target: NSView {
   override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
     files(sender.draggingPasteboard).isEmpty ? [] : .copy
   }
+  override func draggingEnded(_ sender: NSDraggingInfo) {
+    finishIncoming()
+  }
   override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { true }
   override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
     let paths = files(sender.draggingPasteboard)
@@ -50,6 +53,13 @@ var outgoing = false
 var completedChange = NSPasteboard(name: .drag).changeCount
 var activeChange: Int?
 var enteredChange: Int?
+func finishIncoming() {
+  if let active = activeChange {
+    completedChange = active
+    activeChange = nil
+    emit(["type": "incomingEnd"])
+  }
+}
 func rebuild() {
   panels.forEach { $0.close() }
   panels = NSScreen.screens.map { screen in
@@ -84,10 +94,7 @@ let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
   let pressed = NSEvent.pressedMouseButtons & 1 != 0
   let board = NSPasteboard(name: .drag)
   if !pressed {
-    if let active = activeChange {
-      completedChange = active
-      activeChange = nil
-    }
+    finishIncoming()
     if outgoing {
       outgoing = false
       completedChange = board.changeCount
@@ -98,11 +105,12 @@ let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
   if dragging {
     activeChange = board.changeCount
     let point = NSEvent.mouseLocation
-    if enteredChange != board.changeCount
-      && panels.contains(where: { $0.frame.insetBy(dx: -12, dy: -16).contains(point) })
-    {
+    let nearTarget = panels.contains(where: { $0.frame.insetBy(dx: -12, dy: -16).contains(point) })
+    if nearTarget && enteredChange != board.changeCount {
       enteredChange = board.changeCount
       emit(["type": "enter"])
+    } else if !nearTarget {
+      enteredChange = nil
     }
   }
 

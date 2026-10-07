@@ -37,6 +37,133 @@ void runDesktopTest('file-shelf', async (test) => {
       .querySelector('main')!
       .dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
   });
+  await expect(page.locator('.file-shelf-row')).toHaveCount(2);
+  await expect(page.locator('.file-shelf-view')).toBeFocused();
+  await page.keyboard.press('Backspace');
+  await expect(page.getByRole('combobox', { name: 'Поиск по полке', exact: true })).toBeFocused();
+  await page.evaluate(() => window.platform.call('shelf.showFiles'));
+  await expect(page.locator('.file-shelf-view')).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Очистить полку', exact: true })).toHaveAttribute(
+    'aria-keyshortcuts',
+    'Meta+Shift+Backspace',
+  );
+  await expect(
+    page.getByRole('button', { name: 'Назад к приложениям', exact: true }),
+  ).toHaveAttribute('aria-keyshortcuts', 'Backspace');
+  await expect(page.getByRole('button', { name: 'Закрыть полку', exact: true })).toHaveAttribute(
+    'aria-keyshortcuts',
+    'Escape',
+  );
+  await page.evaluate(() => {
+    const view = document.querySelector('.file-shelf-view')!;
+    for (const flags of [{ repeat: true }, { isComposing: true }])
+      view.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          bubbles: true,
+          key: 'Backspace',
+          metaKey: true,
+          shiftKey: true,
+          ...flags,
+        }),
+      );
+    const dialog = document.createElement('div');
+    dialog.id = 'shortcut-dialog-fixture';
+    dialog.setAttribute('role', 'dialog');
+    document.body.append(dialog);
+  });
+  await page.keyboard.press('Meta+Shift+Backspace');
+  await expect(page.locator('.file-shelf-row')).toHaveCount(2);
+  await page.evaluate(() => {
+    document.querySelector('#shortcut-dialog-fixture')!.remove();
+    document
+      .querySelector('.file-shelf-view')!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { bubbles: true, key: 'ф', code: 'KeyA', metaKey: true }),
+      );
+  });
+  await expect(page.getByText('Выбрано: 2', { exact: true })).toBeVisible();
+  await page.keyboard.press('Backspace');
+  await expect(page.getByRole('combobox', { name: 'Поиск по полке', exact: true })).toBeFocused();
+  await page.evaluate(() => window.platform.call('shelf.showFiles'));
+  await expect(page.locator('.file-shelf-row')).toHaveCount(2);
+  await expect(page.locator('.file-shelf-view')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await test.shelfHidden(app, page);
+  await page.evaluate(() => window.platform.call('shelf.showFiles'));
+  await expect(page.locator('.file-shelf-view')).toBeFocused();
+  await page.keyboard.press('Meta+a');
+  await page.keyboard.press('Meta+Backspace');
+  await expect(page.locator('.file-shelf-row')).toHaveCount(0);
+  expect(await readFile(paths[0], 'utf8')).toBe('Synthetic travel plan');
+  await page.evaluate(
+    (paths) => window.platform.call('shelf.files.add', { paths }),
+    paths.slice(0, 2),
+  );
+  await expect(page.locator('.file-shelf-row')).toHaveCount(2);
+  const removePlan = page.getByRole('button', {
+    name: 'Убрать План поездки.txt с полки',
+    exact: true,
+  });
+  await expect(removePlan).toHaveAttribute('aria-keyshortcuts', 'Meta+Backspace Delete');
+  await removePlan.focus();
+  await page.keyboard.press('Meta+Backspace');
+  await expect(page.locator('.file-shelf-row')).toHaveCount(1);
+  await expect(page.locator('.file-shelf-view')).toBeFocused();
+  await page.keyboard.press('Meta+a');
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.file-shelf-row')).toHaveCount(0);
+  await page.evaluate(
+    (path) => window.platform.call('shelf.files.add', { paths: [path] }),
+    paths[1],
+  );
+  await expect(page.locator('.file-shelf-row')).toHaveCount(1);
+  // Keep a queued add pending so the clear command's busy state is observable.
+  const heldPath = join(test.profile, 'Held fixture.txt');
+  await writeFile(heldPath, 'Synthetic busy fixture');
+  await app.evaluate(({ app }, heldPath) => {
+    const original = app.getFileIcon;
+    (globalThis as any).__fileIconOriginal = original;
+    app.getFileIcon = async (path, options) => {
+      if (path === heldPath) {
+        (globalThis as any).__fileIconHeld = true;
+        await new Promise<void>((resolve) => {
+          (globalThis as any).__fileIconRelease = resolve;
+        });
+      }
+      return original.call(app, path, options);
+    };
+  }, heldPath);
+  test.deferCleanup(async () => {
+    await app
+      .evaluate(({ app }) => {
+        (globalThis as any).__fileIconRelease?.();
+        if ((globalThis as any).__fileIconOriginal)
+          app.getFileIcon = (globalThis as any).__fileIconOriginal;
+      })
+      .catch(() => {});
+  });
+  await page.evaluate((path) => {
+    void window.platform.call('shelf.files.add', { paths: [path] });
+  }, heldPath);
+  await expect.poll(() => app.evaluate(() => (globalThis as any).__fileIconHeld)).toBe(true);
+  await page.keyboard.press('Meta+Shift+Backspace');
+  await expect(page.locator('.file-shelf-view')).toHaveAttribute('aria-busy', 'true');
+  await expect(page.getByRole('button', { name: 'Очистить полку', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Закрыть полку', exact: true })).toBeDisabled();
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Файлы на полке', exact: true })).toBeVisible();
+  await app.evaluate(({ app }) => {
+    app.getFileIcon = (globalThis as any).__fileIconOriginal;
+    (globalThis as any).__fileIconRelease();
+  });
+  await expect(page.locator('.file-shelf-row')).toHaveCount(0);
+  await expect(page.locator('.file-shelf-view')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.getByRole('button', { name: 'Очистить полку', exact: true })).toBeDisabled();
+  await page.evaluate(
+    (paths) => window.platform.call('shelf.files.add', { paths }),
+    paths.slice(0, 2),
+  );
   await page.evaluate(
     (path) => window.platform.call('shelf.files.add', { paths: [path] }),
     paths[2],
@@ -72,6 +199,21 @@ void runDesktopTest('file-shelf', async (test) => {
     await writeFile(join(artifacts, name), Buffer.from(png, 'base64'));
   };
   await capture('file-shelf-selected.png');
+  // Inspect the real drag affordance without moving the shared desktop pointer.
+  await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    for (const file of document.querySelector<HTMLInputElement>('#file-drop-fixture')!.files!)
+      transfer.items.add(file);
+    document
+      .querySelector('main')!
+      .dispatchEvent(new DragEvent('dragenter', { bubbles: true, dataTransfer: transfer }));
+  });
+  await expect(page.locator('.file-shelf-drop-hint')).toBeVisible();
+  await capture('file-shelf-before-drop.png');
+  await page.evaluate(() =>
+    document.querySelector('main')!.dispatchEvent(new DragEvent('dragleave', { bubbles: true })),
+  );
+  await expect(page.locator('.file-shelf-drop-hint')).toHaveCount(0);
   // Verify the real renderer drag gesture requests the complete selected ID set.
   await app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows().find((win) =>
