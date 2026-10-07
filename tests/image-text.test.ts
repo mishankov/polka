@@ -240,7 +240,20 @@ test(
           const binary = join(folder, 'diagnostic');
           const compile = spawnSync(
             'swiftc',
-            ['-O', 'scripts/image-text-diagnostics.swift', '-o', binary],
+            [
+              '-O',
+              'scripts/image-text-diagnostics.swift',
+              '-o',
+              binary,
+              '-Xlinker',
+              '-sectcreate',
+              '-Xlinker',
+              '__TEXT',
+              '-Xlinker',
+              '__info_plist',
+              '-Xlinker',
+              'native/ImageTextInfo.plist',
+            ],
             {
               encoding: 'utf8',
               timeout: 10000,
@@ -290,6 +303,17 @@ test(
         Buffer.from('invalid').toString('base64'),
         new AbortController().signal,
       ),
+    );
+    const invalid = spawnSync(resolve('build/image-text'), ['--diagnostics'], {
+      input: Buffer.from('invalid'),
+      encoding: 'utf8',
+      timeout: 10000,
+      maxBuffer: 65536,
+    });
+    assert.equal(invalid.status, 1);
+    assert.equal(
+      JSON.parse(invalid.stdout).error.bundleIdentifier,
+      'app.everything.desktop.image-text',
     );
   },
 );

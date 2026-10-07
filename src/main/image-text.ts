@@ -5,7 +5,7 @@ import type { ClipboardHistory } from './clipboard-history';
 import type { ImageText } from '../shared/clipboard';
 
 // Bump on any recognition/normalization change. OS upgrades may change models.
-export const IMAGE_TEXT_VERSION = `vision-r3-accurate-ru-en-correction-cpu-software-image-v5-${release()}`;
+export const IMAGE_TEXT_VERSION = `vision-r3-accurate-ru-en-correction-cpu-software-image-bundle-v6-${release()}`;
 const outputSchema = z.object({
   text: z.string().max(1024 * 1024),
   languages: z.array(z.string().max(40)).max(20),

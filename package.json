@@ -16,7 +16,7 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "native:build": "swiftc -O native/MediaProbe.swift -o build/media-probe -framework CoreAudio -framework CoreMediaIO -framework AVFoundation && swiftc -O native/ClipboardProbe.swift -o build/clipboard-probe -framework AppKit && swiftc -O native/SyncDiscovery.swift -o build/sync-discovery && swiftc -O native/ImageText.swift -o build/image-text -framework Vision -framework ImageIO -framework CoreImage",
+    "native:build": "swiftc -O native/MediaProbe.swift -o build/media-probe -framework CoreAudio -framework CoreMediaIO -framework AVFoundation && swiftc -O native/ClipboardProbe.swift -o build/clipboard-probe -framework AppKit && swiftc -O native/SyncDiscovery.swift -o build/sync-discovery && swiftc -O native/ImageText.swift -o build/image-text -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker native/ImageTextInfo.plist -framework Vision -framework ImageIO -framework CoreImage",
     "package": "npm run build:prepare && npm run package:prepared --",
     "package:dir": "npm run build:prepare && electron-builder --mac dir --arm64",
     "verify": "npm run build:prepare && npm run verify:desktop && npm run verify:workflows",

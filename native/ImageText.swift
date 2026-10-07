@@ -12,8 +12,7 @@ do {
     request.recognitionLevel = .accurate
     request.usesLanguageCorrection = true
     // Set this before language/model discovery as well as recognition. The
-    // per-stage replacement API itself can fail while discovering devices on
-    // virtual Macs without GPU/ANE, so retain Vision's CPU-only compatibility
+    // virtual Macs do not expose GPU/ANE, so retain Vision's CPU-only compatibility
     // switch for this background helper despite its macOS 14 deprecation.
     request.usesCPUOnly = true
     request.preferBackgroundProcessing = true
@@ -59,6 +58,7 @@ do {
     // fixture by the failing unit test. The application never passes this flag.
     if CommandLine.arguments.contains("--diagnostics") {
         details["description"] = failure.description
+        details["bundleIdentifier"] = Bundle.main.bundleIdentifier ?? "missing"
     }
     if let output = try? JSONSerialization.data(withJSONObject: ["error": details]) {
         FileHandle.standardOutput.write(output)
