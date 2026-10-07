@@ -5,6 +5,7 @@ import { shortcutLabel } from '../../shared/launcher';
 import ClipboardSyncSettings from './ClipboardSyncSettings';
 import ClipboardStorageFailure from './ClipboardStorageFailure';
 import ClipboardHelperStatus from './ClipboardHelperStatus';
+import ClipboardPrivacy from './ClipboardPrivacy';
 import { api, errorMessage } from './api';
 
 export default function ClipboardSettings() {
@@ -64,11 +65,11 @@ export default function ClipboardSettings() {
       />
       {state?.helper?.status === 'failed' && <Alert color="red">{state.helper.error}</Alert>}
       <ClipboardHelperStatus state={state} />
-      <Switch
-        label="Сохранять скопированный текст и изображения"
-        checked={writable && !state.preferences.paused}
+      <ClipboardPrivacy
+        preferences={state?.preferences}
         disabled={!writable || saving}
-        onChange={(event) => void save('preferences', { paused: !event.currentTarget.checked })}
+        save={save}
+        settings
       />
       <Switch
         label="Вставлять выбранную запись в предыдущее поле"

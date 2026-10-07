@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 export interface PasteReply {
   trusted?: boolean;
+  unchanged?: boolean;
   token?: string;
   sent?: boolean;
   reason?: string;
@@ -46,6 +47,9 @@ export class ClipboardPaste {
         resolve({});
       }
     });
+  }
+  async clipboardUnchanged(count: number) {
+    return (await this.request('clipboardUnchanged', { count: String(count) })).unchanged === true;
   }
   async status(prompt = false) {
     const generation = this.generation;

@@ -811,3 +811,26 @@ html[data-window-mode='shelf'] .clipboard-paste-permission button {
     gap: 16px;
   }
 }
+
+.clipboard-local-dialog {
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px;
+  max-width: 440px;
+}
+.clipboard-local-dialog::backdrop {
+  background: #0008;
+}
+.clipboard-local-dialog h2 {
+  font-size: 17px;
+  margin-top: 0;
+}
+.clipboard-local-dialog p {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.clipboard-privacy {
+  padding: 8px 12px;
+}

@@ -13,7 +13,11 @@ const panes = [
   { id: 'clipboard', label: 'Буфер обмена', icon: IconClipboard },
   { id: 'about', label: 'О приложении', icon: IconInfoCircle },
 ];
-export default function ShelfSettings({ initialTab }: { initialTab?: 'general' | 'about' }) {
+export default function ShelfSettings({
+  initialTab,
+}: {
+  initialTab?: 'general' | 'about' | 'clipboard';
+}) {
   const [tab, setTab] = useState(
     () => initialTab || localStorage.getItem('settingsPane') || 'general',
   );
@@ -26,7 +30,11 @@ export default function ShelfSettings({ initialTab }: { initialTab?: 'general' |
       .then((state) => setLogin(state.login))
       .catch((reason) => setError(errorMessage(reason)));
     return window.platform.onEvent((event) => {
-      if (event.type === 'settings.navigate' && event.pane === 'about') setTab('about');
+      if (
+        event.type === 'settings.navigate' &&
+        (event.pane === 'about' || event.pane === 'clipboard')
+      )
+        setTab(event.pane);
     });
   }, []);
   useEffect(() => {

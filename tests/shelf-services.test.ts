@@ -41,6 +41,8 @@ async function fixture(
     probe?: 'error' | 'timeout' | ('ready' | 'error' | 'timeout' | 'exit')[];
     holdProbeExit?: boolean;
     holdHistory?: boolean;
+    exclusions?: boolean;
+    holdClipboard?: boolean;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'polka-services-'));
@@ -51,6 +53,10 @@ async function fixture(
   await initial.initialize();
   await initial.preferences({ hoverEnabled: false, pasteOnSelect: false });
   await initial.add('text', 'Committed clip', 'Committed clip');
+  if (options.exclusions)
+    await initial.preferences({
+      excludedApps: [{ bundleId: 'com.example.private', name: 'Private' }],
+    });
   await writeFile(syncPath, JSON.stringify({ enabled: false, key: '', cert: '', peers: [] }));
   if (options.failure === 'read') {
     await rm(path);
@@ -68,7 +74,12 @@ async function fixture(
   });
   let encryptFailure = options.failure === 'prune-write';
   let trusted = true;
+  let unchanged = true;
   let clipboardReads = 0;
+  let releaseClipboard = () => {};
+  const clipboardGate = new Promise<void>((resolve) => {
+    releaseClipboard = resolve;
+  });
   const writes: Record<string, unknown>[] = [];
   const alerts: unknown[] = [];
   const shortcuts = new Set<string>();
@@ -93,7 +104,7 @@ async function fixture(
               JSON.stringify({
                 type: 'paste.reply',
                 id: command.id,
-                result: { trusted },
+                result: { trusted, unchanged },
               }) + '\n',
             ),
           );
@@ -176,7 +187,15 @@ async function fixture(
     clipboard: {
       async read() {
         clipboardReads++;
-        return [{ types: ['text/plain'], getType: async () => new Blob(['New clip']) }];
+        return [
+          {
+            types: ['text/plain'],
+            getType: async () => {
+              if (options.holdClipboard) await clipboardGate;
+              return new Blob(['New clip']);
+            },
+          },
+        ];
       },
       async write(items: { content: Record<string, unknown> }[]) {
         writes.push(items[0].content);
@@ -236,6 +255,7 @@ async function fixture(
           }
         : name === 'node:child_process'
           ? {
+              ...require('node:child_process'),
               spawn() {
                 spawns++;
                 return spawnProbe();
@@ -278,6 +298,9 @@ async function fixture(
     geometry: () => geometry,
     spawns: () => spawns,
     reads: () => clipboardReads,
+    changeDuringRead: () => {
+      unchanged = false;
+    },
     denyAccess: () => {
       trusted = false;
     },
@@ -285,6 +308,7 @@ async function fixture(
       encryptFailure = true;
     },
     releaseHistory,
+    releaseClipboard,
     line: (line: string, index = probes.length - 1) =>
       probes[index].child.stdout.write(line + '\n'),
     exit: (index = probes.length - 1) => probes[index].child.emit('exit', 7, null),
@@ -553,4 +577,40 @@ test('initial expiry write failure preserves loaded native preferences and commi
   assert.equal(state.clips.length, 1);
   assert.equal(state.sync?.status, 'blocked');
   assert.deepEqual(await readFile(env.path), bytes);
+});
+
+test('exclusions skip before reading; attribution and snapshot validation gate capture without clipboard writes', async (t) => {
+  const env = await fixture(t, { exclusions: true });
+  await env.start();
+  env.line('{"type":"clipboard","sourceBundleId":"com.example.private","count":1}');
+  env.line('{"type":"clipboard","count":2}');
+  await delay(20);
+  assert.equal(env.reads(), 0);
+  env.changeDuringRead();
+  env.line('{"type":"clipboard","sourceBundleId":"com.example.allowed","count":3}');
+  await until(() => env.commands.includes('clipboardUnchanged'));
+  await delay(20);
+  assert.equal((await env.state()).clips.length, 1);
+  await env.shelf.handle('clipboardHistory.pause15', {});
+  const pause = (await env.state()).preferences;
+  assert(pause.pauseUntil! > Date.now());
+  env.line('{"type":"clipboard","sourceBundleId":"com.example.allowed","count":4}');
+  await delay(20);
+  assert.equal(env.reads(), 1);
+  await env.shelf.handle('clipboardHistory.preferences', { paused: false });
+  assert.equal((await env.state()).preferences.pauseUntil, undefined);
+  assert.equal(env.writes.length, 0);
+});
+
+test('a newer excluded observation invalidates an in-flight allowed capture', async (t) => {
+  const env = await fixture(t, { exclusions: true, holdClipboard: true });
+  await env.start();
+  env.line('{"type":"clipboard","sourceBundleId":"com.example.allowed","count":1}');
+  await until(() => env.reads() === 1);
+  env.line('{"type":"clipboard","sourceBundleId":"com.example.private","count":2}');
+  env.releaseClipboard();
+  await delay(30);
+  assert.equal((await env.state()).clips.length, 1);
+  assert.equal(env.reads(), 1);
+  assert.equal(env.writes.length, 0);
 });

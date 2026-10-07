@@ -280,7 +280,7 @@ async function main(test: DesktopTest) {
     );
     await settings.getByRole('tab', { name: 'Буфер обмена', exact: true }).click();
     await expect(
-      settings.getByRole('switch', { name: 'Сохранять скопированный текст и изображения' }),
+      settings.getByRole('button', { name: 'Пауза на 15 минут', exact: true }),
     ).toBeEnabled();
     for (const appearance of ['light', 'dark'] as const) {
       await app.evaluate(({ nativeTheme }, appearance) => {

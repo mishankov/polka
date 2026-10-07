@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { SettingsStore } from '../src/main/settings-store';
 import { ClipboardHistory } from '../src/main/clipboard-history';
+import { acquireDesktopLock, desktopEnvironment, closeDesktopApp } from './desktop-test';
 import type { ClipboardState } from '../src/shared/clipboard';
 
 // Fault injection uses a disposable profile and an in-memory clipboard. It does
@@ -49,7 +50,10 @@ async function main() {
   `,
   );
   const launch = () =>
-    electron.launch({ args: [bootstrap], env: { ...process.env, EVERYTHING_PROFILE: profile } });
+    electron.launch({
+      args: [bootstrap],
+      env: desktopEnvironment({ ...process.env, EVERYTHING_PROFILE: profile }),
+    });
   let app: Awaited<ReturnType<typeof launch>> | undefined;
   try {
     app = await launch();
@@ -83,8 +87,8 @@ async function main() {
     settingsPage.on('pageerror', (error) => errors.push(error.message));
     await settingsPage.getByRole('tab', { name: 'Буфер обмена', exact: true }).click();
     await expect(
-      settingsPage.getByRole('switch', {
-        name: 'Сохранять скопированный текст и изображения',
+      settingsPage.getByRole('button', {
+        name: 'Пауза на 15 минут',
         exact: true,
       }),
     ).toBeDisabled();
@@ -115,7 +119,7 @@ async function main() {
     ).toBeEnabled();
     await settingsPage.screenshot({ path: join(artifacts, 'launcher-settings-unavailable.png') });
     assert.equal(errors.length, 0);
-    await app.close();
+    await closeDesktopApp(app);
     app = undefined;
     assert.deepEqual(await readFile(historyPath), unreadable);
     assert.deepEqual(await readFile(syncPath), unreadable);
@@ -174,11 +178,19 @@ async function main() {
       'Clipboard storage smoke passed: independent native startup, failure UI, file preservation, restart recovery, and read-only copying.',
     );
   } finally {
-    await app?.close();
+    if (app) await closeDesktopApp(app);
     await rm(root, { recursive: true, force: true });
   }
 }
-main().catch((reason) => {
-  console.error(reason);
-  process.exitCode = 1;
-});
+void acquireDesktopLock()
+  .then(async (release) => {
+    try {
+      await main();
+    } finally {
+      await release();
+    }
+  })
+  .catch((reason) => {
+    console.error(reason);
+    process.exitCode = 1;
+  });

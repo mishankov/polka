@@ -16,6 +16,11 @@ export const MAX_HISTORY_BYTES = 128 * 1024 * 1024;
 export const MAX_HISTORY_ITEMS = 200;
 const preferencesSchema = z.object({
   paused: z.boolean(),
+  pauseUntil: z.number().finite().nonnegative().optional(),
+  excludedApps: z
+    .array(z.object({ bundleId: z.string().min(1).max(300), name: z.string().min(1).max(300) }))
+    .max(200)
+    .default([]),
   pasteOnSelect: z.boolean().default(true),
   hoverEnabled: z.boolean(),
   retentionDays: z.union([z.literal(1), z.literal(7), z.literal(30)]),
@@ -29,6 +34,7 @@ export const clipSchema = z.object({
   createdAt: z.number().finite(),
   pinned: z.boolean(),
   sourceDevice: z.string().max(100).optional(),
+  localOnly: z.boolean().optional(),
 });
 import {
   compareStamp,
@@ -46,11 +52,11 @@ const syncSchema = z.object({
   clear: stampSchema.optional(),
   entries: z.record(
     z.string().regex(/^[a-f0-9]{64}$/),
-    syncEntrySchema.extend({ seen: stampSchema.optional() }),
+    syncEntrySchema.extend({ seen: stampSchema.optional(), localOnly: z.boolean().optional() }),
   ),
 });
 const savedSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   preferences: preferencesSchema,
   clips: z.array(clipSchema).max(MAX_HISTORY_ITEMS),
   sync: syncSchema.optional(),
@@ -107,6 +113,8 @@ export class ClipboardHistory {
     preferences: { ...DEFAULT_CLIPBOARD_PREFERENCES },
     clips: [],
   };
+  private stopped = false;
+  private pauseTimer: ReturnType<typeof setTimeout> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
   readonly storage: ClipboardStorage;
   preferencesAvailable = false;
@@ -147,6 +155,8 @@ export class ClipboardHistory {
     }
     this.preferencesAvailable = true;
     this.storage.loaded();
+    await this.resumeExpiredPause();
+    this.schedulePause();
     await this.prune();
   }
   private stamp(next: Saved): Stamp {
@@ -162,7 +172,7 @@ export class ClipboardHistory {
   }
   getPreferences() {
     return this.preferencesAvailable
-      ? { ...this.state.preferences }
+      ? structuredClone({ ...this.state.preferences, paused: this.isPaused() })
       : {
           ...DEFAULT_CLIPBOARD_PREFERENCES,
           paused: true,
@@ -170,6 +180,42 @@ export class ClipboardHistory {
           pasteOnSelect: false,
           accelerator: '',
         };
+  }
+  private isPaused() {
+    const preferences = this.state.preferences;
+    return (
+      preferences.paused &&
+      (preferences.pauseUntil === undefined || this.now() < preferences.pauseUntil)
+    );
+  }
+  private schedulePause() {
+    clearTimeout(this.pauseTimer);
+    const { paused, pauseUntil } = this.state.preferences;
+    if (!this.stopped && paused && pauseUntil !== undefined && this.storage.ready) {
+      this.pauseTimer = setTimeout(
+        () => {
+          void this.resumeExpiredPause()
+            .catch(() => {})
+            .finally(() => this.schedulePause());
+        },
+        Math.min(2147483647, Math.max(0, pauseUntil - this.now())),
+      );
+      this.pauseTimer.unref?.();
+    }
+  }
+  resumeExpiredPause() {
+    if (!this.storage.ready || !this.state.preferences.paused || this.isPaused())
+      return Promise.resolve();
+    return this.update((next) => {
+      if (next.preferences.pauseUntil !== undefined && this.now() >= next.preferences.pauseUntil) {
+        next.preferences.paused = false;
+        delete next.preferences.pauseUntil;
+      }
+    });
+  }
+  stop() {
+    this.stopped = true;
+    clearTimeout(this.pauseTimer);
   }
   snapshot(includeImageContent = true) {
     return structuredClone({
@@ -197,16 +243,27 @@ export class ClipboardHistory {
         await fs.rename(temporary, this.path);
       });
       this.state = next;
+      this.schedulePause();
       this.changed();
     });
     this.queue = result.catch(() => {});
     return result;
   }
-  add(kind: ClipboardClip['kind'], content: string, preview: string) {
+  add(kind: ClipboardClip['kind'], content: string, preview: string, sourceBundleId?: string) {
     if (!content || Buffer.byteLength(content) > MAX_CLIP_BYTES || preview.length > 200000)
       return Promise.resolve();
     return this.update((next) => {
-      if (next.preferences.paused) return;
+      if (
+        next.preferences.paused &&
+        (next.preferences.pauseUntil === undefined || this.now() < next.preferences.pauseUntil)
+      )
+        return;
+      if (
+        next.preferences.excludedApps.length &&
+        (!sourceBundleId ||
+          next.preferences.excludedApps.some((app) => app.bundleId === sourceBundleId))
+      )
+        return;
       const id = clipId(kind, content);
       const existing = next.clips.find((clip) => clip.id === id);
       next.clips = next.clips.filter((clip) => clip.id !== id);
@@ -224,12 +281,23 @@ export class ClipboardHistory {
         preview,
         createdAt: this.now(),
         pinned: existing?.pinned || false,
+        ...(next.sync!.entries[id].localOnly ? { localOnly: true } : {}),
       });
     });
   }
   preferences(patch: Partial<ClipboardPreferences>) {
     return this.update((next) => {
+      // Older binaries must fail closed rather than silently dropping privacy flags.
+      if (
+        patch.paused !== undefined ||
+        patch.pauseUntil !== undefined ||
+        patch.excludedApps !== undefined
+      )
+        next.version = 2;
       next.preferences = preferencesSchema.parse({ ...next.preferences, ...patch });
+      if (patch.paused !== undefined && patch.pauseUntil === undefined)
+        delete next.preferences.pauseUntil;
+      if (!next.preferences.paused) delete next.preferences.pauseUntil;
     });
   }
   pin(id: string, pinned: boolean) {
@@ -241,6 +309,23 @@ export class ClipboardHistory {
         ...next.sync!.entries[id],
         pin: { stamp: this.stamp(next), value: pinned },
       };
+    });
+  }
+  localOnly(id: string, value: boolean) {
+    return this.update((next) => {
+      const clip = next.clips.find((item) => item.id === id);
+      if (!clip) throw Error('Запись уже удалена');
+      if (!!clip.localOnly === value) return;
+      next.version = 2;
+      clip.localOnly = value || undefined;
+      const entry = next.sync!.entries[id];
+      entry.localOnly = value || undefined;
+      if (!value) {
+        const stamp = this.stamp(next);
+        entry.added = stamp;
+        entry.seen = stamp;
+        entry.pin = { stamp, value: clip.pinned };
+      }
     });
   }
   remove(id: string) {
@@ -262,9 +347,11 @@ export class ClipboardHistory {
       version: 1,
       clear: sync.clear,
       entries: Object.fromEntries(
-        Object.entries(sync.entries).map(([id, { seen: _seen, ...entry }]) => [id, entry]),
+        Object.entries(sync.entries)
+          .filter(([, entry]) => !entry.localOnly)
+          .map(([id, { seen: _seen, localOnly: _localOnly, ...entry }]) => [id, entry]),
       ),
-      available: this.state.clips.map((clip) => clip.id),
+      available: this.state.clips.filter((clip) => !clip.localOnly).map((clip) => clip.id),
     });
   }
   // Advance deletion/pin metadata before requesting content. Seen versions survive
@@ -277,6 +364,10 @@ export class ClipboardHistory {
       compareStamp(remote.clear, current.clear) > 0 ||
       Object.entries(remote.entries).some(([id, entry]) => {
         const local = current.entries[id];
+        if (local?.localOnly)
+          return [entry.added, entry.deleted, entry.pin?.stamp].some(
+            (stamp) => stamp && stamp.counter > current.counter,
+          );
         return (
           !local ||
           compareStamp(entry.added, local.added) > 0 ||
@@ -291,7 +382,7 @@ export class ClipboardHistory {
           // A clear also removes entries accumulated on an offline Mac before it
           // receives the command. Record their exact versions, so newer copies
           // made on another Mac after clearing can still be retained.
-          for (const entry of Object.values(sync.entries))
+          for (const entry of Object.values(sync.entries).filter((entry) => !entry.localOnly))
             entry.deleted = newest(entry.deleted, newest(entry.added, remote.clear));
         }
         sync.clear = newest(sync.clear, remote.clear);
@@ -300,6 +391,7 @@ export class ClipboardHistory {
           const local = sync.entries[id] || {};
           for (const stamp of [incoming.added, incoming.deleted, incoming.pin?.stamp])
             if (stamp) sync.counter = Math.max(sync.counter, stamp.counter);
+          if (local.localOnly) continue;
           if (
             incoming.pin?.value &&
             compareStamp(incoming.pin.stamp, local.pin?.stamp) > 0 &&
@@ -313,13 +405,17 @@ export class ClipboardHistory {
             pin: compareStamp(incoming.pin?.stamp, local.pin?.stamp) > 0 ? incoming.pin : local.pin,
           };
         }
-        next.clips = next.clips.filter((clip) => liveEntry(sync.entries[clip.id], sync.clear));
-        for (const clip of next.clips) clip.pinned = sync.entries[clip.id].pin?.value ?? false;
+        next.clips = next.clips.filter(
+          (clip) => clip.localOnly || liveEntry(sync.entries[clip.id], sync.clear),
+        );
+        for (const clip of next.clips.filter((clip) => !clip.localOnly))
+          clip.pinned = sync.entries[clip.id].pin?.value ?? false;
       });
     return remote.available.filter((id) => {
       const entry = this.state.sync!.entries[id];
       return (
         entry &&
+        !entry.localOnly &&
         liveEntry(entry, this.state.sync!.clear) &&
         compareStamp(entry.added, entry.seen) > 0
       );
@@ -328,7 +424,7 @@ export class ClipboardHistory {
   transfer(id: string) {
     const clip = this.state.clips.find((item) => item.id === id);
     const stamp = this.state.sync!.entries[id]?.seen;
-    return clip && stamp ? structuredClone({ clip, stamp }) : undefined;
+    return clip && !clip.localOnly && stamp ? structuredClone({ clip, stamp }) : undefined;
   }
   async receive(input: unknown, sourceDevice: string) {
     this.storage.requireReady();
@@ -354,6 +450,8 @@ export class ClipboardHistory {
       const entry = sync.entries[clip.id];
       if (
         !entry ||
+        entry.localOnly ||
+        clip.localOnly ||
         compareStamp(stamp, entry.added) !== 0 ||
         !liveEntry(entry, sync.clear) ||
         compareStamp(stamp, entry.seen) <= 0

@@ -41,7 +41,7 @@
     "test:clipboard:paste": "tsx scripts/clipboard-paste-smoke.ts",
     "test:clipboard:images": "tsx scripts/clipboard-screenshot-smoke.ts",
     "test:clipboard:animation": "tsx scripts/clipboard-animation-smoke.ts",
-    "test:shelf": "tsx scripts/shelf-smoke.ts && tsx scripts/shelf-search-shortcuts-smoke.ts && tsx scripts/clipboard-startup-smoke.ts",
+    "test:shelf": "tsx scripts/shelf-smoke.ts && tsx scripts/shelf-search-shortcuts-smoke.ts && tsx scripts/clipboard-startup-smoke.ts && npm run test:clipboard:privacy",
     "test:media": "tsx scripts/media-indicator-smoke.ts",
     "sparkle:build": "node scripts/build-sparkle.mjs",
     "test:updates": "tsx scripts/updates-smoke.ts",
@@ -52,7 +52,8 @@
     "build:prepare": "npm run build && npm run native:build",
     "package:prepared": "electron-builder --mac dmg zip --arm64",
     "verify:desktop": "npm run typecheck && npm test && npm run test:desktop",
-    "verify:workflows": "npm run test:workflows && npm run test:media"
+    "verify:workflows": "npm run test:workflows && npm run test:media",
+    "test:clipboard:privacy": "tsx scripts/clipboard-privacy-smoke.ts"
   },
   "build": {
     "appId": "app.everything.desktop",

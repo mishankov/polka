@@ -38,7 +38,15 @@ function Desktop() {
   return (
     <>
       {mode === 'settings' ? (
-        <ShelfSettings initialTab={params.get('pane') === 'about' ? 'about' : undefined} />
+        <ShelfSettings
+          initialTab={
+            params.get('pane') === 'about'
+              ? 'about'
+              : params.get('pane') === 'clipboard'
+                ? 'clipboard'
+                : undefined
+          }
+        />
       ) : (
         <Shelf />
       )}

@@ -153,6 +153,9 @@ func reply(_ id: String, _ result: [String: Any]) {
 }
 func handlePasteCommand(_ command: [String: Any]) {
     guard let id = command["id"] as? String, let method = command["method"] as? String else { return }
+    if method == "clipboardUnchanged" {
+        reply(id, ["unchanged": String(NSPasteboard.general.changeCount) == command["count"] as? String]); return
+    }
     if method == "status" || method == "requestAccess" {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: method == "requestAccess"] as CFDictionary
         reply(id, ["trusted": AXIsProcessTrustedWithOptions(options)])
@@ -299,12 +302,19 @@ DispatchQueue.global(qos: .userInitiated).async {
 let observer = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { _ in screens() }
 let pasteboard = NSPasteboard.general
 var previous = pasteboard.changeCount
+var previousApp = NSWorkspace.shared.frontmostApplication?.processIdentifier
 emit(["type": "ready"])
 let timer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
     let count = pasteboard.changeCount
+    let front = NSWorkspace.shared.frontmostApplication
+    let stable = front?.processIdentifier == previousApp
+    previousApp = front?.processIdentifier
     guard count != previous else { return }
     previous = count
     // Emit only a change signal; Electron reads a consistent clipboard snapshot on demand.
-    emit(["type": "clipboard"])
+    var message: [String: Any] = ["type": "clipboard", "count": count]
+    // Foreground attribution is a heuristic, never a claim about pasteboard ownership.
+    if stable, let bundleId = front?.bundleIdentifier { message["sourceBundleId"] = bundleId }
+    emit(message)
 }
 application.run()

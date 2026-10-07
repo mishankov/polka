@@ -1,6 +1,8 @@
 export const DEFAULT_CLIPBOARD_SHORTCUT = 'CommandOrControl+Shift+V';
 export interface ClipboardPreferences {
   paused: boolean;
+  pauseUntil?: number;
+  excludedApps: { bundleId: string; name: string }[];
   pasteOnSelect: boolean;
   hoverEnabled: boolean;
   retentionDays: 1 | 7 | 30;
@@ -14,6 +16,7 @@ export interface ClipboardClip {
   createdAt: number;
   pinned: boolean;
   sourceDevice?: string;
+  localOnly?: boolean;
 }
 export interface ClipboardState {
   clips: ClipboardClip[];
@@ -41,6 +44,7 @@ export interface ClipboardStorageState {
 }
 export const DEFAULT_CLIPBOARD_PREFERENCES: ClipboardPreferences = {
   paused: false,
+  excludedApps: [],
   pasteOnSelect: true,
   hoverEnabled: true,
   retentionDays: 7,
@@ -72,4 +76,11 @@ export interface ClipboardSyncState {
   }[];
   invitation?: { code: string; expiresAt: number };
   error?: string;
+}
+
+export function clipboardPauseLabel(preferences: ClipboardPreferences) {
+  if (!preferences.paused) return 'Запись включена';
+  return preferences.pauseUntil
+    ? `Запись на паузе до ${new Date(preferences.pauseUntil).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+    : 'Запись на паузе до возобновления';
 }

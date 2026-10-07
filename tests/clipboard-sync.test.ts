@@ -299,3 +299,57 @@ for (const stage of ['decrypt', 'encrypt'] as const) {
     }
   });
 }
+
+test('TLS sync omits local-only entries and refuses direct content requests for a formerly shared ID', async () => {
+  const env = await setup();
+  const services: ClipboardSync[] = [];
+  try {
+    const a = await env.make('a'),
+      b = await env.make('b');
+    await a.add('text', 'Only on Mac A', 'Only on Mac A');
+    const localId = a.snapshot().clips[0].id;
+    await a.localOnly(localId, true);
+    await a.add('text', 'Share with Mac B', 'Share with Mac B');
+    const sharedId = a.snapshot().clips.find((clip) => !clip.localOnly)!.id;
+    const make = async (history: ClipboardHistory, name: string) => {
+      const service = new ClipboardSync({
+        path: join(env.root, name + '.sync'),
+        codec,
+        history,
+        name,
+        discovery: false,
+        changed() {},
+      });
+      services.push(service);
+      await service.initialize();
+      await service.setEnabled(true);
+      return service;
+    };
+    const sa = await make(a, 'A'),
+      sb = await make(b, 'B');
+    sa.discover(b.deviceId, 'B', '127.0.0.1', sb.port);
+    sb.discover(a.deviceId, 'A', '127.0.0.1', sa.port);
+    sa.invite();
+    await sb.pair(sa.state().invitation!.code);
+    assert.deepEqual(
+      b.snapshot().clips.map((clip) => clip.id),
+      [sharedId],
+    );
+    // Use the same authenticated client as exchange, bypassing manifest discovery.
+    const peer = (sb as any).credentials.peers[0];
+    assert.equal(await (sb as any).request(peer, '/clip/' + localId), null);
+    await a.localOnly(sharedId, true);
+    const manifest = await (sb as any).request(peer, '/manifest');
+    assert.deepEqual(manifest.available, []);
+    assert.deepEqual(manifest.entries, {});
+    assert.equal(await (sb as any).request(peer, '/clip/' + sharedId), null);
+    await sb.syncNow();
+    assert.deepEqual(
+      b.snapshot().clips.map((clip) => clip.id),
+      [sharedId],
+    );
+  } finally {
+    for (const service of services) await service.stop();
+    await env.cleanup();
+  }
+});

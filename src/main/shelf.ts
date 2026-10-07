@@ -37,6 +37,7 @@ import { calculate } from '../shared/calculator';
 import { emojiById } from '../shared/emoji';
 import { ShelfLifecycle } from './shelf-lifecycle';
 import { explainKeychainAccess } from './keychain-access-notice';
+import { readApplicationInfo } from './installed-apps';
 import { KEYCHAIN_ACCESS_RECOVERY } from '../shared/keychain-access';
 
 export function createShelf(
@@ -81,6 +82,7 @@ export function createShelf(
   const suspensions = new Set<string>();
   let captureBusy = false;
   let captureAgain = false;
+  let attribution: { sourceBundleId?: string; count?: number } = {};
   let generation = 0;
   let error = '';
   let helper: ClipboardState['helper'] = { status: 'starting' };
@@ -411,7 +413,16 @@ export function createShelf(
     }
     captureBusy = true;
     const currentGeneration = generation;
+    const source = attribution;
+    const exclusions = history.getPreferences().excludedApps;
     try {
+      if (
+        exclusions.length &&
+        (!source.sourceBundleId ||
+          source.count === undefined ||
+          exclusions.some((app) => app.bundleId === source.sourceBundleId))
+      )
+        return;
       const items = await clipboard.read();
       if (items.some((item) => excludedClipboardType(item.types))) {
         return;
@@ -461,7 +472,9 @@ export function createShelf(
           history.getPreferences().paused
         )
           return;
-        await history.add(kind, content, preview);
+        if (source.count !== undefined && !(await paste.clipboardUnchanged(source.count))) return;
+        if (currentGeneration !== generation) return;
+        await history.add(kind, content, preview, source.sourceBundleId);
         if (error) {
           error = '';
           changed();
@@ -479,6 +492,7 @@ export function createShelf(
     }
   }
   function tick() {
+    void history.resumeExpiredPause().catch(failed);
     if (suspensions.size > 0 || disposed || savingImage || selecting()) return;
     const point = screen.getCursorScreenPoint();
     const display = lifecycle.requested
@@ -655,6 +669,7 @@ export function createShelf(
                   id: z.string(),
                   result: z.object({
                     trusted: z.boolean().optional(),
+                    unchanged: z.boolean().optional(),
                     token: z.string().uuid().optional(),
                     sent: z.boolean().optional(),
                     reason: z.string().optional(),
@@ -662,7 +677,16 @@ export function createShelf(
                 })
                 .parse(message),
             );
-          if (message.type === 'clipboard') void capture();
+          if (message.type === 'clipboard') {
+            attribution = z
+              .object({
+                sourceBundleId: z.string().max(300).optional(),
+                count: z.number().int().optional(),
+              })
+              .parse(message);
+            generation++;
+            void capture();
+          }
           if (message.type === 'screens') {
             const initialGeometry = !receivedScreenGeometry;
             const nextNotches = z
@@ -980,6 +1004,48 @@ export function createShelf(
       await sync.syncNow();
       return state();
     }
+    if (method === 'clipboardHistory.pause15') {
+      generation++;
+      await history.preferences({ paused: true, pauseUntil: Date.now() + 15 * 60000 });
+      return state();
+    }
+    if (method === 'clipboardHistory.excludeApp') {
+      history.storage.requireReady();
+      const chosen = await dialog.showOpenDialog({
+        title: 'Не сохранять копии из приложения',
+        defaultPath: '/Applications',
+        properties: ['openFile'],
+        filters: [{ name: 'Приложения', extensions: ['app'] }],
+      });
+      if (chosen.canceled || !chosen.filePaths[0]) return state();
+      const info = await readApplicationInfo(chosen.filePaths[0]);
+      const bundleId = z.string().min(1).max(300).parse(info.CFBundleIdentifier);
+      const name = z
+        .string()
+        .min(1)
+        .max(300)
+        .parse(info.CFBundleDisplayName || info.CFBundleName || bundleId);
+      generation++;
+      const apps = history.getPreferences().excludedApps;
+      await history.preferences({
+        excludedApps: [...apps.filter((app) => app.bundleId !== bundleId), { bundleId, name }],
+      });
+      return state();
+    }
+    if (method === 'clipboardHistory.allowApp') {
+      generation++;
+      const bundleId = z.string().parse(params.bundleId);
+      await history.preferences({
+        excludedApps: history
+          .getPreferences()
+          .excludedApps.filter((app) => app.bundleId !== bundleId),
+      });
+      return state();
+    }
+    if (method === 'clipboardHistory.localOnly') {
+      await history.localOnly(z.string().parse(params.id), z.boolean().parse(params.localOnly));
+      return state();
+    }
     if (method === 'clipboardHistory.preferences') {
       const patch = z
         .object({
@@ -1047,6 +1113,7 @@ export function createShelf(
     clearTimeout(hideTimer);
     clearInterval(hoverTimer);
     clearInterval(expiryTimer);
+    history.stop();
     paste.stop();
     if (helper.status !== 'failed') helper = { status: 'stopped' };
     stopProbe?.();

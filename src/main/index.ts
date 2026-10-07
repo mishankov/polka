@@ -170,7 +170,7 @@ async function refreshTrayMenu() {
   );
 }
 let settingsOpening: Promise<void> | undefined;
-async function openSettings(pane?: 'about') {
+async function openSettings(pane?: 'about' | 'clipboard') {
   shelf.hide();
   if (settingsOpening) await settingsOpening;
   const existing = [...windows.values()].find((entry) => entry.mode === 'settings');
@@ -270,7 +270,9 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     );
   if (method === 'shelf.appearance') return desktopAppearance();
   if (method === 'shelf.settings') {
-    await openSettings(params.section === 'about' ? 'about' : undefined);
+    await openSettings(
+      params.section === 'about' || params.section === 'clipboard' ? params.section : undefined,
+    );
     return true;
   }
   if (method.startsWith('clipboardHistory.') || method.startsWith('shelf.'))

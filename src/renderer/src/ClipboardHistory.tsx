@@ -1,3 +1,5 @@
+import ClipboardPrivacy from './ClipboardPrivacy';
+import ClipboardLocalOnly from './ClipboardLocalOnly';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ActionIcon, Alert, Button, Group, Loader, TextInput, Tooltip } from './NativeControls';
 import {
@@ -604,6 +606,11 @@ export default function ClipboardHistory({
           />
         </div>
       )}
+      <ClipboardPrivacy
+        preferences={state?.preferences}
+        disabled={!writable || busy}
+        save={(method, params) => void run(method, params)}
+      />
       <ClipboardPasteHint
         state={state}
         busy={busy}
@@ -712,6 +719,11 @@ export default function ClipboardHistory({
                 </Button>
               ),
             )}
+            <ClipboardLocalOnly
+              clip={preview}
+              disabled={!writable || busy}
+              apply={(localOnly) => run('localOnly', { id: preview.id, localOnly })}
+            />
           </div>
           {transformation && (
             <div className="clipboard-transformation-status" role="status">
@@ -830,6 +842,7 @@ export default function ClipboardHistory({
                         : clip.preview.trim() || 'Пустой текст'}
                     </span>
                     <span className="clipboard-meta">
+                      {clip.localOnly && <span>Только этот Mac · </span>}
                       {clip.pinned && <IconPin size={12} aria-label="Закреплено" />}
                       <span className="clipboard-origin" title={clip.sourceDevice}>
                         {clipDate(clip.createdAt)}
