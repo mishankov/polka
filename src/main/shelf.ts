@@ -65,7 +65,7 @@ export function createShelf(
   let displayId: number | undefined;
   let probe: ChildProcess | undefined;
   const paste = new ClipboardPaste((message) => {
-    if (!probe?.stdin?.writable) return false;
+    if (helper.status !== 'running' || !probe?.stdin?.writable) return false;
     probe.stdin.write(message);
     return true;
   });
@@ -77,11 +77,29 @@ export function createShelf(
   let captureAgain = false;
   let generation = 0;
   let error = '';
-  let initialized = false;
+  let helper: ClipboardState['helper'] = { status: 'starting' };
+  let storageAlerted = false;
   let notches: Notch[] = [];
   let receivedScreenGeometry = false;
   const hover = new ClipboardHover();
   function changed() {
+    if (history.storage.state().status === 'failed' && !storageAlerted) {
+      storageAlerted = true;
+      generation++;
+      clearInterval(expiryTimer);
+      void sync.stop().catch(failed);
+      const storage = history.storage.state();
+      // Do not await acknowledgement: native startup remains independent.
+      void dialog
+        .showMessageBox({
+          type: 'error',
+          title: 'История буфера недоступна',
+          message: 'Не удалось открыть или сохранить историю буфера обмена',
+          detail: `${storage.diagnostic?.message}. Файл не сброшен. Сохранение новых записей и синхронизация остановлены.\n\n${storage.path}\n\nВосстановите доступ к хранилищу и перезапустите Полку. Перед заменой файла сохраните его зашифрованную копию.`,
+          buttons: ['Понятно'],
+        })
+        .catch(() => console.error('Could not display clipboard storage alert'));
+    }
     notify();
   }
   const history = new ClipboardHistory(
@@ -133,6 +151,9 @@ export function createShelf(
         content: clip.kind === 'image' ? '' : clip.content,
       })),
       sync: sync.state(),
+      storage: history.storage.state(),
+      preferencesAvailable: history.preferencesAvailable,
+      helper: { ...helper },
       registered: shortcut.getPreferences().registered,
       pasteAccess: paste.access,
       pasteReady: paste.ready,
@@ -339,7 +360,13 @@ export function createShelf(
     else await show('keyboard', destination);
   }
   async function capture() {
-    if (disposed || suspensions.size > 0 || !initialized || history.getPreferences().paused) return;
+    if (
+      disposed ||
+      suspensions.size > 0 ||
+      !history.storage.ready ||
+      history.getPreferences().paused
+    )
+      return;
     if (captureBusy) {
       captureAgain = true;
       return;
@@ -392,6 +419,7 @@ export function createShelf(
           currentGeneration !== generation ||
           suspensions.size > 0 ||
           disposed ||
+          !history.storage.ready ||
           history.getPreferences().paused
         )
           return;
@@ -449,39 +477,46 @@ export function createShelf(
     if (metrics.some((metric) => ['bounds', 'scaleFactor', 'rotation'].includes(metric)))
       displayChanged();
   };
-  async function start() {
+  function helperFailed(reason: unknown) {
+    if (helper.status === 'failed' || disposed) return;
+    paste.stop();
+    helper = {
+      status: 'failed',
+      error: reason instanceof Error ? reason.message : String(reason),
+    };
+    changed();
+  }
+  async function startProbe() {
     try {
-      await history.initialize();
-      initialized = true;
-      await sync.initialize().catch(failed);
-      shortcut.initialize(history.getPreferences().accelerator);
       const probePath = app.isPackaged
         ? join(process.resourcesPath, 'clipboard-probe')
         : join(app.getAppPath(), 'build/clipboard-probe');
       await new Promise<void>((resolve, reject) => {
         probe = spawn(probePath, [String(process.pid)], { stdio: ['pipe', 'pipe', 'ignore'] });
-        probe.stdin?.on('error', () => paste.stop());
+        probe.stdin?.on('error', helperFailed);
         const timeout = setTimeout(() => {
+          const reason = Error(
+            'Не удалось запустить наблюдение за буфером обмена: помощник не ответил за 5 секунд',
+          );
+          helperFailed(reason);
           probe?.kill();
-          reject(Error('Не удалось запустить наблюдение за буфером обмена'));
+          reject(reason);
         }, 5000);
         const lines = createInterface({ input: probe.stdout! });
         probe.on('error', (reason) => {
           clearTimeout(timeout);
           reject(reason);
-          failed(
-            Error(
-              'Наблюдение за буфером недоступно. Перезапустите приложение после сборки native:build.',
-            ),
-          );
+          helperFailed(reason);
         });
-        probe.on('exit', () => {
+        probe.on('exit', (code, signal) => {
           paste.stop();
           clearTimeout(timeout);
           lines.close();
           if (!disposed) {
-            const reason = Error('Наблюдение за буфером остановлено. Перезапустите приложение.');
-            failed(reason);
+            const reason = Error(
+              `Наблюдение за буфером остановлено (${signal ?? code ?? 'неизвестная причина'}). Перезапустите приложение.`,
+            );
+            helperFailed(reason);
             reject(reason);
           }
         });
@@ -501,8 +536,10 @@ export function createShelf(
                 sent: message.result?.sent,
                 reason: message.result?.reason,
               });
-            if (message.type === 'ready') {
+            if (message.type === 'ready' && helper.status === 'starting' && !disposed) {
               clearTimeout(timeout);
+              helper = { status: 'running' };
+              changed();
               resolve();
             }
             if (message.type === 'paste.reply')
@@ -547,14 +584,30 @@ export function createShelf(
         });
       });
     } catch (reason) {
-      failed(reason);
+      helperFailed(reason);
     }
+  }
+  async function startHistory() {
+    try {
+      await history.initialize();
+    } catch (reason) {
+      // Storage owns its persistent diagnostic and original cause.
+      if (history.storage.state().status !== 'failed') failed(reason);
+    }
+    if (disposed) return;
+    if (history.preferencesAvailable) shortcut.initialize(history.getPreferences().accelerator);
+    if (history.storage.ready) await sync.initialize().catch(failed);
+  }
+  async function start() {
     hoverTimer = setInterval(tick, 80);
-    expiryTimer = setInterval(() => {
-      void history.prune().catch(failed);
-    }, 60000);
     screen.on('display-removed', displayChanged);
     screen.on('display-metrics-changed', displayMetricsChanged);
+    await Promise.all([startProbe(), startHistory()]);
+    if (!disposed && history.storage.ready) {
+      expiryTimer = setInterval(() => {
+        void history.prune().catch(failed);
+      }, 60000);
+    }
     changed();
   }
   function selectionContext(select: boolean) {
@@ -653,6 +706,18 @@ export function createShelf(
       if (method === 'clipboardHistory.requestPasteAccess') hide(false);
       await paste.status(method === 'clipboardHistory.requestPasteAccess');
       return state();
+    }
+    if (method === 'clipboardHistory.revealStorage') {
+      const store = z.enum(['history', 'sync']).parse(params.store);
+      const path = store === 'history' ? history.storage.state().path : sync.storage.state().path;
+      try {
+        await fs.stat(path);
+        shell.showItemInFolder(path);
+      } catch {
+        const message = await shell.openPath(root);
+        if (message) throw Error(message);
+      }
+      return true;
     }
     if (method === 'clipboardHistory.preview') {
       const id = z.string().parse(params.id);
@@ -753,6 +818,8 @@ export function createShelf(
       return state();
     }
     if (method === 'clipboardHistory.syncNow') {
+      history.storage.requireReady();
+      sync.storage.requireReady();
       await sync.syncNow();
       return state();
     }
@@ -769,6 +836,7 @@ export function createShelf(
       generation++;
       await history.preferences(patch);
     } else if (method === 'clipboardHistory.shortcut') {
+      history.storage.requireReady();
       const accelerator = z.string().max(80).parse(params.accelerator);
       if (
         accelerator &&
@@ -819,6 +887,7 @@ export function createShelf(
     clearInterval(hoverTimer);
     clearInterval(expiryTimer);
     paste.stop();
+    if (helper.status !== 'failed') helper = { status: 'stopped' };
     probe?.kill();
     screen.removeListener('display-removed', displayChanged);
     screen.removeListener('display-metrics-changed', displayMetricsChanged);

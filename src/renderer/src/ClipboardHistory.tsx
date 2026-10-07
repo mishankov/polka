@@ -23,6 +23,7 @@ import {
 } from '../../shared/clipboard-actions';
 import { api, errorMessage } from './api';
 import ClipboardPasteHint from './ClipboardPasteHint';
+import ClipboardStorageFailure from './ClipboardStorageFailure';
 
 type PreviewAction = {
   id: string;
@@ -98,6 +99,7 @@ export default function ClipboardHistory({
   initialQuery?: string;
 }) {
   const [state, setState] = useState<ClipboardState>();
+  const writable = !!state && (!state.storage || state.storage.status === 'ready');
   const [query, setQuery] = useState(initialQuery);
   const [selected, setSelected] = useState<string>();
   const [error, setError] = useState('');
@@ -324,7 +326,11 @@ export default function ClipboardHistory({
           </Tooltip>
           <div className="clipboard-heading">
             <h1>Буфер обмена</h1>
-            {state?.preferences.paused && <span>Запись на паузе</span>}
+            {state?.storage?.status === 'failed' ? (
+              <span>{state.preferencesAvailable ? 'Только чтение' : 'Недоступна'}</span>
+            ) : (
+              state?.preferences.paused && <span>Запись на паузе</span>
+            )}
           </div>
         </div>
         <div className="clipboard-header-actions">
@@ -369,7 +375,7 @@ export default function ClipboardHistory({
                 <Button
                   variant="subtle"
                   color="red"
-                  disabled={!state?.clips.length || busy}
+                  disabled={!writable || !state?.clips.length || busy}
                   onClick={() => {
                     setMenuOpen(false);
                     setPreviewId(undefined);
@@ -448,6 +454,16 @@ export default function ClipboardHistory({
         busy={busy}
         onRequestAccess={() => void run('requestPasteAccess')}
       />
+      <ClipboardStorageFailure
+        storage={state?.storage}
+        store="history"
+        readable={state?.preferencesAvailable}
+      />
+      {state?.helper?.status === 'failed' && (
+        <Alert className="clipboard-error" color="red">
+          {state.helper.error}
+        </Alert>
+      )}
       {(error || state?.error) && (
         <Alert className="clipboard-error" color="red">
           {error || state?.error}
@@ -468,6 +484,7 @@ export default function ClipboardHistory({
           <Group>
             <Button
               className="clipboard-delete-confirm"
+              disabled={!writable}
               loading={busy}
               onClick={() =>
                 void run('clear').then((ok) => {
@@ -576,16 +593,28 @@ export default function ClipboardHistory({
             <div className="clipboard-empty">
               <Loader size="sm" color="gray" />
             </div>
+          ) : state.storage?.status === 'starting' ? (
+            <div className="clipboard-empty">
+              <Loader size="sm" color="gray" />
+            </div>
           ) : !results.length ? (
             <div className="clipboard-empty">
               <IconClipboard size={36} stroke={1.2} />
-              <strong>{query ? 'Ничего не найдено' : 'Здесь появится скопированное'}</strong>
+              <strong>
+                {state.storage?.status === 'failed'
+                  ? 'История недоступна'
+                  : query
+                    ? 'Ничего не найдено'
+                    : 'Здесь появится скопированное'}
+              </strong>
               <p>
-                {query
-                  ? 'Попробуйте другое слово.'
-                  : state.preferences.paused
-                    ? 'Включите сохранение буфера обмена в настройках приложения.'
-                    : 'Скопируйте текст или изображение в любой программе. Выберите запись, чтобы вставить её в предыдущее поле или скопировать снова.'}
+                {state.storage?.status === 'failed'
+                  ? 'Восстановите доступ к хранилищу и перезапустите Полку.'
+                  : query
+                    ? 'Попробуйте другое слово.'
+                    : state.preferences.paused
+                      ? 'Включите сохранение буфера обмена в настройках приложения.'
+                      : 'Скопируйте текст или изображение в любой программе. Выберите запись, чтобы вставить её в предыдущее поле или скопировать снова.'}
               </p>
             </div>
           ) : (
@@ -687,7 +716,7 @@ export default function ClipboardHistory({
                       color="gray"
                       data-active={clip.pinned || undefined}
                       aria-label={clip.pinned ? 'Открепить запись' : 'Закрепить запись'}
-                      disabled={busy}
+                      disabled={!writable || busy}
                       onClick={() => void run('pin', { id: clip.id, pinned: !clip.pinned })}
                     >
                       {clip.pinned ? <IconPinnedOff size={16} /> : <IconPin size={16} />}
@@ -698,7 +727,7 @@ export default function ClipboardHistory({
                       variant="subtle"
                       color="gray"
                       aria-label="Удалить запись"
-                      disabled={busy}
+                      disabled={!writable || busy}
                       onClick={() => void run('remove', { id: clip.id })}
                     >
                       <IconTrash size={16} />

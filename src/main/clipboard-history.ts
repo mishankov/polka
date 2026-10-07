@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { dirname } from 'node:path';
 import { z } from 'zod';
+import { ClipboardStorage } from './clipboard-storage';
 import {
   DEFAULT_CLIPBOARD_PREFERENCES,
   type ClipboardClip,
@@ -107,23 +108,32 @@ export class ClipboardHistory {
     clips: [],
   };
   private queue: Promise<unknown> = Promise.resolve();
-  private ready = false;
+  readonly storage: ClipboardStorage;
+  preferencesAvailable = false;
   constructor(
     private path: string,
     private codec: { encode(text: string): Buffer; decode(data: Buffer): string },
     private changed: () => void,
     private now = Date.now,
-  ) {}
+  ) {
+    this.storage = new ClipboardStorage(path, changed);
+  }
   async initialize() {
-    let data: Buffer | undefined;
-    try {
-      const stat = await fs.stat(this.path);
+    const data = await this.storage.run('read', async () => {
+      let stat;
+      try {
+        stat = await fs.stat(this.path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+        throw error;
+      }
       if (stat.size > MAX_HISTORY_BYTES * 3) throw Error('Файл истории слишком большой');
-      data = await fs.readFile(this.path);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      return fs.readFile(this.path);
+    });
+    if (data) {
+      const decoded = await this.storage.run('decrypt', () => this.codec.decode(data));
+      this.state = await this.storage.run('parse', () => savedSchema.parse(JSON.parse(decoded)));
     }
-    if (data) this.state = savedSchema.parse(JSON.parse(this.codec.decode(data)));
     if (!this.state.sync) {
       this.state.sync = { device: randomUUID(), counter: 0, entries: {} };
       for (const clip of this.state.clips) {
@@ -135,7 +145,8 @@ export class ClipboardHistory {
         };
       }
     }
-    this.ready = true;
+    this.preferencesAvailable = true;
+    this.storage.loaded();
     await this.prune();
   }
   private stamp(next: Saved): Stamp {
@@ -150,12 +161,20 @@ export class ClipboardHistory {
     return this.state.sync!.device;
   }
   getPreferences() {
-    return { ...this.state.preferences };
+    return this.preferencesAvailable
+      ? { ...this.state.preferences }
+      : {
+          ...DEFAULT_CLIPBOARD_PREFERENCES,
+          paused: true,
+          hoverEnabled: false,
+          pasteOnSelect: false,
+          accelerator: '',
+        };
   }
   snapshot(includeImageContent = true) {
     return structuredClone({
       version: this.state.version,
-      preferences: this.state.preferences,
+      preferences: this.getPreferences(),
       clips: includeImageContent
         ? this.state.clips
         : this.state.clips.map((clip) => (clip.kind === 'image' ? { ...clip, content: '' } : clip)),
@@ -163,16 +182,20 @@ export class ClipboardHistory {
   }
   private update(operation: (next: Saved) => void, force = false) {
     const result = this.queue.then(async () => {
-      if (!this.ready) throw Error('Хранилище истории недоступно');
+      this.storage.requireReady();
       const next = structuredClone(this.state);
       operation(next);
       trimHistory(next, this.now());
       if (!force && JSON.stringify(next) === JSON.stringify(this.state)) return;
-      const encoded = this.codec.encode(JSON.stringify(next));
-      await fs.mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
-      const temporary = this.path + '.tmp';
-      await fs.writeFile(temporary, encoded, { mode: 0o600 });
-      await fs.rename(temporary, this.path);
+      const encoded = await this.storage.run('encrypt', () =>
+        this.codec.encode(JSON.stringify(next)),
+      );
+      await this.storage.run('write', async () => {
+        await fs.mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
+        const temporary = this.path + '.tmp';
+        await fs.writeFile(temporary, encoded, { mode: 0o600 });
+        await fs.rename(temporary, this.path);
+      });
       this.state = next;
       this.changed();
     });
@@ -233,6 +256,7 @@ export class ClipboardHistory {
     });
   }
   manifest(): SyncManifest {
+    this.storage.requireReady();
     const sync = this.state.sync!;
     return structuredClone({
       version: 1,
@@ -246,6 +270,7 @@ export class ClipboardHistory {
   // Advance deletion/pin metadata before requesting content. Seen versions survive
   // local expiry, so an unchanged remote copy cannot undo local retention.
   async mergeManifest(input: unknown) {
+    this.storage.requireReady();
     const remote = manifestSchema.parse(input);
     const current = this.state.sync!;
     const changed =
@@ -306,6 +331,7 @@ export class ClipboardHistory {
     return clip && stamp ? structuredClone({ clip, stamp }) : undefined;
   }
   async receive(input: unknown, sourceDevice: string) {
+    this.storage.requireReady();
     const { clip, stamp } = z.object({ clip: clipSchema, stamp: stampSchema }).parse(input);
     if (
       !clip.content ||
@@ -343,6 +369,7 @@ export class ClipboardHistory {
     });
   }
   prune() {
+    if (!this.storage.ready) return Promise.resolve();
     if (
       !this.state.clips.some(
         (clip) =>

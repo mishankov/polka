@@ -7,6 +7,7 @@ import { shortcutLabel, type LauncherPreferences } from '../../shared/launcher';
 
 export default function LauncherSettings() {
   const [hoverEnabled, setHoverEnabled] = useState<boolean>();
+  const [hoverAvailable, setHoverAvailable] = useState(false);
   const [preferences, setPreferences] = useState<LauncherPreferences>();
   const [recording, setRecording] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -14,7 +15,10 @@ export default function LauncherSettings() {
   useEffect(() => {
     const refreshHover = () =>
       void api<ClipboardState>('clipboardHistory.state')
-        .then((state) => setHoverEnabled(state.preferences.hoverEnabled))
+        .then((state) => {
+          setHoverEnabled(state.preferences.hoverEnabled);
+          setHoverAvailable(state.storage?.status === 'ready');
+        })
         .catch((error) => setError(errorMessage(error)));
     refreshHover();
     api<LauncherPreferences>('launcher.getPreferences')
@@ -50,16 +54,25 @@ export default function LauncherSettings() {
       <Switch
         label="Открывать полку при наведении к вырезу камеры"
         checked={hoverEnabled || false}
-        disabled={hoverEnabled === undefined || saving}
+        disabled={!hoverAvailable || hoverEnabled === undefined || saving}
         onChange={(event) => {
           const value = event.currentTarget.checked;
           setSaving(true);
           void api<ClipboardState>('clipboardHistory.preferences', { hoverEnabled: value })
-            .then((state) => setHoverEnabled(state.preferences.hoverEnabled))
+            .then((state) => {
+              setHoverEnabled(state.preferences.hoverEnabled);
+              setHoverAvailable(state.storage.status === 'ready');
+            })
             .catch((error) => setError(errorMessage(error)))
             .finally(() => setSaving(false));
         }}
       />
+      {hoverEnabled !== undefined && !hoverAvailable && (
+        <Text size="xs" c="dimmed">
+          Настройка наведения недоступна: не удалось загрузить или сохранить историю буфера.
+          Восстановите доступ к хранилищу и перезапустите Полку.
+        </Text>
+      )}
       <MediaIndicatorSettings />
       <TextInput
         label="Сочетание для запуска"

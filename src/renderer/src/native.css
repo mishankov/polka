@@ -319,6 +319,20 @@ html[data-window-mode] h2 {
 .native-alert strong {
   color: var(--danger);
 }
+.clipboard-storage-failure p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.clipboard-storage-failure details p {
+  margin-top: 6px;
+}
+.clipboard-app > .clipboard-storage-failure {
+  margin: 0 12px 8px;
+  max-height: 240px;
+  flex-shrink: 0;
+  overflow: auto;
+}
 .native-spinner {
   display: inline-block;
   width: 16px;
