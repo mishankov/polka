@@ -196,6 +196,41 @@ test('sync v1 transfers omit local OCR and incoming images are independently ind
   });
 });
 
+test('OCR cache coexists with persisted and synced snippets without leaking derived text', async () => {
+  await fixture(async (history, path) => {
+    const content = (await readFile('tests/fixtures/image-text/mixed.png')).toString('base64');
+    await history.add('image', content, `data:image/png;base64,${content}`);
+    const image = history.imageTextImages()[0];
+    await history.saveImageText(image.id, image.incarnation, {
+      version: 'v1',
+      status: 'ready',
+      text: 'Aurora Доставка',
+      languages: ['ru-RU', 'en-US'],
+    });
+    const snippetId = await history.createSnippet('Prepared response', 'Named snippet');
+    const restored = new ClipboardHistory(path, codec, () => {});
+    await restored.initialize();
+    assert.equal(restored.imageTextImages().length, 1);
+    assert.equal(restored.imageTextImages()[0].ocr?.text, 'Aurora Доставка');
+    assert.equal(restored.snapshot().snippets[0].id, snippetId);
+    assert.equal(clipboardResults(restored.snapshot().snippets, 'named')[0].id, snippetId);
+    assert.equal(clipboardResults(restored.snapshot().clips, 'доставка')[0].id, image.id);
+    assert(!('ocr' in restored.transfer(image.id)!.clip));
+    assert.equal(restored.transfer(snippetId)!.clip.snippet, true);
+    assert.equal(restored.transfer(snippetId)!.clip.name, 'Named snippet');
+    await fixture(async (target) => {
+      await target.mergeManifest(restored.manifest());
+      await target.receive(restored.transfer(image.id), 'Other Mac');
+      await target.receive(restored.transfer(snippetId), 'Other Mac');
+      assert.equal(target.imageTextImages()[0].ocr, undefined);
+      assert.equal(target.snapshot().snippets[0].content, 'Prepared response');
+      await target.clear();
+      assert.equal(target.imageTextImages().length, 0);
+      assert.equal(target.snapshot().snippets[0].id, snippetId);
+    });
+  });
+});
+
 test(
   'Vision recognizes English, Russian and mixed full-resolution fixtures and distinguishes blank/invalid images',
   {

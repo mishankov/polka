@@ -1,12 +1,13 @@
-import type { ClipboardState } from '../../shared/clipboard';
+import type { ClipboardClip, ClipboardState } from '../../shared/clipboard';
 import type { TextTransformation } from '../../shared/clipboard-actions';
 
 export interface ClipboardContext {
-  destination: 'clipboard';
+  destination: 'clipboard' | 'snippets';
   query: string;
   selected?: string;
   previewId?: string;
   transformation?: TextTransformation;
+  editor?: { clip?: ClipboardClip; name: string; content: string };
   scrollTop: number;
   previewScrollTop: number;
   // Last rendered data lets a restored preview commit without a list/loading flash.

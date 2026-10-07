@@ -246,6 +246,7 @@ export function createShelf(
     source: 'hover' | 'keyboard' | 'drag' = 'keyboard',
     destination?: ShelfDestination,
     searchQuery = '',
+    sourceClipId?: string,
   ) {
     if (disposed || suspensions.size > 0 || savingImage) return;
     pendingShow?.finish(false);
@@ -374,6 +375,7 @@ export function createShelf(
       visible: true,
       focusSearch: source !== 'drag',
       searchQuery,
+      sourceClipId,
       topInset: geometry.topInset,
       notchWidth: geometry.target.width,
       notchHeight: geometry.target.height,
@@ -908,6 +910,19 @@ export function createShelf(
     return true;
   }
   async function handle(method: string, params: Record<string, unknown>) {
+    if (method === 'shelf.showSnippets') {
+      await show(
+        'keyboard',
+        'snippets',
+        z.string().max(10000).optional().parse(params.query),
+        z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional()
+          .parse(params.sourceClipId),
+      );
+      return true;
+    }
     if (method === 'shelf.showFiles') {
       await show('keyboard', 'files');
       return true;
@@ -1026,7 +1041,7 @@ export function createShelf(
       const owner = window;
       const revision = lifecycle.revision;
       await history.prune();
-      const clip = history.snapshot().clips.find((item) => item.id === z.string().parse(params.id));
+      const clip = history.find(z.string().parse(params.id));
       if (!clip) throw Error('Запись уже удалена');
       if (
         lifecycle.phase !== 'open' ||
@@ -1166,6 +1181,21 @@ export function createShelf(
           throw Error('Распознанный текст ещё недоступен');
         return { 'text/plain': clip.ocr.text };
       });
+    } else if (method === 'clipboardHistory.createSnippet') {
+      return {
+        id: await history.createSnippet(
+          z.string().parse(params.content),
+          z.string().parse(params.name),
+        ),
+      };
+    } else if (method === 'clipboardHistory.edit') {
+      const id = await history.edit(
+        z.string().parse(params.id),
+        z.string().parse(params.content),
+        z.string().parse(params.name),
+        z.object({ content: z.string(), name: z.string().optional() }).parse(params.expected),
+      );
+      return { id };
     } else if (method === 'clipboardHistory.pin')
       await history.pin(z.string().parse(params.id), z.boolean().parse(params.pinned));
     else if (method === 'clipboardHistory.copy' || method === 'clipboardHistory.select') {
@@ -1173,7 +1203,7 @@ export function createShelf(
         method === 'clipboardHistory.select',
         async (): Promise<Record<string, string | Blob>> => {
           await history.prune();
-          const clip = history.snapshot().clips.find((item) => item.id === params.id);
+          const clip = history.find(z.string().parse(params.id));
           if (!clip) throw Error('Запись уже удалена');
           const transformation = z
             .enum(TEXT_TRANSFORMATIONS)
