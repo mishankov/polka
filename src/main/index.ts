@@ -159,6 +159,10 @@ async function refreshTrayMenu() {
         label: 'История буфера обмена',
         click: () => void shelf.show('keyboard', 'clipboard').catch(console.error),
       },
+      {
+        label: 'Файлы на полке',
+        click: () => void shelf.show('keyboard', 'files').catch(console.error),
+      },
       { label: 'Настройки…', click: showSettings },
       {
         label: 'О приложении и обновления',
@@ -250,10 +254,12 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
   if (!shelfMethodAllowed(method)) throw Error('Неизвестная операция');
   if (JSON.stringify(params).length > 48 * 1024 * 1024) throw Error('Запрос превышает лимит');
   if (
-    (method === 'clipboardHistory.select' || method === 'shelf.selectEmoji') &&
+    (method === 'clipboardHistory.select' ||
+      method === 'shelf.selectEmoji' ||
+      method.startsWith('shelf.files.')) &&
     sender.mode !== 'shelf'
   )
-    throw Error('Вставка доступна только из истории на полке');
+    throw Error('Операция доступна только на полке');
   if (method === 'mediaIndicator.getState') return mediaIndicator.state();
   if (method === 'mediaIndicator.setEnabled')
     return mediaIndicator.setEnabled(z.boolean().parse(params.enabled));
@@ -380,6 +386,13 @@ app
       worker.on('message', ready);
     });
     ipcMain.handle('platform:call', rendererCall);
+    ipcMain.on('shelf:fileDrag', (event, ids) => {
+      const sender = [...windows.values()].find(
+        (entry) => entry.window.webContents === event.sender,
+      );
+      if (sender?.mode !== 'shelf' || event.senderFrame !== event.sender.mainFrame) return;
+      shelf.startFileDrag(ids);
+    });
     void installedApps
       .list()
       .catch((error) => console.error('Could not list installed apps', error));

@@ -236,7 +236,15 @@ async function fixture(
           }
         : name === 'node:child_process'
           ? {
-              spawn() {
+              spawn(path: string) {
+                if (path.endsWith('file-shelf-probe')) {
+                  const child = new EventEmitter() as any;
+                  child.stdout = new PassThrough();
+                  child.stderr = new PassThrough();
+                  child.stdin = new PassThrough();
+                  child.kill = () => {};
+                  return child;
+                }
                 spawns++;
                 return spawnProbe();
               },

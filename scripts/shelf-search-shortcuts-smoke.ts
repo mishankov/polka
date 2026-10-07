@@ -610,8 +610,12 @@ async function main(test: DesktopTest) {
     await page.keyboard.press('Meta+1');
     await expect(preview.locator('pre')).toContainText('ЗАМЕТКА');
     const transformed = await preview.locator('pre').textContent();
-    await preview.locator('.clipboard-preview-content').evaluate((el) => {
+    await preview.locator('.clipboard-preview-content').evaluate(async (el) => {
       el.scrollTop = 180;
+      // Scroll events are queued; let the component save its context before reopening.
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
     });
     await expect
       .poll(() => preview.locator('.clipboard-preview-content').evaluate((el) => el.scrollTop))
