@@ -1,4 +1,5 @@
 import {
+  IconSitemap,
   IconCalculator,
   IconClipboard,
   IconArrowRight,
@@ -29,38 +30,51 @@ export default function SearchResult({
   onSelect: () => void;
   onActivate: (copyOnly: boolean) => void;
 }) {
+  const command = result.kind === 'shortcut' ? result.shortcut : undefined;
   const app = result.kind === 'app' ? result.app : undefined;
   const clip = result.kind === 'clip' ? result.clip : undefined;
   const calculation = result.kind === 'calculation' ? result.calculation : undefined;
-  const title = app
-    ? app.name
-    : clip
-      ? clipboardSnippet(clip, query)
-      : calculation
-        ? calculation.displayValue || calculation.value
-        : 'Показать все записи';
-  const description = app
-    ? app.description || 'Полка'
-    : clip
-      ? `${clip.pinned ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
-      : calculation
-        ? calculation.interpretation || calculation.expression
-        : result.kind === 'more-clips'
-          ? `Найдено в истории: ${result.count}`
-          : '';
-  const hint = calculation
-    ? copied
-      ? 'Скопировано'
-      : 'Копировать'
-    : clip
-      ? canPaste
-        ? 'Вставить'
+  const title = command
+    ? command.name
+    : app
+      ? app.name
+      : clip
+        ? clipboardSnippet(clip, query)
+        : calculation
+          ? calculation.displayValue || calculation.value
+          : 'Показать все записи';
+  const description = command
+    ? command.availability === 'missing'
+      ? 'Нет на этом Mac · Измените выбор в настройках'
+      : command.availability === 'unknown'
+        ? 'Доступность не проверена · Обновите список'
+        : 'Команда macOS'
+    : app
+      ? app.description || 'Полка'
+      : clip
+        ? `${clip.pinned ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+        : calculation
+          ? calculation.interpretation || calculation.expression
+          : result.kind === 'more-clips'
+            ? `Найдено в истории: ${result.count}`
+            : '';
+  const hint = command
+    ? command.availability === 'available'
+      ? 'Запустить'
+      : 'Недоступна'
+    : calculation
+      ? copied
+        ? 'Скопировано'
         : 'Копировать'
-      : app
-        ? app.kind === 'builtin'
-          ? 'Встроенное'
-          : 'macOS'
-        : 'Открыть';
+      : clip
+        ? canPaste
+          ? 'Вставить'
+          : 'Копировать'
+        : app
+          ? app.kind === 'builtin'
+            ? 'Встроенное'
+            : 'macOS'
+          : 'Открыть';
   return (
     <button
       type="button"
@@ -71,10 +85,14 @@ export default function SearchResult({
       className={`launcher-result${selected ? ' selected' : ''}${calculation ? ' launcher-calculation' : ''}${calculation?.conversion ? ' launcher-conversion' : ''}`}
       aria-selected={selected}
       aria-keyshortcuts={shortcut ? `Meta+${shortcut}` : undefined}
-      disabled={busy}
+      disabled={busy || (!!command && command.availability !== 'available')}
       onMouseMove={onSelect}
       onFocus={onSelect}
-      onClick={(event) => onActivate(event.shiftKey)}
+      onClick={(event) => {
+        // The second click of a double-click must not rerun a fast command.
+        if (command && event.detail > 1) return;
+        onActivate(event.shiftKey);
+      }}
       onKeyDown={(event) => {
         if (consumedKey(event)) return;
         if (event.key === 'Enter') {
@@ -91,7 +109,9 @@ export default function SearchResult({
       }}
     >
       <span className="launcher-icon" aria-hidden="true">
-        {calculation ? (
+        {command ? (
+          <IconSitemap size={24} stroke={1.5} />
+        ) : calculation ? (
           <IconCalculator size={26} stroke={1.5} />
         ) : clip ? (
           clip.kind === 'image' ? (

@@ -144,6 +144,8 @@ export function createShelfSearchFixture() {
     },
     async call(method: string, params: Record<string, unknown> = {}) {
       switch (method) {
+        case 'macShortcuts.state':
+          return { shortcuts: [] };
         case 'updates.status':
           return updateState;
         case 'shelf.didShow':

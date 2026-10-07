@@ -643,3 +643,14 @@ html[data-contrast='true'] .native-settings-sidebar {
 .native-button[data-danger][data-variant='filled']:hover:not(:disabled) {
   background: var(--danger);
 }
+
+.native-checkbox-row input {
+  appearance: auto;
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+}
+.native-checkbox-row input::after {
+  display: none;
+}

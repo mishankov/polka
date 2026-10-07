@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
-import { IconAdjustments, IconCommand, IconClipboard, IconInfoCircle } from '@tabler/icons-react';
+import {
+  IconAdjustments,
+  IconCommand,
+  IconClipboard,
+  IconInfoCircle,
+  IconSitemap,
+} from '@tabler/icons-react';
 import { Alert, Stack, Switch, Text } from './NativeControls';
 import LauncherSettings from './LauncherSettings';
 import ClipboardSettings from './ClipboardSettings';
+import MacShortcutsSettings from './MacShortcutsSettings';
 import Updates from './Updates';
 import UpdateNotice from './UpdateNotice';
 import { api, errorMessage, report } from './api';
@@ -11,7 +18,8 @@ const panes = [
   { id: 'general', label: 'Основные', icon: IconAdjustments },
   { id: 'shelf', label: 'Полка и сочетания', icon: IconCommand },
   { id: 'clipboard', label: 'Буфер обмена', icon: IconClipboard },
-  { id: 'about', label: 'О приложении', icon: IconInfoCircle },
+  { id: 'shortcuts', label: 'Команды macOS', icon: IconSitemap },
+  { id: 'about', label: 'О приложении', icon: IconInfoCircle, IconSitemap },
 ];
 export default function ShelfSettings({ initialTab }: { initialTab?: 'general' | 'about' }) {
   const [tab, setTab] = useState(
@@ -122,6 +130,7 @@ export default function ShelfSettings({ initialTab }: { initialTab?: 'general' |
           )}
           {active.id === 'shelf' && <LauncherSettings />}
           {active.id === 'clipboard' && <ClipboardSettings />}
+          {active.id === 'shortcuts' && <MacShortcutsSettings />}
           {active.id === 'about' && (
             <Stack gap="lg">
               <div className="native-about">

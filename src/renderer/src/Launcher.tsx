@@ -16,6 +16,7 @@ import {
 } from '../../shared/launcher';
 import { type ClipboardState } from '../../shared/clipboard';
 import { shelfSearch, type ShelfSearchResult } from '../../shared/shelf-search';
+import { useMacShortcuts } from './useMacShortcuts';
 import SearchResult from './ShelfSearchResult';
 import { api, errorMessage, report } from './api';
 import ClipboardHistory from './ClipboardHistory';
@@ -29,6 +30,7 @@ import { consumedKey, numberShortcut } from './shelf-keyboard';
 
 // Catalog data outlives a presentation; navigation only resets browsing state.
 function useLauncherCatalog() {
+  const shortcuts = useMacShortcuts();
   const [apps, setApps] = useState<LauncherApp[]>([]);
   const [macApps, setMacApps] = useState<MacLauncherApp[]>([]);
   const [usage, setUsage] = useState<LauncherUsageStats>({});
@@ -84,6 +86,7 @@ function useLauncherCatalog() {
     };
   }, [refresh, refreshMac]);
   return {
+    shortcuts,
     apps,
     macApps,
     usage,
@@ -107,9 +110,11 @@ export default function Launcher({
   const catalog = useLauncherCatalog();
   const initialRevision = useRef(entry.revision);
   useEffect(() => {
-    if (entry.destination === 'apps' && entry.revision !== initialRevision.current)
+    if (entry.destination === 'apps' && entry.revision !== initialRevision.current) {
       void catalog.refreshMac();
-  }, [entry.destination, entry.revision, catalog.refreshMac]);
+      void catalog.shortcuts.refresh();
+    }
+  }, [entry.destination, entry.revision, catalog.refreshMac, catalog.shortcuts.refresh]);
   const snapshot = useRef<BuiltinContext | undefined>(undefined);
   const draft = useRef<BuiltinContext | undefined>(undefined);
   const saveContext = useCallback(
@@ -166,6 +171,7 @@ function LauncherEntry({
   const [error, setError] = useState('');
   const input = useRef<HTMLInputElement>(null);
   const launchPending = useRef(false);
+  const shortcutPending = useRef(false);
   const clipboardRequest = useRef(0);
   // Keep an undated conversion anchored while the user reviews and copies it.
   const calculationNow = useMemo(() => new Date(), [query, entry.revision]);
@@ -175,6 +181,7 @@ function LauncherEntry({
     query,
     usage,
     { now: calculationNow },
+    catalog.shortcuts.state.shortcuts,
   );
   const index = Math.max(
     0,
@@ -186,13 +193,15 @@ function LauncherEntry({
     clipboard.pasteAccess === 'granted' &&
     clipboard.pasteReady;
   const actionLabel =
-    selection?.kind === 'calculation'
-      ? 'копировать результат'
-      : selection?.kind === 'clip'
-        ? canPaste
-          ? 'вставить'
-          : 'копировать'
-        : 'открыть';
+    selection?.kind === 'shortcut'
+      ? 'запустить команду'
+      : selection?.kind === 'calculation'
+        ? 'копировать результат'
+        : selection?.kind === 'clip'
+          ? canPaste
+            ? 'вставить'
+            : 'копировать'
+          : 'открыть';
   const refreshClipboard = useCallback(async () => {
     const id = ++clipboardRequest.current;
     try {
@@ -255,6 +264,18 @@ function LauncherEntry({
   }
   async function activate(result: ShelfSearchResult, copyOnly = false) {
     if (result.kind === 'app') return open(result.app);
+    if (result.kind === 'shortcut') {
+      if (catalog.shortcuts.state.run?.status === 'running' || shortcutPending.current) return;
+      shortcutPending.current = true;
+      try {
+        await api('macShortcuts.run', { id: result.shortcut.id });
+      } catch (reason) {
+        setError(errorMessage(reason));
+      } finally {
+        shortcutPending.current = false;
+      }
+      return;
+    }
     if (launchPending.current) return;
     launchPending.current = true;
     setOpening(true);
@@ -438,6 +459,33 @@ function LauncherEntry({
             <span className="sr-only" role="status">
               {copied === selection?.id ? 'Результат скопирован' : ''}
             </span>
+            {catalog.shortcuts.state.run && (
+              <div className="shortcut-run-status" role="status">
+                <strong>
+                  {catalog.shortcuts.state.run.name} ·{' '}
+                  {catalog.shortcuts.state.run.status === 'running'
+                    ? 'Выполняется…'
+                    : catalog.shortcuts.state.run.status === 'completed'
+                      ? 'Выполнено'
+                      : catalog.shortcuts.state.run.status === 'cancelled'
+                        ? 'Отменено'
+                        : 'Не удалось выполнить'}
+                </strong>
+                <span>
+                  {catalog.shortcuts.state.run.status === 'running'
+                    ? 'Если macOS запросит ввод или разрешение, ответьте в системном окне. Если открылось окно команды, отменить выполнение можно в нём.'
+                    : catalog.shortcuts.state.run.message}
+                </span>
+              </div>
+            )}
+            {catalog.shortcuts.state.error && (
+              <Alert mx="sm" mt="sm" title="Команды macOS">
+                {catalog.shortcuts.state.error}
+                <Button variant="subtle" onClick={() => void catalog.shortcuts.refresh()}>
+                  Обновить команды
+                </Button>
+              </Alert>
+            )}
             {(error || catalog.error || macError) && (
               <Alert color="red" mx="sm" mt="sm">
                 {error || catalog.error || macError}
@@ -472,16 +520,22 @@ function LauncherEntry({
                         <div className="launcher-result-group" role="presentation">
                           {result.kind === 'calculation'
                             ? 'Калькулятор'
-                            : result.kind === 'clip'
-                              ? 'Буфер обмена'
-                              : 'Приложения'}
+                            : result.kind === 'shortcut'
+                              ? 'Команды macOS'
+                              : result.kind === 'clip'
+                                ? 'Буфер обмена'
+                                : 'Приложения'}
                         </div>
                       )}
                     <SearchResult
                       result={result}
                       query={query}
                       selected={selection?.id === result.id}
-                      busy={opening}
+                      busy={
+                        opening ||
+                        (result.kind === 'shortcut' &&
+                          catalog.shortcuts.state.run?.status === 'running')
+                      }
                       copied={copied === result.id}
                       canPaste={canPaste}
                       shortcut={position < 9 ? position + 1 : undefined}

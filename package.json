@@ -20,7 +20,7 @@
     "package": "npm run build:prepare && npm run package:prepared --",
     "package:dir": "npm run build:prepare && electron-builder --mac dir --arm64",
     "verify": "npm run build:prepare && npm run verify:desktop && npm run verify:workflows",
-    "test:desktop": "npm run test:desktop:harness && npm run test:shelf && npm run test:emoji",
+    "test:desktop": "npm run test:desktop:harness && npm run test:shelf && npm run test:emoji && npm run test:macos-shortcuts",
     "test:desktop:harness": "tsx scripts/desktop-harness-smoke.ts",
     "test:packaged": "EVERYTHING_EXECUTABLE=\"release/mac-arm64/Polka.app/Contents/MacOS/Polka\" tsx scripts/shelf-smoke.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"tests/**/*.ts\" \"scripts/**/*.ts\" electron.vite.config.ts",
@@ -52,7 +52,8 @@
     "build:prepare": "npm run build && npm run native:build",
     "package:prepared": "electron-builder --mac dmg zip --arm64",
     "verify:desktop": "npm run typecheck && npm test && npm run test:desktop",
-    "verify:workflows": "npm run test:workflows && npm run test:media"
+    "verify:workflows": "npm run test:workflows && npm run test:media",
+    "test:macos-shortcuts": "tsx scripts/macos-shortcuts-smoke.ts"
   },
   "build": {
     "appId": "app.everything.desktop",

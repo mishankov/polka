@@ -1,9 +1,11 @@
+import type { MacShortcut } from './macos-shortcuts';
 import { calculate, type Calculation, type CalculationContext } from './calculator';
 import { clipboardResults, type ClipboardClip } from './clipboard';
 import { launcherApps, type LauncherApp, type LauncherUsageStats } from './launcher';
 
 export type ShelfSearchResult =
   | { id: string; kind: 'app'; app: LauncherApp }
+  | { id: string; kind: 'shortcut'; shortcut: MacShortcut }
   | { id: string; kind: 'calculation'; calculation: Extract<Calculation, { status: 'result' }> }
   | { id: string; kind: 'clip'; clip: ClipboardClip }
   | { id: string; kind: 'more-clips'; count: number; query: string };
@@ -14,6 +16,7 @@ export function shelfSearch(
   query: string,
   usage: LauncherUsageStats = {},
   context: CalculationContext = {},
+  shortcuts: MacShortcut[] = [],
 ) {
   const calculation = calculate(query, context);
   const results: ShelfSearchResult[] = [];
@@ -28,6 +31,22 @@ export function shelfSearch(
       id: `app:${app.id}`,
       kind: 'app' as const,
       app,
+    })),
+  );
+  const chosen = shortcuts.filter((s) => s.selected);
+  const shortcutApps: LauncherApp[] = chosen.map((s) => ({
+    kind: 'mac',
+    id: s.id,
+    name: s.name,
+    description: '',
+    icon: '',
+  }));
+  const byId = new Map(chosen.map((s) => [s.id, s]));
+  results.push(
+    ...launcherApps(shortcutApps, query).map((app) => ({
+      id: `shortcut:${app.id}`,
+      kind: 'shortcut' as const,
+      shortcut: byId.get(app.id)!,
     })),
   );
   const matches = query.trim() ? clipboardResults(clips, query) : [];

@@ -811,3 +811,18 @@ html[data-window-mode='shelf'] .clipboard-paste-permission button {
     gap: 16px;
   }
 }
+
+.shortcut-run-status {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 10px 14px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.shortcut-run-status span {
+  color: var(--muted);
+}

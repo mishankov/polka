@@ -256,6 +256,30 @@ export function Switch({
     </div>
   );
 }
+export function Checkbox({
+  label,
+  description,
+  id,
+  ...props
+}: Omit<ComponentProps<'input'>, 'type'> & { label: string; description?: string }) {
+  const generated = useId();
+  const inputId = id || generated;
+  return (
+    <div className="native-setting-row native-checkbox-row">
+      <label htmlFor={inputId}>
+        {label}
+        {description && <span id={`${inputId}-description`}>{description}</span>}
+      </label>
+      <input
+        {...props}
+        id={inputId}
+        type="checkbox"
+        aria-label={label}
+        aria-describedby={description ? `${inputId}-description` : undefined}
+      />
+    </div>
+  );
+}
 export function Select({
   label,
   data,

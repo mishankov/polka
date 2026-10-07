@@ -30,6 +30,8 @@ import { mediaTrackingFromSettings } from '../shared/media-indicator';
 import { LauncherShortcut } from './launcher-shortcut';
 import { BUILTIN_APPS, DEFAULT_LAUNCHER_SHORTCUT } from '../shared/launcher';
 import { InstalledApps, readApplicationIcons, readApplicationNames } from './installed-apps';
+import { MacShortcuts, macShortcutsBackend } from './macos-shortcuts';
+import { SHORTCUT_ID } from '../shared/macos-shortcuts';
 import { LauncherUsage } from './launcher-usage';
 import { protectTerminalOutput } from './terminal-output';
 import polkaTrayPath from './assets/polkaTemplate.png?asset';
@@ -95,6 +97,12 @@ const launcherUsage = new LauncherUsage({
   save: (value) => call('settings.set', { key: 'launcherUsage', value }),
   open: (id) => installedApps.open(id),
   onError: (error) => console.error('Could not persist app launch ranking', error),
+});
+const macShortcuts = new MacShortcuts({
+  ...macShortcutsBackend,
+  read: () => call('settings.get', { key: 'macShortcutsSelection' }),
+  save: (value) => call('settings.set', { key: 'macShortcutsSelection', value }),
+  changed: (state) => broadcast({ type: 'macShortcuts.changed', state }),
 });
 const shelf = createShelf(
   root,
@@ -254,6 +262,24 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     sender.mode !== 'shelf'
   )
     throw Error('Вставка доступна только из истории на полке');
+  if (method === 'macShortcuts.state')
+    return macShortcuts.state(
+      z.boolean().optional().parse(params.refresh),
+      z.boolean().optional().parse(params.discover),
+    );
+  if (method === 'macShortcuts.select')
+    return macShortcuts.select(
+      z.string().regex(SHORTCUT_ID).parse(params.id).toLowerCase(),
+      z.boolean().parse(params.enabled),
+    );
+  if (method === 'macShortcuts.run') {
+    if (sender.mode !== 'shelf') throw Error('Запуск команды доступен только с полки.');
+    return macShortcuts.run(z.string().regex(SHORTCUT_ID).parse(params.id).toLowerCase());
+  }
+  if (method === 'macShortcuts.openApp') {
+    await shell.openExternal('shortcuts://');
+    return true;
+  }
   if (method === 'mediaIndicator.getState') return mediaIndicator.state();
   if (method === 'mediaIndicator.setEnabled')
     return mediaIndicator.setEnabled(z.boolean().parse(params.enabled));
@@ -564,6 +590,7 @@ app.on('before-quit', (event) => {
   void Promise.resolve()
     .then(async () => {
       updates?.cancelForQuit(updateQuitRequested);
+      macShortcuts.stop();
       globalShortcut.unregisterAll();
       await shelf.stop();
       mediaIndicator.stop();
