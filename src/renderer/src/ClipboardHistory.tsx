@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ActionIcon, Alert, Button, Group, Loader, TextInput, Tooltip } from './NativeControls';
 import {
+  ActionIcon,
+  Alert,
+  Button,
+  Group,
+  Loader,
+  TextInput,
+  Textarea,
+  Tooltip,
+} from './NativeControls';
+import {
+  IconPencil,
+  IconPlus,
+  IconNotes,
   IconClipboard,
   IconSearch,
   IconPin,
@@ -120,11 +132,15 @@ export default function ClipboardHistory({
   initialQuery = '',
   initialContext,
   onContextChange,
+  snippets = false,
+  initialSourceClipId,
 }: {
   onBack: () => void;
   initialQuery?: string;
   initialContext?: ClipboardContext;
   onContextChange: (context: ClipboardContext) => void;
+  snippets?: boolean;
+  initialSourceClipId?: string;
 }) {
   const [state, setState] = useState<ClipboardState | undefined>(
     initialContext?.state ? { ...initialContext.state, pasteReady: false } : undefined,
@@ -139,6 +155,7 @@ export default function ClipboardHistory({
   const [transformation, setTransformation] = useState<TextTransformation | undefined>(
     initialContext?.transformation,
   );
+  const [editor, setEditor] = useState<ClipboardContext['editor']>(initialContext?.editor);
   const [notice, setNotice] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -153,7 +170,24 @@ export default function ClipboardHistory({
     preview: initialContext?.previewScrollTop ?? 0,
   });
   const skipInitialScroll = useRef(!!initialContext);
-  const results = clipboardResults(state?.clips || [], query);
+  const records = (snippets ? state?.snippets : state?.clips) || [];
+  const results = clipboardResults(records, query);
+  const sourceOpened = useRef(false);
+  useEffect(() => {
+    if (
+      !snippets ||
+      !initialSourceClipId ||
+      !state ||
+      sourceOpened.current ||
+      state.storage?.status === 'starting'
+    )
+      return;
+    sourceOpened.current = true;
+    const clip = state.clips.find((item) => item.id === initialSourceClipId);
+    if (!clip) setError('Запись уже удалена');
+    else if (clip.kind !== 'text') setError('Редактирование доступно только для текста');
+    else setEditor({ clip, name: clip.name || '', content: clip.content });
+  }, [snippets, initialSourceClipId, state]);
   const index = Math.max(
     0,
     results.findIndex((clip) => clip.id === selected),
@@ -161,7 +195,7 @@ export default function ClipboardHistory({
   const selection = results[index];
   const canPaste =
     !!state?.preferences.pasteOnSelect && state.pasteAccess === 'granted' && state.pasteReady;
-  const preview = state?.clips.find((clip) => clip.id === previewId);
+  const preview = records.find((clip) => clip.id === previewId);
   const previewText =
     preview?.kind === 'text'
       ? transformation
@@ -211,11 +245,25 @@ export default function ClipboardHistory({
         ];
   const originalActionIndex = previewActions.findIndex((action) => action.id === 'original');
   const context = useRef<ClipboardContext>({
-    destination: 'clipboard',
+    destination: snippets ? 'snippets' : 'clipboard',
     query,
     scrollTop: 0,
     previewScrollTop: 0,
   });
+  const contextWriter = useRef(onContextChange);
+  contextWriter.current = onContextChange;
+  function rememberScroll() {
+    if (list.current) scroll.current.list = list.current.scrollTop;
+    const content = root.current?.querySelector<HTMLElement>('.clipboard-preview-content');
+    if (content && content.getAttribute('aria-busy') !== 'true')
+      scroll.current.preview = content.scrollTop;
+    context.current = {
+      ...context.current,
+      scrollTop: scroll.current.list,
+      previewScrollTop: scroll.current.preview,
+    };
+    contextWriter.current(context.current);
+  }
   useLayoutEffect(() => {
     // Also sample on dismissal; the browser may not have emitted its scroll event yet.
     if (contextMounted.current) {
@@ -226,11 +274,12 @@ export default function ClipboardHistory({
     }
     contextMounted.current = true;
     context.current = {
-      destination: 'clipboard',
+      destination: snippets ? 'snippets' : 'clipboard',
       query,
       selected,
       previewId,
       transformation,
+      editor,
       scrollTop: scroll.current.list,
       previewScrollTop: scroll.current.preview,
       state,
@@ -248,6 +297,24 @@ export default function ClipboardHistory({
     setError('');
     setPreviewId(id);
   }
+  async function editClip(clip: ClipboardClip) {
+    setError('');
+    setMenuOpen(false);
+    if (snippets) setEditor({ clip, name: clip.name || '', content: clip.content });
+    else {
+      if (pending.current) return;
+      pending.current = true;
+      setBusy(true);
+      try {
+        await api('shelf.showSnippets', { sourceClipId: clip.id });
+      } catch (reason) {
+        if (alive.current) setError(errorMessage(reason));
+      } finally {
+        pending.current = false;
+        if (alive.current) setBusy(false);
+      }
+    }
+  }
   function closeConfirmation() {
     setConfirmClear(false);
     requestAnimationFrame(() => input.current?.focus());
@@ -257,7 +324,14 @@ export default function ClipboardHistory({
     requestAnimationFrame(() => input.current?.focus());
   }
   function goBack() {
-    if (confirmClear) closeConfirmation();
+    if (editor) {
+      setEditor(undefined);
+      setError('');
+      requestAnimationFrame(() => {
+        if (preview) document.querySelector<HTMLButtonElement>('.clipboard-back')?.focus();
+        else input.current?.focus();
+      });
+    } else if (confirmClear) closeConfirmation();
     else if (preview) closePreview();
     else onBack();
   }
@@ -270,18 +344,22 @@ export default function ClipboardHistory({
       const next = await api<ClipboardState>('clipboardHistory.state');
       if (token === request.current) {
         setState(next);
-        setSelected((id) => (next.clips.some((clip) => clip.id === id) ? id : undefined));
-        setPreviewId((id) => (next.clips.some((clip) => clip.id === id) ? id : undefined));
+        const nextRecords = (snippets ? next.snippets : next.clips) || [];
+        setSelected((id) => (nextRecords.some((clip) => clip.id === id) ? id : undefined));
+        setPreviewId((id) => (nextRecords.some((clip) => clip.id === id) ? id : undefined));
       }
     } catch (reason) {
       if (token === request.current) setError(errorMessage(reason));
     }
-  }, []);
+  }, [snippets]);
   useEffect(() => {
     alive.current = true;
     void refresh();
     const unsubscribe = window.platform.onEvent((event) => {
       if (event.type === 'clipboardHistory.changed') void refresh();
+      // Capture directly on dismissal, before a subsequent shown event can
+      // remount the view. A hidden window may defer the browser's scroll event.
+      if (event.type === 'shelf.presentation' && !event.presentation.visible) rememberScroll();
     });
     return () => {
       alive.current = false;
@@ -306,6 +384,11 @@ export default function ClipboardHistory({
     try {
       const result = await api(`clipboardHistory.${method}`, params);
       if (!alive.current) return false;
+      if (method === 'edit' || method === 'createSnippet') {
+        setSelected((result as { id: string }).id);
+        setPreviewId(undefined);
+        setQuery('');
+      }
       if (method === 'saveImage' && result === 'saved') setNotice('Изображение сохранено');
       await refresh();
       return true;
@@ -329,31 +412,52 @@ export default function ClipboardHistory({
         });
     }
   }
+  function createSnippet() {
+    if (!snippets || !writable || busy || pending.current || editor) return;
+    setPreviewId(undefined);
+    setError('');
+    setEditor({ name: '', content: '' });
+  }
   return (
     <section
       className="clipboard-app"
       ref={root}
       onScrollCapture={(event) => {
         const target = event.target as HTMLElement;
-        if (target.id === 'clipboard-results') scroll.current.list = target.scrollTop;
-        else if (target.classList.contains('clipboard-preview-content'))
-          scroll.current.preview = target.scrollTop;
-        else return;
-        onContextChange({
-          ...context.current,
-          scrollTop: scroll.current.list,
-          previewScrollTop: scroll.current.preview,
-        });
+        if (
+          target.id === 'clipboard-results' ||
+          target.classList.contains('clipboard-preview-content')
+        )
+          rememberScroll();
       }}
-      aria-label="История буфера обмена"
+      aria-label={snippets ? 'Сниппеты' : 'История буфера обмена'}
       onKeyDown={(event) => {
         if (consumedKey(event)) return;
+        if (editor) {
+          if (event.key === 'Escape' && !event.repeat && !busy) {
+            event.preventDefault();
+            goBack();
+          }
+          return;
+        }
         if (
           document.querySelector(
             '[role="dialog"], [role="menu"], [role="listbox"]:not(#clipboard-results)',
           )
         )
           return;
+        if (
+          snippets &&
+          event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.shiftKey &&
+          (event.code === 'KeyN' || event.key.toLowerCase() === 'n')
+        ) {
+          event.preventDefault();
+          if (!event.repeat) createSnippet();
+          return;
+        }
         if (busy) {
           if (
             ['Enter', 'Escape', 'Backspace'].includes(event.key) ||
@@ -461,11 +565,13 @@ export default function ClipboardHistory({
       <header className="clipboard-header">
         <div className="clipboard-app-heading">
           <Tooltip
-            label={`${preview || confirmClear ? 'Назад к списку' : 'Назад к приложениям'} · ⌫`}
+            label={`${editor || preview || confirmClear ? 'Назад к списку' : 'Назад к приложениям'} · ${editor ? 'esc' : '⌫'}`}
           >
             <ActionIcon
               className="clipboard-back"
-              aria-label={preview || confirmClear ? 'Назад к списку' : 'Назад к приложениям'}
+              aria-label={
+                editor || preview || confirmClear ? 'Назад к списку' : 'Назад к приложениям'
+              }
               variant="subtle"
               onClick={goBack}
               disabled={busy}
@@ -474,78 +580,108 @@ export default function ClipboardHistory({
             </ActionIcon>
           </Tooltip>
           <div className="clipboard-heading">
-            <h1>Буфер обмена</h1>
+            <h1>
+              {editor
+                ? editor.clip?.snippet
+                  ? 'Изменить сниппет'
+                  : 'Создать сниппет'
+                : snippets
+                  ? 'Сниппеты'
+                  : 'Буфер обмена'}
+            </h1>
             {state?.storage?.status === 'failed' ? (
               <span>{state.preferencesAvailable ? 'Только чтение' : 'Недоступна'}</span>
             ) : (
-              state?.preferences.paused && <span>Запись на паузе</span>
+              !snippets && state?.preferences.paused && <span>Запись на паузе</span>
             )}
           </div>
         </div>
         <div className="clipboard-header-actions">
-          <div
-            className="native-history-menu"
-            onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false);
-            }}
-            onKeyDown={(event) => {
-              if (consumedKey(event)) return;
-              if (event.key === 'Escape' && menuOpen) {
-                event.preventDefault();
-                event.stopPropagation();
-                setMenuOpen(false);
-                event.currentTarget.querySelector<HTMLButtonElement>(':scope > button')?.focus();
-              }
-            }}
-          >
-            <ActionIcon
-              variant="subtle"
-              aria-label="Действия с историей"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen(!menuOpen)}
+          {snippets ? (
+            !editor && (
+              <Tooltip label="Создать сниппет · ⌘N">
+                <Button
+                  className="clipboard-create"
+                  variant="subtle"
+                  aria-label="Создать сниппет"
+                  aria-keyshortcuts="Meta+N"
+                  disabled={!writable || busy}
+                  onClick={createSnippet}
+                >
+                  <span className="clipboard-create-content">
+                    <IconPlus size={14} />
+                    <span>Создать</span>
+                    <kbd aria-hidden="true">⌘N</kbd>
+                  </span>
+                </Button>
+              </Tooltip>
+            )
+          ) : (
+            <div
+              className="native-history-menu"
+              onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false);
+              }}
+              onKeyDown={(event) => {
+                if (consumedKey(event)) return;
+                if (event.key === 'Escape' && menuOpen) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setMenuOpen(false);
+                  event.currentTarget.querySelector<HTMLButtonElement>(':scope > button')?.focus();
+                }
+              }}
             >
-              <IconDots size={18} />
-            </ActionIcon>
-            {menuOpen && (
-              <div className="clipboard-menu" role="group" aria-label="Действия с историей">
-                <Button
-                  variant="subtle"
-                  disabled={!selection || busy}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    if (selection)
-                      void run('copy', {
-                        id: preview?.id ?? selection.id,
-                        transformation: preview ? transformation : undefined,
-                      });
-                  }}
-                >
-                  Копировать без вставки · ⇧↵
-                </Button>
-                <Button
-                  variant="subtle"
-                  color="red"
-                  disabled={!writable || !state?.clips.length || busy}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setPreviewId(undefined);
-                    setConfirmClear(true);
-                  }}
-                >
-                  Очистить историю на всех связанных Mac…
-                </Button>
-              </div>
-            )}
-          </div>
+              <ActionIcon
+                variant="subtle"
+                aria-label="Действия с историей"
+                disabled={!!editor || busy}
+                aria-expanded={menuOpen}
+                onClick={() => setMenuOpen(!menuOpen)}
+              >
+                <IconDots size={18} />
+              </ActionIcon>
+              {menuOpen && (
+                <div className="clipboard-menu" role="group" aria-label="Действия с историей">
+                  <Button
+                    variant="subtle"
+                    disabled={!selection || busy}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (selection)
+                        void run('copy', {
+                          id: preview?.id ?? selection.id,
+                          transformation: preview ? transformation : undefined,
+                        });
+                    }}
+                  >
+                    Копировать без вставки · ⇧↵
+                  </Button>
+                  <Button
+                    variant="subtle"
+                    color="red"
+                    disabled={!writable || !state?.clips.length || busy}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setPreviewId(undefined);
+                      setConfirmClear(true);
+                    }}
+                  >
+                    Очистить историю на всех связанных Mac…
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </header>
-      {!preview && !confirmClear && (
+      {!editor && !preview && !confirmClear && (
         <div className="clipboard-search">
           <TextInput
             ref={input}
             autoFocus
-            aria-label="Найти в истории"
-            placeholder="Найти скопированный текст…"
+            aria-label={snippets ? 'Найти сниппет' : 'Найти в истории'}
+            placeholder={snippets ? 'Найти текст или название…' : 'Найти текст…'}
             leftSection={<IconSearch size={17} />}
             value={query}
             onChange={(event) => {
@@ -612,6 +748,7 @@ export default function ClipboardHistory({
       <ClipboardStorageFailure
         storage={state?.storage}
         store="history"
+        snippets={snippets}
         readable={state?.preferencesAvailable}
       />
       {state?.helper?.status === 'failed' && (
@@ -629,12 +766,91 @@ export default function ClipboardHistory({
           {notice}
         </p>
       )}
-      {confirmClear ? (
+      {editor ? (
+        <form
+          className="clipboard-editor"
+          aria-label="Редактор сниппета"
+          onKeyDown={(event) => {
+            if (
+              consumedKey(event) ||
+              event.key !== 'Enter' ||
+              !event.metaKey ||
+              event.ctrlKey ||
+              event.altKey ||
+              event.shiftKey ||
+              document.querySelector(
+                '[role="dialog"], [role="menu"], [role="listbox"]:not(#clipboard-results)',
+              )
+            )
+              return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (!event.repeat && writable && !busy && !pending.current && editor.content.length)
+              event.currentTarget.requestSubmit();
+          }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (writable && !busy && !pending.current && editor.content.length)
+              void run(editor.clip?.snippet ? 'edit' : 'createSnippet', {
+                id: editor.clip?.snippet ? editor.clip.id : undefined,
+                content: editor.content,
+                name: editor.name,
+                expected: editor.clip?.snippet
+                  ? { content: editor.clip.content, name: editor.clip.name }
+                  : undefined,
+              }).then((ok) => {
+                if (ok) {
+                  setEditor(undefined);
+                  requestAnimationFrame(() => input.current?.focus());
+                }
+              });
+          }}
+        >
+          <TextInput
+            label="Название (необязательно)"
+            autoFocus
+            maxLength={120}
+            value={editor.name}
+            disabled={busy}
+            onChange={(event) => setEditor({ ...editor, name: event.currentTarget.value })}
+          />
+          <Textarea
+            label="Текст"
+            rows={7}
+            required
+            value={editor.content}
+            disabled={busy}
+            onChange={(event) => setEditor({ ...editor, content: event.currentTarget.value })}
+          />
+          <p>
+            {editor.clip?.snippet
+              ? 'Одинаковый текст может быть у разных сниппетов.'
+              : 'Сниппет будет сохранён отдельно от истории буфера.'}
+          </p>
+          <Group>
+            <Button
+              type="submit"
+              aria-label="Сохранить"
+              aria-keyshortcuts="Meta+Enter"
+              disabled={!writable || !editor.content.length}
+              loading={busy}
+            >
+              Сохранить{' '}
+              <span className="clipboard-save-shortcut" aria-hidden="true">
+                ⌘↵
+              </span>
+            </Button>
+            <Button variant="default" disabled={busy} onClick={goBack}>
+              Отмена
+            </Button>
+          </Group>
+        </form>
+      ) : confirmClear ? (
         <div className="clipboard-confirm">
           <h2>Удалить историю на всех связанных Mac?</h2>
           <p>
             Закреплённые записи тоже будут удалены. Удаление передастся связанным Mac, в том числе
-            после их подключения. Текущий буфер обмена останется на месте.
+            после их подключения. Сниппеты и текущий буфер обмена останутся на месте.
           </p>
           <Group>
             <Button
@@ -673,7 +889,16 @@ export default function ClipboardHistory({
           }}
         >
           <div className="clipboard-preview-toolbar">
-            <span>{clipDate(preview.createdAt)}</span>
+            <span>{preview.name || clipDate(preview.createdAt)}</span>
+            {preview.kind === 'text' && (
+              <Button
+                variant="subtle"
+                disabled={!writable || busy}
+                onClick={() => void editClip(preview)}
+              >
+                {preview.snippet ? 'Изменить сниппет' : 'Создать сниппет'}
+              </Button>
+            )}
             {canPaste && (
               <Button
                 size="compact-sm"
@@ -743,7 +968,7 @@ export default function ClipboardHistory({
           ref={list}
           id="clipboard-results"
           role="listbox"
-          aria-label="Скопированные записи"
+          aria-label={snippets ? 'Сохранённые сниппеты' : 'Скопированные записи'}
           aria-busy={busy}
         >
           {!state ? (
@@ -756,22 +981,32 @@ export default function ClipboardHistory({
             </div>
           ) : !results.length ? (
             <div className="clipboard-empty">
-              <IconClipboard size={36} stroke={1.2} />
+              {snippets ? (
+                <IconNotes size={36} stroke={1.2} />
+              ) : (
+                <IconClipboard size={36} stroke={1.2} />
+              )}
               <strong>
                 {state.storage?.status === 'failed'
-                  ? 'История недоступна'
+                  ? snippets
+                    ? 'Сниппеты недоступны'
+                    : 'История недоступна'
                   : query
                     ? 'Ничего не найдено'
-                    : 'Здесь появится скопированное'}
+                    : snippets
+                      ? 'Сохраните готовый текст'
+                      : 'Здесь появится скопированное'}
               </strong>
               <p>
                 {state.storage?.status === 'failed'
                   ? 'Восстановите доступ к хранилищу и перезапустите Полку.'
                   : query
                     ? 'Попробуйте другое слово.'
-                    : state.preferences.paused
-                      ? 'Включите сохранение буфера обмена в настройках приложения.'
-                      : 'Скопируйте текст или изображение в любой программе. Выберите запись, чтобы вставить её в предыдущее поле или скопировать снова.'}
+                    : snippets
+                      ? 'Создайте сниппет для адреса, реквизитов или стандартного ответа. Его можно будет найти и вставить с полки.'
+                      : state.preferences.paused
+                        ? 'Включите сохранение буфера обмена в настройках приложения.'
+                        : 'Скопируйте текст или изображение в любой программе. Выберите запись, чтобы вставить её в предыдущее поле или скопировать снова.'}
               </p>
             </div>
           ) : (
@@ -827,10 +1062,13 @@ export default function ClipboardHistory({
                     <span className="clipboard-text">
                       {clip.kind === 'image'
                         ? 'Изображение'
-                        : clip.preview.trim() || 'Пустой текст'}
+                        : clip.name || clip.preview.trim() || 'Пустой текст'}
                     </span>
+                    {clip.name && (
+                      <span className="clipboard-snippet-content">{clip.preview.trim()}</span>
+                    )}
                     <span className="clipboard-meta">
-                      {clip.pinned && <IconPin size={12} aria-label="Закреплено" />}
+                      {!snippets && clip.pinned && <IconPin size={12} aria-label="Закреплено" />}
                       <span className="clipboard-origin" title={clip.sourceDevice}>
                         {clipDate(clip.createdAt)}
                         {clip.sourceDevice && ` · ${clip.sourceDevice}`}
@@ -839,6 +1077,19 @@ export default function ClipboardHistory({
                   </span>
                 </button>
                 <div className="clipboard-row-actions">
+                  {clip.kind === 'text' && (
+                    <Tooltip label={clip.snippet ? 'Изменить сниппет' : 'Создать сниппет'}>
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        aria-label={clip.snippet ? 'Изменить сниппет' : 'Создать сниппет'}
+                        disabled={!writable || busy}
+                        onClick={() => void editClip(clip)}
+                      >
+                        <IconPencil size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
                   {clip.kind === 'image' && (
                     <Tooltip
                       label={`Сохранить изображение…${position < 9 ? ` · ⌘⌥${position + 1}` : ''}`}
@@ -884,18 +1135,20 @@ export default function ClipboardHistory({
                       <IconEye size={16} />
                     </ActionIcon>
                   </Tooltip>
-                  <Tooltip label={clip.pinned ? 'Открепить' : 'Закрепить'}>
-                    <ActionIcon
-                      variant="subtle"
-                      color="gray"
-                      data-active={clip.pinned || undefined}
-                      aria-label={clip.pinned ? 'Открепить запись' : 'Закрепить запись'}
-                      disabled={!writable || busy}
-                      onClick={() => void run('pin', { id: clip.id, pinned: !clip.pinned })}
-                    >
-                      {clip.pinned ? <IconPinnedOff size={16} /> : <IconPin size={16} />}
-                    </ActionIcon>
-                  </Tooltip>
+                  {!snippets && (
+                    <Tooltip label={clip.pinned ? 'Открепить' : 'Закрепить'}>
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        data-active={clip.pinned || undefined}
+                        aria-label={clip.pinned ? 'Открепить запись' : 'Закрепить запись'}
+                        disabled={!writable || busy}
+                        onClick={() => void run('pin', { id: clip.id, pinned: !clip.pinned })}
+                      >
+                        {clip.pinned ? <IconPinnedOff size={16} /> : <IconPin size={16} />}
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
                   <Tooltip label="Удалить">
                     <ActionIcon
                       variant="subtle"
@@ -917,7 +1170,7 @@ export default function ClipboardHistory({
         </div>
       )}
       <footer className="clipboard-footer">
-        {!preview && !confirmClear && (
+        {!editor && !preview && !confirmClear && (
           <div className="clipboard-shortcuts">
             <span>
               <kbd>↑</kbd>
@@ -931,7 +1184,9 @@ export default function ClipboardHistory({
             </span>
           </div>
         )}
-        {preview ? (
+        {editor ? (
+          <span>esc отменить</span>
+        ) : preview ? (
           <span>⌫ / esc вернуться к списку</span>
         ) : confirmClear ? (
           <span>⌫ / esc отменить</span>

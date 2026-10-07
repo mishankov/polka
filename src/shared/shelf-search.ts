@@ -6,7 +6,7 @@ export type ShelfSearchResult =
   | { id: string; kind: 'app'; app: LauncherApp }
   | { id: string; kind: 'calculation'; calculation: Extract<Calculation, { status: 'result' }> }
   | { id: string; kind: 'clip'; clip: ClipboardClip }
-  | { id: string; kind: 'more-clips'; count: number; query: string };
+  | { id: string; kind: 'more-clips' | 'more-snippets'; count: number; query: string };
 
 export function shelfSearch(
   apps: LauncherApp[],
@@ -14,6 +14,7 @@ export function shelfSearch(
   query: string,
   usage: LauncherUsageStats = {},
   context: CalculationContext = {},
+  snippets: ClipboardClip[] = [],
 ) {
   const calculation = calculate(query, context);
   const results: ShelfSearchResult[] = [];
@@ -36,6 +37,19 @@ export function shelfSearch(
   );
   if (matches.length > 3)
     results.push({ id: 'more-clips', kind: 'more-clips', count: matches.length, query });
+  const snippetMatches = query.trim() ? clipboardResults(snippets, query) : [];
+  results.push(
+    ...snippetMatches
+      .slice(0, 3)
+      .map((clip) => ({ id: `clip:${clip.id}`, kind: 'clip' as const, clip })),
+  );
+  if (snippetMatches.length > 3)
+    results.push({
+      id: 'more-snippets',
+      kind: 'more-snippets',
+      count: snippetMatches.length,
+      query,
+    });
   return { calculation, results };
 }
 
