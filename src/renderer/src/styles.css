@@ -834,3 +834,8 @@ html[data-window-mode='shelf'] .clipboard-paste-permission button {
 .clipboard-privacy {
   padding: 8px 12px;
 }
+.clipboard-menu .clipboard-privacy > .native-group {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}

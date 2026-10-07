@@ -3,6 +3,7 @@ import { expect } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { ClipboardHistory } from '../src/main/clipboard-history';
+import { shelfGeometry } from '../src/main/clipboard-hover';
 import { SettingsStore } from '../src/main/settings-store';
 import type { ClipboardState } from '../src/shared/clipboard';
 import { runDesktopTest, type DesktopTest } from './desktop-test';
@@ -90,10 +91,48 @@ async function main(test: DesktopTest) {
   await expect.poll(async () => (await state()).helper.status).toBe('running');
   await page.evaluate(() => window.platform.call('clipboardHistory.show'));
   await test.shelfReady(app, page, 'Найти в истории');
+  const shelf = page.locator('.clipboard-shelf');
+  const originalLayout = await shelf.evaluate((el) => ({
+    style: el.getAttribute('style')!,
+    notched: el.hasAttribute('data-notched'),
+  }));
+  try {
+    for (const topInset of [0, 32]) {
+      const geometry = shelfGeometry(
+        { x: 0, y: 0, width: 1440, height: 900 },
+        { id: 1, x: 620, width: 200, height: topInset },
+      );
+      await shelf.evaluate((el, geometry) => {
+        const element = el as HTMLElement;
+        element.style.height = `${geometry.panel.height}px`;
+        element.style.setProperty('--notch-inset', `${geometry.topInset}px`);
+        element.style.setProperty('--notch-width', `${geometry.target.width}px`);
+        element.toggleAttribute('data-notched', geometry.topInset > 0);
+      }, geometry);
+      const rowHeight = await page
+        .locator('.clipboard-row')
+        .first()
+        .evaluate((el) => el.getBoundingClientRect().height);
+      const availableHeight = await page
+        .locator('.clipboard-results')
+        .evaluate((el) => el.clientHeight);
+      assert(
+        rowHeight <= 64 && Math.floor((availableHeight - 12) / rowHeight) >= 6,
+        `Shelf must fit six entries (inset=${topInset}, row=${rowHeight}, results=${availableHeight})`,
+      );
+    }
+  } finally {
+    await shelf.evaluate((el, original) => {
+      el.setAttribute('style', original.style);
+      el.toggleAttribute('data-notched', original.notched);
+    }, originalLayout);
+  }
+  await page.getByRole('button', { name: 'Действия с историей', exact: true }).click();
   await page.getByRole('button', { name: 'Пауза на 15 минут', exact: true }).click();
   const until = (await state()).preferences.pauseUntil!;
   assert(until > Date.now() + 14 * 60000 && until <= Date.now() + 15 * 60000);
-  await expect(page.locator('.clipboard-privacy')).toContainText('Запись на паузе до');
+  await expect(page.locator('.clipboard-heading')).toContainText('Запись на паузе до');
+  await page.screenshot({ path: join(test.artifacts, 'privacy-paused-history.png'), scale: 'css' });
   await app.evaluate(() =>
     (globalThis as any).__privacyCopy('Paused secret', 'com.example.allowed'),
   );

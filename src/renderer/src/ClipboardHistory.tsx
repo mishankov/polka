@@ -15,7 +15,12 @@ import {
   IconExternalLink,
   IconDownload,
 } from '@tabler/icons-react';
-import { clipboardResults, type ClipboardState, type ClipboardClip } from '../../shared/clipboard';
+import {
+  clipboardPauseLabel,
+  clipboardResults,
+  type ClipboardState,
+  type ClipboardClip,
+} from '../../shared/clipboard';
 import {
   clipboardWebUrl,
   TEXT_TRANSFORMATIONS,
@@ -480,11 +485,37 @@ export default function ClipboardHistory({
             {state?.storage?.status === 'failed' ? (
               <span>{state.preferencesAvailable ? 'Только чтение' : 'Недоступна'}</span>
             ) : (
-              state?.preferences.paused && <span>Запись на паузе</span>
+              state?.preferences.paused && <span>{clipboardPauseLabel(state.preferences)}</span>
             )}
           </div>
         </div>
         <div className="clipboard-header-actions">
+          {!!state?.preferences.excludedApps?.length && (
+            <Button
+              size="compact-sm"
+              variant="subtle"
+              aria-label={`Исключено приложений: ${state.preferences.excludedApps.length} · Изменить…`}
+              onClick={() =>
+                void api('shelf.settings', { section: 'clipboard' }).catch((reason) =>
+                  setError(errorMessage(reason)),
+                )
+              }
+            >
+              Исключено: {state.preferences.excludedApps.length}
+            </Button>
+          )}
+          {state?.preferences.paused && (
+            <Button
+              size="compact-sm"
+              variant="default"
+              disabled={!writable || busy}
+              aria-label="Возобновить запись"
+              onClick={() => void run('preferences', { paused: false })}
+            >
+              Возобновить
+            </Button>
+          )}
+
           <div
             className="native-history-menu"
             onBlur={(event) => {
@@ -510,6 +541,16 @@ export default function ClipboardHistory({
             </ActionIcon>
             {menuOpen && (
               <div className="clipboard-menu" role="group" aria-label="Действия с историей">
+                <ClipboardPrivacy
+                  preferences={state?.preferences}
+                  disabled={!writable || busy}
+                  save={(method, params) =>
+                    void run(method, params).then((ok) => {
+                      if (ok) setMenuOpen(false);
+                    })
+                  }
+                />
+
                 <Button
                   variant="subtle"
                   disabled={!selection || busy}
@@ -606,11 +647,6 @@ export default function ClipboardHistory({
           />
         </div>
       )}
-      <ClipboardPrivacy
-        preferences={state?.preferences}
-        disabled={!writable || busy}
-        save={(method, params) => void run(method, params)}
-      />
       <ClipboardPasteHint
         state={state}
         busy={busy}
