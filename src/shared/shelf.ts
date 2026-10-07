@@ -1,4 +1,4 @@
-export type ShelfDestination = 'apps' | 'clipboard' | 'emoji' | 'settings' | 'about';
+export type ShelfDestination = 'apps' | 'clipboard' | 'emoji' | 'snippets' | 'settings' | 'about';
 
 export interface ShelfEntry {
   revision: number;
@@ -6,6 +6,7 @@ export interface ShelfEntry {
   entryMode: 'fresh' | 'resume';
   destination: ShelfDestination;
   searchQuery?: string;
+  sourceClipId?: string;
 }
 
 export interface ShelfPresentation extends ShelfEntry {

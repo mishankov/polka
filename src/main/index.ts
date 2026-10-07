@@ -161,6 +161,10 @@ async function refreshTrayMenu() {
       },
       { label: 'Настройки…', click: showSettings },
       {
+        label: 'Сниппеты',
+        click: () => void shelf.show('keyboard', 'snippets').catch(console.error),
+      },
+      {
         label: 'О приложении и обновления',
         click: () => void openSettings('about').catch(console.error),
       },
@@ -404,6 +408,10 @@ app
               click: () => void openWindow(),
             },
             { label: 'Запуск приложений', click: () => void shelf.show().catch(console.error) },
+            {
+              label: 'Сниппеты',
+              click: () => void shelf.show('keyboard', 'snippets').catch(console.error),
+            },
             {
               label: 'История буфера обмена',
               click: () => void shelf.show('keyboard', 'clipboard').catch(console.error),

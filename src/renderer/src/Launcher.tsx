@@ -19,6 +19,7 @@ import { shelfSearch, type ShelfSearchResult } from '../../shared/shelf-search';
 import SearchResult from './ShelfSearchResult';
 import { api, errorMessage, report } from './api';
 import ClipboardHistory from './ClipboardHistory';
+import Snippets from './Snippets';
 import EmojiPicker from './EmojiPicker';
 import ShelfSettings from './ShelfSettings';
 import ShelfWelcome from './ShelfWelcome';
@@ -26,6 +27,10 @@ import UpdateNotice from './UpdateNotice';
 import type { ShelfEntry } from '../../shared/shelf';
 import type { BuiltinContext } from './shelf-context';
 import { consumedKey, numberShortcut } from './shelf-keyboard';
+
+function resultGroup(result?: ShelfSearchResult) {
+  return result?.kind === 'clip' && result.clip.snippet ? 'snippets' : result?.kind;
+}
 
 // Catalog data outlives a presentation; navigation only resets browsing state.
 function useLauncherCatalog() {
@@ -123,7 +128,9 @@ export default function Launcher({
     // Preparing an entry must not replace the last successfully opened context.
     if (entry.revision === committedRevision)
       snapshot.current =
-        entry.destination === 'clipboard' || entry.destination === 'emoji'
+        entry.destination === 'clipboard' ||
+        entry.destination === 'emoji' ||
+        entry.destination === 'snippets'
           ? draft.current
           : undefined;
   }, [entry.revision, entry.destination, committedRevision]);
@@ -152,7 +159,10 @@ function LauncherEntry({
   // Apply the entry destination in this render. Mirroring it in an effect briefly
   // remounts clipboard history when a closed shelf reopens on the app list.
   const settings = entry.destination === 'settings' || entry.destination === 'about';
-  const builtin = entry.destination === 'clipboard' || entry.destination === 'emoji';
+  const builtin =
+    entry.destination === 'clipboard' ||
+    entry.destination === 'emoji' ||
+    entry.destination === 'snippets';
   const navigation = useRef(0);
   const { apps, macApps, usage, setUsage, macLoading, macError, loading, refresh, refreshMac } =
     catalog;
@@ -175,6 +185,7 @@ function LauncherEntry({
     query,
     usage,
     { now: calculationNow },
+    clipboard?.snippets || [],
   );
   const index = Math.max(
     0,
@@ -236,7 +247,13 @@ function LauncherEntry({
     setError('');
     try {
       if (app.kind === 'builtin') {
-        await api(app.id === 'builtin:emoji' ? 'shelf.showEmoji' : 'clipboardHistory.show');
+        await api(
+          app.id === 'builtin:emoji'
+            ? 'shelf.showEmoji'
+            : app.id === 'builtin:snippets'
+              ? 'shelf.showSnippets'
+              : 'clipboardHistory.show',
+        );
         return;
       }
       if (app.kind === 'mac') {
@@ -275,7 +292,10 @@ function LauncherEntry({
           id: result.clip.id,
         });
       } else {
-        await api('clipboardHistory.show', { query: result.query });
+        await api(
+          result.kind === 'more-snippets' ? 'shelf.showSnippets' : 'clipboardHistory.show',
+          { query: result.query },
+        );
       }
     } catch (error) {
       if (token === navigation.current) setError(errorMessage(error));
@@ -325,6 +345,19 @@ function LauncherEntry({
         <EmojiPicker
           key={entry.revision}
           initialContext={context?.destination === 'emoji' ? context : undefined}
+          onContextChange={saveContext}
+          onBack={() =>
+            void api('launcher.show', { destination: 'apps' }).catch((error) =>
+              setError(errorMessage(error)),
+            )
+          }
+        />
+      ) : entry.destination === 'snippets' ? (
+        <Snippets
+          key={entry.revision}
+          initialQuery={entry.searchQuery}
+          sourceClipId={entry.sourceClipId}
+          initialContext={context?.destination === 'snippets' ? context : undefined}
           onContextChange={saveContext}
           onBack={() =>
             void api('launcher.show', { destination: 'apps' }).catch((error) =>
@@ -468,12 +501,15 @@ function LauncherEntry({
                 results.map((result, position) => (
                   <Fragment key={result.id}>
                     {result.kind !== 'more-clips' &&
-                      result.kind !== results[position - 1]?.kind && (
+                      result.kind !== 'more-snippets' &&
+                      resultGroup(result) !== resultGroup(results[position - 1]) && (
                         <div className="launcher-result-group" role="presentation">
                           {result.kind === 'calculation'
                             ? 'Калькулятор'
                             : result.kind === 'clip'
-                              ? 'Буфер обмена'
+                              ? result.clip.snippet
+                                ? 'Сниппеты'
+                                : 'Буфер обмена'
                               : 'Приложения'}
                         </div>
                       )}
@@ -505,7 +541,7 @@ function LauncherEntry({
             <span>
               {macLoading || clipboardLoading
                 ? 'Ищем…'
-                : `Результаты · ${results.filter((result) => result.kind !== 'more-clips').length}`}
+                : `Результаты · ${results.filter((result) => result.kind !== 'more-clips' && result.kind !== 'more-snippets').length}`}
             </span>
             <div className="clipboard-shortcuts">
               {opening ? (

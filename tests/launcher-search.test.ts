@@ -95,7 +95,7 @@ test('frequency then recency rank comparable results with deterministic ties and
   assert.equal(launcherApps(sameName, 'code')[0].id, 'mac:a');
   assert.deepEqual(
     launcherApps([...apps, ...BUILTIN_APPS], '', usage).map((item) => item.id),
-    ['builtin:clipboard', 'builtin:emoji', apps[1].id, apps[0].id, apps[2].id],
+    ['builtin:clipboard', 'builtin:snippets', 'builtin:emoji', apps[1].id, apps[0].id, apps[2].id],
   );
 });
 

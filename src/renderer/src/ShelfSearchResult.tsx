@@ -4,6 +4,7 @@ import {
   IconArrowRight,
   IconTextSize,
   IconMoodSmile,
+  IconNotes,
 } from '@tabler/icons-react';
 import { clipboardSnippet, type ShelfSearchResult } from '../../shared/shelf-search';
 import { consumedKey } from './shelf-keyboard';
@@ -38,16 +39,20 @@ export default function SearchResult({
       ? clip.name || clipboardSnippet(clip, query)
       : calculation
         ? calculation.displayValue || calculation.value
-        : 'Показать все записи';
+        : result.kind === 'more-snippets'
+          ? 'Показать все сниппеты'
+          : 'Показать все записи';
   const description = app
     ? app.description || 'Полка'
     : clip
-      ? `${clip.name ? clipboardSnippet(clip, query) + ' · ' : ''}${clip.pinned ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+      ? `${clip.name ? clipboardSnippet(clip, query) + ' · ' : ''}${clip.pinned && !clip.snippet ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
       : calculation
         ? calculation.interpretation || calculation.expression
         : result.kind === 'more-clips'
           ? `Найдено в истории: ${result.count}`
-          : '';
+          : result.kind === 'more-snippets'
+            ? `Найдено сниппетов: ${result.count}`
+            : '';
   const hint = calculation
     ? copied
       ? 'Скопировано'
@@ -101,7 +106,9 @@ export default function SearchResult({
           )
         ) : app ? (
           app.kind === 'builtin' ? (
-            app.id === 'builtin:emoji' ? (
+            app.id === 'builtin:snippets' ? (
+              <IconNotes size={22} stroke={1.5} />
+            ) : app.id === 'builtin:emoji' ? (
               <IconMoodSmile size={22} stroke={1.5} />
             ) : (
               <IconClipboard size={22} stroke={1.5} />

@@ -19,6 +19,7 @@ export interface ClipboardClip {
 }
 export interface ClipboardState {
   clips: ClipboardClip[];
+  snippets: ClipboardSnippet[];
   preferences: ClipboardPreferences;
   registered: boolean;
   pasteAccess: 'granted' | 'required' | 'unavailable';
@@ -32,6 +33,7 @@ export interface ClipboardState {
   error?: string;
   sync?: ClipboardSyncState;
 }
+export type ClipboardSnippet = ClipboardClip & { kind: 'text'; snippet: true };
 export interface ClipboardStorageState {
   status: 'starting' | 'ready' | 'failed';
   path: string;

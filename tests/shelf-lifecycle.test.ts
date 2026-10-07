@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ShelfLifecycle } from '../src/main/shelf-lifecycle';
 
-function opened(destination: 'clipboard' | 'emoji' = 'clipboard') {
+function opened(destination: 'clipboard' | 'emoji' | 'snippets' = 'clipboard') {
   const shelf = new ShelfLifecycle();
   const { entry } = shelf.begin(destination, 0);
   assert.equal(shelf.commit(entry.revision), true);
@@ -10,7 +10,7 @@ function opened(destination: 'clipboard' | 'emoji' = 'clipboard') {
 }
 
 test('generic reopen resumes only before the closed-minute boundary; direct navigation is fresh', () => {
-  for (const destination of ['clipboard', 'emoji'] as const) {
+  for (const destination of ['clipboard', 'emoji', 'snippets'] as const) {
     for (const [elapsed, expected] of [
       [59_999, destination],
       [60_000, 'apps'],

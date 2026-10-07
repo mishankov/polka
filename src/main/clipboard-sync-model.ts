@@ -21,7 +21,7 @@ export const manifestSchema = z.object({
   snippets: z.literal(true).optional(),
   clear: stampSchema.optional(),
   entries: z.record(z.string().regex(/^[a-f0-9]{64}$/), syncEntrySchema),
-  available: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(200),
+  available: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(400),
 });
 export type SyncManifest = z.infer<typeof manifestSchema>;
 export function compareStamp(a?: Stamp, b?: Stamp): number {
@@ -33,5 +33,8 @@ export function newest(a?: Stamp, b?: Stamp) {
   return compareStamp(a, b) >= 0 ? a : b;
 }
 export function liveEntry(entry: SyncEntry, clear?: Stamp) {
-  return !!entry.added && compareStamp(entry.added, newest(entry.deleted, clear)) > 0;
+  return (
+    !!entry.added &&
+    compareStamp(entry.added, newest(entry.deleted, entry.snippet ? undefined : clear)) > 0
+  );
 }

@@ -218,11 +218,11 @@ test('TLS peers pair once, transfer both histories, reconnect, revoke trust and 
       'TLS snippet',
     );
     await sb.syncNow();
-    assert.equal(b.snapshot().clips.find((clip) => clip.id === snippetId)?.name, 'TLS snippet');
+    assert.equal(b.snapshot().snippets.find((clip) => clip.id === snippetId)?.name, 'TLS snippet');
     await b.edit(snippetId, 'TLS edited text', 'TLS edited');
     await sb.syncNow();
     assert.equal(
-      a.snapshot().clips.find((clip) => clip.id === snippetId)?.content,
+      a.snapshot().snippets.find((clip) => clip.id === snippetId)?.content,
       'TLS edited text',
     );
     // Authenticated v1 clients do not send the capability header. Exercise the
@@ -363,40 +363,57 @@ test('snippet edits converge atomically with independent pin changes, restart, d
     const id = await a.edit(originalId, 'Edited content', 'Address');
     await exchange(a, b);
     assert.equal(b.snapshot().clips.length, 1);
-    assert.equal(b.snapshot().clips[0].id, id);
-    assert.equal(b.snapshot().clips[0].name, 'Address');
+    assert.equal(b.snapshot().clips[0].id, originalId);
+    assert.equal(b.snapshot().clips[0].content, 'Original');
+    assert.equal(b.snapshot().snippets[0].id, id);
+    assert.equal(b.snapshot().snippets[0].name, 'Address');
     // Two offline edits choose one entire name/text pair; pins use their own stamp.
     await a.edit(id, 'From A', 'Name A');
     await b.edit(id, 'From B', 'Name B');
     await b.pin(id, false);
     await exchange(a, b);
     await exchange(b, a);
-    const left = a.snapshot().clips[0],
-      right = b.snapshot().clips[0];
+    const left = a.snapshot().snippets[0],
+      right = b.snapshot().snippets[0];
     assert.equal(left.content, right.content);
     assert.equal(left.name, right.name);
     assert.equal(left.name, left.content === 'From A' ? 'Name A' : 'Name B');
     assert.equal(left.pinned, false);
     const restarted = await env.make('b');
-    assert.equal(restarted.snapshot().clips[0].id, id);
+    assert.equal(restarted.snapshot().snippets[0].id, id);
     await a.edit(id, 'After restart', 'Saved');
     await exchange(a, restarted);
-    assert.equal(restarted.snapshot().clips[0].content, 'After restart');
+    assert.equal(restarted.snapshot().snippets[0].content, 'After restart');
     await restarted.remove(id);
     await exchange(restarted, a);
-    assert.equal(a.snapshot().clips.length, 0);
+    assert.equal(a.snapshot().snippets.length, 0);
+    assert.equal(a.snapshot().clips.length, 1);
     await restarted.add('text', 'Next', 'Next');
     await restarted.edit(restarted.snapshot().clips[0].id, 'Next', 'Next snippet');
     await exchange(restarted, a);
+    const offlineId = await restarted.createSnippet('Offline snippet', 'Offline');
     await a.clear();
     await exchange(a, restarted);
     assert.equal(restarted.snapshot().clips.length, 0);
+    assert.equal(restarted.snapshot().snippets.length, 2);
+    await exchange(restarted, a);
+    assert(
+      a.snapshot().snippets.some((clip) => clip.id === offlineId),
+      'a snippet learned after a history clear still transfers',
+    );
+    await restarted.clear();
+    await a.mergeManifest(restarted.manifest(false));
+    assert.equal(
+      a.snapshot().snippets.length,
+      2,
+      'legacy history clears also leave snippets intact',
+    );
   } finally {
     await env.cleanup();
   }
 });
 
-test('legacy manifests exclude snippets and retain conversion tombstones; unchanged old copies cannot undo edits', async () => {
+test('legacy manifests exclude snippets and preserve source history; unchanged old copies cannot undo snippet edits', async () => {
   const env = await setup();
   try {
     const a = await env.make('a'),
@@ -411,11 +428,11 @@ test('legacy manifests exclude snippets and retain conversion tombstones; unchan
     assert.equal(legacy.snippets, undefined);
     assert(!legacy.entries[id]);
     assert(!legacy.available.includes(id));
-    assert(legacy.entries[original.id].deleted);
+    assert.equal(legacy.entries[original.id].deleted, undefined);
     await b.mergeManifest(legacy);
-    assert(!b.snapshot().clips.some((clip) => clip.id === original.id));
+    assert(b.snapshot().clips.some((clip) => clip.id === original.id));
     await a.mergeManifest(legacyBefore);
-    assert.equal(a.snapshot().clips.find((clip) => clip.id === id)?.content, 'New text');
+    assert.equal(a.snapshot().snippets.find((clip) => clip.id === id)?.content, 'New text');
     await exchange(a, b);
     const transfer = a.transfer(id)!;
     await assert.rejects(
