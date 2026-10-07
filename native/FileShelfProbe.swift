@@ -66,7 +66,9 @@ func rebuild() {
     panel.backgroundColor = .clear
     panel.isOpaque = false
     panel.hasShadow = false
-    panel.level = .statusBar
+    // Keep the native strip above the revealed Electron shelf so a Finder drag
+    // retains an AppKit destination throughout opening.
+    panel.level = NSWindow.Level(rawValue: NSWindow.Level.popUpMenu.rawValue + 1)
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
     panel.setFrame(rect, display: true)
     panel.contentView = Target(frame: NSRect(origin: .zero, size: rect.size))

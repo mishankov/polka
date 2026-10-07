@@ -228,7 +228,7 @@ async function main(test: DesktopTest) {
         return String(error);
       }
     });
-    assert.match(emojiPasteDenied, /Вставка доступна только/);
+    assert.match(emojiPasteDenied, /Операция доступна только на полке/);
     await expect(settings.getByRole('tab', { name: 'Основные', exact: true })).toHaveAttribute(
       'aria-selected',
       'true',

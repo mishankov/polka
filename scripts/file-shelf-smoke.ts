@@ -1,4 +1,5 @@
 import { expect } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile, rename, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { runDesktopTest } from './desktop-test';
@@ -12,7 +13,7 @@ void runDesktopTest('file-shelf', async (test) => {
   await writeFile(paths[0], 'Synthetic travel plan');
   await writeFile(paths[1], '%PDF-1.4\nSynthetic file shelf fixture');
   await mkdir(paths[2]);
-  const app = await test.launch({ args: [resolve('.')] });
+  const app = await test.launch({ args: [resolve('.'), '--disable-gpu'] });
   const page = await app.firstWindow();
   await page.waitForLoadState();
   await page.evaluate(() => window.platform.call('shelf.showFiles'));
@@ -48,7 +49,29 @@ void runDesktopTest('file-shelf', async (test) => {
   await expect(page.getByText('Выбрано: 2')).toBeVisible();
   const artifacts = resolve('artifacts/issue-12');
   await mkdir(artifacts, { recursive: true });
-  await page.screenshot({ path: join(artifacts, 'file-shelf-selected.png') });
+  const capture = async (name: string) => {
+    if (process.env.POLKA_NATIVE_SCREENSHOTS === '1') {
+      const bounds = await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((win) => win.webContents.getURL().includes('mode=shelf'))!
+          .getBounds(),
+      );
+      execFileSync('screencapture', [
+        '-x',
+        '-R' + [bounds.x, bounds.y, bounds.width, bounds.height].join(','),
+        join(artifacts, name),
+      ]);
+      return;
+    }
+    const png = await app.evaluate(async ({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows().find((win) =>
+        win.webContents.getURL().includes('mode=shelf'),
+      )!;
+      return (await win.webContents.capturePage()).toPNG().toString('base64');
+    });
+    await writeFile(join(artifacts, name), Buffer.from(png, 'base64'));
+  };
+  await capture('file-shelf-selected.png');
   // Verify the real renderer drag gesture requests the complete selected ID set.
   await app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows().find((win) =>
@@ -81,7 +104,7 @@ void runDesktopTest('file-shelf', async (test) => {
     'draggable',
     'false',
   );
-  await page.screenshot({ path: join(artifacts, 'file-shelf-unavailable.png') });
+  await capture('file-shelf-unavailable.png');
   await page.getByRole('button', { name: 'Убрать План поездки.txt с полки' }).click();
   await expect(page.locator('.file-shelf-row')).toHaveCount(2);
   await page.getByRole('button', { name: 'Очистить полку' }).click();

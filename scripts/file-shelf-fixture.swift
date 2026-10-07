@@ -99,6 +99,7 @@ label.frame = NSRect(x: 20, y: 80, width: 370, height: 30)
 view.addSubview(label)
 window.contentView = view
 window.level = .floating
+window.hidesOnDeactivate = false
 app.finishLaunching()
 window.makeKeyAndOrderFront(nil)
 app.activate(ignoringOtherApps: true)
@@ -115,7 +116,14 @@ emit([
   ],
 ])
 DispatchQueue.global(qos: .utility).async {
-  while readLine() != nil {}
+  while let line = readLine() {
+    if line == "receive" {
+      DispatchQueue.main.async {
+        window.orderFrontRegardless()
+        emit(["type": "receiverReady"])
+      }
+    }
+  }
   DispatchQueue.main.async { app.terminate(nil) }
 }
 app.run()

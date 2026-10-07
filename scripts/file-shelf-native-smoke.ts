@@ -2,7 +2,7 @@ import { expect } from '@playwright/test';
 import { execFile, execFileSync, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createInterface } from 'node:readline';
-import { writeFile, readFile, mkdir } from 'node:fs/promises';
+import { writeFile, readFile, mkdir, realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { runDesktopTest } from './desktop-test';
 import { SettingsStore } from '../src/main/settings-store';
@@ -37,6 +37,7 @@ void runDesktopTest('file-shelf-native', async (test) => {
     join(sourceDirectory, 'Native report.txt'),
   ];
   for (const path of paths) await writeFile(path, 'Synthetic native drag fixture');
+  const useFinder = process.argv.includes('--finder');
   const app = await test.launch({ args: [resolve('.')] });
   app.process().stdout?.on('data', (data) => console.log(String(data)));
   app.process().stderr?.on('data', (data) => console.log(String(data)));
@@ -79,7 +80,39 @@ void runDesktopTest('file-shelf-native', async (test) => {
       String(end.x),
       String(end.y),
     ]);
-  await gesture(ready.source, ready.target);
+  if (useFinder) {
+    const script = `with timeout of 5 seconds
+      tell application "Finder"
+        set sourceFolder to POSIX file ${JSON.stringify(sourceDirectory)} as alias
+        set sourceWindow to make new Finder window to sourceFolder
+        set current view of sourceWindow to list view
+        set bounds of sourceWindow to {168, 580, 900, 1000}
+        activate
+        select every file of sourceFolder
+        return id of sourceWindow
+      end tell
+    end timeout`;
+    const finderId = execFileSync('osascript', ['-e', script], {
+      encoding: 'utf8',
+      timeout: 10000,
+    }).trim();
+    test.deferCleanup(async () => {
+      execFileSync(
+        'osascript',
+        ['-e', `tell application "Finder" to close window id ${finderId}`],
+        { timeout: 5000 },
+      );
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const artifacts = resolve('artifacts/issue-12');
+    await mkdir(artifacts, { recursive: true });
+    execFileSync('screencapture', [
+      '-x',
+      '-R168,580,732,420',
+      join(artifacts, 'finder-source.png'),
+    ]);
+    await gesture({ x: 480, y: 696 }, ready.target);
+  } else await gesture(ready.source, ready.target);
   await expect
     .poll(
       () =>
@@ -105,10 +138,20 @@ void runDesktopTest('file-shelf-native', async (test) => {
   const box = (await page
     .getByRole('button', { name: 'Native plan.txt', exact: true })
     .boundingBox())!;
+  child.stdin.write('receive\n');
+  await expect.poll(() => messages.some((message) => message.type === 'receiverReady')).toBe(true);
   await gesture({ x: bounds.x + box.x + 30, y: bounds.y + box.y + box.height / 2 }, ready.source);
   await expect
     .poll(() => messages.find((message) => message.type === 'received'), { timeout: 15000 })
-    .toMatchObject({ paths });
+    .toBeTruthy();
+  // Finder resolves /var to /private/var; compare the referenced files, not that alias.
+  expect(
+    await Promise.all(
+      messages
+        .find((message) => message.type === 'received')
+        .paths.map((path: string) => realpath(path)),
+    ),
+  ).toEqual(await Promise.all(paths.map((path) => realpath(path))));
   await test.shelfHidden(app, page);
   for (const path of paths)
     expect(await readFile(path, 'utf8')).toBe('Synthetic native drag fixture');
