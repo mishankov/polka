@@ -81,3 +81,32 @@ for (name, cpu, correction, mixed, revision, fast, devices, input) in variants {
     print(String(data: json, encoding: .utf8)!)
     fflush(stdout) // Preserve completed variants if a later one hits the timeout.
 }
+
+// Compare the current Swift API too, which can expose richer error details
+// than the Objective-C bridge's generic nilError.
+if #available(macOS 15.0, *) {
+    for cpu in [false, true] {
+        var output: [String: Any] = ["variant": cpu ? "swift-cpu-mixed" : "swift-default-mixed"]
+        do {
+            var request = RecognizeTextRequest(.revision3)
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = [Locale.Language(identifier: "ru-RU"), Locale.Language(identifier: "en-US")]
+            request.usesLanguageCorrection = true
+            request.automaticallyDetectsLanguage = false
+            if cpu {
+                for (stage, devices) in request.supportedComputeStageDevices {
+                    if let device = devices.first(where: { if case .cpu = $0 { return true }; return false }) {
+                        request.setComputeDevice(device, for: stage)
+                    }
+                }
+            }
+            let results = try await request.perform(on: image)
+            output["text"] = results.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+        } catch {
+            output["error"] = String(reflecting: error)
+        }
+        let json = try JSONSerialization.data(withJSONObject: output, options: [.sortedKeys])
+        print(String(data: json, encoding: .utf8)!)
+        fflush(stdout)
+    }
+}

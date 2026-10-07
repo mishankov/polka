@@ -235,6 +235,29 @@ test(
           output: diagnostic.stdout,
           diagnostic: diagnostic.stderr,
         });
+        // Read only the PID of our synthetic invocation, never app-wide logs.
+        if (Number.isSafeInteger(diagnostic.pid) && diagnostic.pid > 0) {
+          const logs = spawnSync(
+            '/usr/bin/log',
+            [
+              'show',
+              '--last',
+              '1m',
+              '--style',
+              'compact',
+              '--info',
+              '--debug',
+              '--predicate',
+              `processIdentifier == ${diagnostic.pid} AND process == "image-text" AND (subsystem BEGINSWITH "com.apple.espresso" OR subsystem BEGINSWITH "com.apple.e5rt" OR subsystem BEGINSWITH "com.apple.TextRecognition" OR logType == "error" OR logType == "fault")`,
+            ],
+            { encoding: 'utf8', timeout: 5000, maxBuffer: 65536 },
+          );
+          console.error('Synthetic Vision process logs', {
+            status: logs.status,
+            output: logs.stdout,
+            diagnostic: logs.stderr,
+          });
+        }
         const folder = await mkdtemp(join(tmpdir(), 'polka-vision-diagnostic-'));
         try {
           const binary = join(folder, 'diagnostic');
@@ -252,7 +275,7 @@ test(
               '-Xlinker',
               '__info_plist',
               '-Xlinker',
-              'native/ImageTextInfo.plist',
+              'scripts/ImageTextDiagnosticsInfo.plist',
             ],
             {
               encoding: 'utf8',
