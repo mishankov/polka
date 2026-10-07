@@ -1011,6 +1011,14 @@ export function createShelf(
     } else if (method === 'clipboardHistory.remove') {
       generation++;
       await history.remove(z.string().parse(params.id));
+    } else if (method === 'clipboardHistory.edit') {
+      const id = await history.edit(
+        z.string().parse(params.id),
+        z.string().parse(params.content),
+        z.string().parse(params.name),
+        z.object({ content: z.string(), name: z.string().optional() }).parse(params.expected),
+      );
+      return { id };
     } else if (method === 'clipboardHistory.pin')
       await history.pin(z.string().parse(params.id), z.boolean().parse(params.pinned));
     else if (method === 'clipboardHistory.copy' || method === 'clipboardHistory.select') {

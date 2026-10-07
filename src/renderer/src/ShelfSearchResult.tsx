@@ -35,14 +35,14 @@ export default function SearchResult({
   const title = app
     ? app.name
     : clip
-      ? clipboardSnippet(clip, query)
+      ? clip.name || clipboardSnippet(clip, query)
       : calculation
         ? calculation.displayValue || calculation.value
         : 'Показать все записи';
   const description = app
     ? app.description || 'Полка'
     : clip
-      ? `${clip.pinned ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+      ? `${clip.name ? clipboardSnippet(clip, query) + ' · ' : ''}${clip.pinned ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
       : calculation
         ? calculation.interpretation || calculation.expression
         : result.kind === 'more-clips'

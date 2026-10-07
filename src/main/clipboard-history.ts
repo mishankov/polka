@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { dirname } from 'node:path';
 import { z } from 'zod';
@@ -10,6 +10,7 @@ import {
 } from '../shared/clipboard';
 
 export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
+export const MAX_SNIPPET_TEXT_BYTES = 1024 * 1024;
 // Images are stored as base64. Apply the image limit to PNG bytes, not its encoded string.
 export const MAX_CLIP_BYTES = Math.ceil(MAX_IMAGE_BYTES / 3) * 4;
 export const MAX_HISTORY_BYTES = 128 * 1024 * 1024;
@@ -28,6 +29,8 @@ export const clipSchema = z.object({
   preview: z.string().max(200000),
   createdAt: z.number().finite(),
   pinned: z.boolean(),
+  snippet: z.literal(true).optional(),
+  name: z.string().max(120).optional(),
   sourceDevice: z.string().max(100).optional(),
 });
 import {
@@ -207,6 +210,9 @@ export class ClipboardHistory {
       return Promise.resolve();
     return this.update((next) => {
       if (next.preferences.paused) return;
+      // Reusing a snippet must not create a second captured entry or overwrite its name.
+      if (kind === 'text' && next.clips.some((clip) => clip.snippet && clip.content === content))
+        return;
       const id = clipId(kind, content);
       const existing = next.clips.find((clip) => clip.id === id);
       next.clips = next.clips.filter((clip) => clip.id !== id);
@@ -226,6 +232,49 @@ export class ClipboardHistory {
         pinned: existing?.pinned || false,
       });
     });
+  }
+  async edit(
+    id: string,
+    content: string,
+    name: string,
+    expected?: { content: string; name?: string },
+  ) {
+    content = z
+      .string()
+      .min(1, 'Введите текст сниппета')
+      .max(MAX_SNIPPET_TEXT_BYTES, 'Текст сниппета не должен превышать 1 МБ')
+      .parse(content);
+    name = z.string().max(120, 'Название не должно превышать 120 символов').parse(name).trim();
+    if (Buffer.byteLength(content) > MAX_SNIPPET_TEXT_BYTES)
+      throw Error('Текст сниппета не должен превышать 1 МБ');
+    let editedId = id;
+    await this.update((next) => {
+      const clip = next.clips.find((item) => item.id === id);
+      if (!clip) throw Error('Запись уже удалена');
+      if (clip.kind !== 'text') throw Error('Редактирование доступно только для текста');
+      if (expected && (clip.content !== expected.content || clip.name !== expected.name))
+        throw Error('Сниппет изменился на другом Mac. Откройте его заново перед сохранением.');
+      if (clip.snippet && clip.content === content && (clip.name || '') === name) return;
+      const stamp = this.stamp(next);
+      if (!clip.snippet) {
+        // Content hashes remain the identity of ordinary clips. Conversion retires
+        // that identity once; every subsequent edit retains the independent ID.
+        next.sync!.entries[id] = { ...next.sync!.entries[id], deleted: stamp };
+        editedId = randomBytes(32).toString('hex');
+        clip.id = editedId;
+        clip.snippet = true;
+        clip.pinned = true;
+        next.sync!.entries[editedId] = { snippet: true, pin: { stamp, value: true } };
+      }
+      clip.content = content;
+      clip.preview = content.slice(0, 400);
+      if (name) clip.name = name;
+      else delete clip.name;
+      const entry = next.sync!.entries[editedId];
+      entry.added = stamp;
+      entry.seen = stamp;
+    });
+    return editedId;
   }
   preferences(patch: Partial<ClipboardPreferences>) {
     return this.update((next) => {
@@ -255,16 +304,21 @@ export class ClipboardHistory {
       next.sync!.clear = this.stamp(next);
     });
   }
-  manifest(): SyncManifest {
+  manifest(snippets = true): SyncManifest {
     this.storage.requireReady();
     const sync = this.state.sync!;
     return structuredClone({
       version: 1,
+      ...(snippets ? { snippets: true as const } : {}),
       clear: sync.clear,
       entries: Object.fromEntries(
-        Object.entries(sync.entries).map(([id, { seen: _seen, ...entry }]) => [id, entry]),
+        Object.entries(sync.entries)
+          .filter(([, entry]) => snippets || !entry.snippet)
+          .map(([id, { seen: _seen, ...entry }]) => [id, entry]),
       ),
-      available: this.state.clips.map((clip) => clip.id),
+      available: this.state.clips
+        .filter((clip) => snippets || !clip.snippet)
+        .map((clip) => clip.id),
     });
   }
   // Advance deletion/pin metadata before requesting content. Seen versions survive
@@ -308,6 +362,7 @@ export class ClipboardHistory {
             local.seen = undefined;
           sync.entries[id] = {
             ...local,
+            snippet: local.snippet || incoming.snippet,
             added: newest(local.added, incoming.added),
             deleted: newest(local.deleted, incoming.deleted),
             pin: compareStamp(incoming.pin?.stamp, local.pin?.stamp) > 0 ? incoming.pin : local.pin,
@@ -336,7 +391,9 @@ export class ClipboardHistory {
     if (
       !clip.content ||
       Buffer.byteLength(clip.content) > MAX_CLIP_BYTES ||
-      clipId(clip.kind, clip.content) !== clip.id
+      (clip.snippet
+        ? clip.kind !== 'text' || !this.state.sync!.entries[clip.id]?.snippet
+        : clipId(clip.kind, clip.content) !== clip.id)
     )
       throw Error('Некорректная запись буфера');
     if (clip.kind === 'image') {
@@ -354,6 +411,7 @@ export class ClipboardHistory {
       const entry = sync.entries[clip.id];
       if (
         !entry ||
+        !!clip.snippet !== !!entry.snippet ||
         compareStamp(stamp, entry.added) !== 0 ||
         !liveEntry(entry, sync.clear) ||
         compareStamp(stamp, entry.seen) <= 0

@@ -10,6 +10,7 @@ export const stampSchema = z.object({
 });
 export type Stamp = z.infer<typeof stampSchema>;
 export const syncEntrySchema = z.object({
+  snippet: z.literal(true).optional(),
   added: stampSchema.optional(),
   deleted: stampSchema.optional(),
   pin: z.object({ stamp: stampSchema, value: z.boolean() }).optional(),
@@ -17,6 +18,7 @@ export const syncEntrySchema = z.object({
 export type SyncEntry = z.infer<typeof syncEntrySchema>;
 export const manifestSchema = z.object({
   version: z.literal(1),
+  snippets: z.literal(true).optional(),
   clear: stampSchema.optional(),
   entries: z.record(z.string().regex(/^[a-f0-9]{64}$/), syncEntrySchema),
   available: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(200),

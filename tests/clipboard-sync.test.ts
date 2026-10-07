@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { get } from 'node:https';
 import { ClipboardHistory, clipId } from '../src/main/clipboard-history';
 import { ClipboardSync } from '../src/main/clipboard-sync';
 const codec = {
@@ -211,6 +212,57 @@ test('TLS peers pair once, transfer both histories, reconnect, revoke trust and 
     assert.equal(a.snapshot().clips.length, 2);
     assert.equal(b.snapshot().clips.length, 2);
     await assert.rejects(sb.pair(code));
+    const snippetId = await a.edit(
+      a.snapshot().clips.find((clip) => clip.content === 'Before pairing A')!.id,
+      'TLS snippet text',
+      'TLS snippet',
+    );
+    await sb.syncNow();
+    assert.equal(b.snapshot().clips.find((clip) => clip.id === snippetId)?.name, 'TLS snippet');
+    await b.edit(snippetId, 'TLS edited text', 'TLS edited');
+    await sb.syncNow();
+    assert.equal(
+      a.snapshot().clips.find((clip) => clip.id === snippetId)?.content,
+      'TLS edited text',
+    );
+    // Authenticated v1 clients do not send the capability header. Exercise the
+    // HTTP routes, including direct content retrieval, rather than just filtering.
+    const credentials = (sb as any).credentials;
+    const legacyGet = (path: string) =>
+      new Promise<any>((resolve, reject) => {
+        const request = get(
+          {
+            hostname: '127.0.0.1',
+            port: sa.port,
+            path,
+            key: credentials.key,
+            cert: credentials.cert,
+            rejectUnauthorized: false,
+            headers: {
+              'x-everything-id': b.deviceId,
+              'x-everything-token': credentials.peers[0].token,
+            },
+          },
+          (response) => {
+            const chunks: Buffer[] = [];
+            response.on('data', (chunk) => chunks.push(chunk));
+            response.on('end', () => {
+              try {
+                resolve(JSON.parse(Buffer.concat(chunks).toString()));
+              } catch (error) {
+                reject(error);
+              }
+            });
+            response.on('error', reject);
+          },
+        );
+        request.on('error', reject);
+      });
+    const legacyManifest = await legacyGet('/manifest');
+    assert.equal(legacyManifest.snippets, undefined);
+    assert(!legacyManifest.entries[snippetId]);
+    assert(!legacyManifest.available.includes(snippetId));
+    assert.equal(await legacyGet(`/clip/${snippetId}`), null);
     await sb.setEnabled(false);
     await a.add('text', 'While disconnected', 'While disconnected');
     await sb.setEnabled(true);
@@ -299,3 +351,80 @@ for (const stage of ['decrypt', 'encrypt'] as const) {
     }
   });
 }
+
+test('snippet edits converge atomically with independent pin changes, restart, deletion and clear', async () => {
+  const env = await setup();
+  try {
+    const a = await env.make('a'),
+      b = await env.make('b');
+    await a.add('text', 'Original', 'Original');
+    const originalId = a.snapshot().clips[0].id;
+    await exchange(a, b);
+    const id = await a.edit(originalId, 'Edited content', 'Address');
+    await exchange(a, b);
+    assert.equal(b.snapshot().clips.length, 1);
+    assert.equal(b.snapshot().clips[0].id, id);
+    assert.equal(b.snapshot().clips[0].name, 'Address');
+    // Two offline edits choose one entire name/text pair; pins use their own stamp.
+    await a.edit(id, 'From A', 'Name A');
+    await b.edit(id, 'From B', 'Name B');
+    await b.pin(id, false);
+    await exchange(a, b);
+    await exchange(b, a);
+    const left = a.snapshot().clips[0],
+      right = b.snapshot().clips[0];
+    assert.equal(left.content, right.content);
+    assert.equal(left.name, right.name);
+    assert.equal(left.name, left.content === 'From A' ? 'Name A' : 'Name B');
+    assert.equal(left.pinned, false);
+    const restarted = await env.make('b');
+    assert.equal(restarted.snapshot().clips[0].id, id);
+    await a.edit(id, 'After restart', 'Saved');
+    await exchange(a, restarted);
+    assert.equal(restarted.snapshot().clips[0].content, 'After restart');
+    await restarted.remove(id);
+    await exchange(restarted, a);
+    assert.equal(a.snapshot().clips.length, 0);
+    await restarted.add('text', 'Next', 'Next');
+    await restarted.edit(restarted.snapshot().clips[0].id, 'Next', 'Next snippet');
+    await exchange(restarted, a);
+    await a.clear();
+    await exchange(a, restarted);
+    assert.equal(restarted.snapshot().clips.length, 0);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('legacy manifests exclude snippets and retain conversion tombstones; unchanged old copies cannot undo edits', async () => {
+  const env = await setup();
+  try {
+    const a = await env.make('a'),
+      b = await env.make('b');
+    await a.add('text', 'Original', 'Original');
+    const original = a.snapshot().clips[0];
+    await exchange(a, b);
+    const legacyBefore = b.manifest(false);
+    const id = await a.edit(original.id, 'New text', 'Named');
+    await a.add('text', 'Ordinary', 'Ordinary');
+    const legacy = a.manifest(false);
+    assert.equal(legacy.snippets, undefined);
+    assert(!legacy.entries[id]);
+    assert(!legacy.available.includes(id));
+    assert(legacy.entries[original.id].deleted);
+    await b.mergeManifest(legacy);
+    assert(!b.snapshot().clips.some((clip) => clip.id === original.id));
+    await a.mergeManifest(legacyBefore);
+    assert.equal(a.snapshot().clips.find((clip) => clip.id === id)?.content, 'New text');
+    await exchange(a, b);
+    const transfer = a.transfer(id)!;
+    await assert.rejects(
+      b.receive({ ...transfer, clip: { ...transfer.clip, kind: 'image' } }, 'Bad'),
+    );
+    await assert.rejects(
+      b.receive({ ...transfer, clip: { ...transfer.clip, snippet: undefined } }, 'Bad'),
+    );
+  } finally {
+    await env.cleanup();
+  }
+});

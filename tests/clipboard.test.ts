@@ -290,3 +290,71 @@ test('a filesystem write failure retains committed bytes and disables later writ
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('snippets retain independent identity, optional names, pins, duplicates and search after restart', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'clipboard-snippets-'));
+  let now = 1000000000;
+  try {
+    const path = join(root, 'history');
+    const history = new ClipboardHistory(
+      path,
+      codec,
+      () => {},
+      () => now,
+    );
+    await history.initialize();
+    await history.add('text', 'Original address', 'Original address');
+    const original = history.snapshot().clips[0];
+    await history.pin(original.id, true);
+    const id = await history.edit(original.id, '123 Example Street', ' Delivery address ');
+    assert.notEqual(id, original.id);
+    assert.equal(history.snapshot().clips[0].pinned, true);
+    assert.equal(history.snapshot().clips[0].name, 'Delivery address');
+    await history.add('text', '123 Example Street', '123 Example Street');
+    assert.equal(history.snapshot().clips.length, 1, 'recapture reuses the snippet');
+    await history.add('text', 'Other saved text', 'Other saved text');
+    const other = history.snapshot().clips.find((clip) => !clip.snippet)!;
+    const otherId = await history.edit(other.id, '123 Example Street', 'Billing address');
+    assert.notEqual(id, otherId, 'equal text keeps distinct snippets and names');
+    await history.pin(id, false);
+    assert.equal(await history.edit(id, '456 Example Street', ''), id);
+    const edited = history.snapshot().clips.find((clip) => clip.id === id)!;
+    assert.equal(edited.pinned, false, 'edits do not repin an existing snippet');
+    assert.equal(edited.name, undefined);
+    assert.equal(edited.preview, edited.content);
+    await history.add('text', 'Existing ordinary', 'Existing ordinary');
+    const ordinary = history.snapshot().clips.find((clip) => clip.content === 'Existing ordinary')!;
+    await history.edit(id, 'Existing ordinary', '');
+    assert.equal(
+      history.snapshot().clips.filter((clip) => clip.content === 'Existing ordinary').length,
+      2,
+    );
+    assert(history.snapshot().clips.some((clip) => clip.id === ordinary.id && !clip.snippet));
+    assert.equal(clipboardResults(history.snapshot().clips, 'billing EXAMPLE')[0].id, otherId);
+    await assert.rejects(history.edit(id, '', 'Empty'));
+    await assert.rejects(history.edit(id, 'text', 'x'.repeat(121)));
+    await assert.rejects(history.edit(id, 'я'.repeat(1024 * 1024), 'Too large'), /1 МБ/);
+    await assert.rejects(history.edit(id, 'text', 'Stale', { content: 'old text' }), /изменился/);
+    await history.add('image', 'pixels', 'thumbnail');
+    const image = history.snapshot().clips.find((clip) => clip.kind === 'image')!;
+    await history.pin(image.id, true);
+    await assert.rejects(history.edit(image.id, 'text', 'Image'));
+    const restarted = new ClipboardHistory(
+      path,
+      codec,
+      () => {},
+      () => now,
+    );
+    await restarted.initialize();
+    assert.deepEqual(restarted.snapshot(), history.snapshot());
+    assert.equal(clipboardResults(restarted.snapshot().clips, 'billing')[0].id, otherId);
+    now += 31 * 86400000;
+    await restarted.prune();
+    assert.deepEqual(
+      new Set(restarted.snapshot().clips.map((clip) => clip.id)),
+      new Set([otherId, image.id]),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

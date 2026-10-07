@@ -13,6 +13,8 @@ export interface ClipboardClip {
   preview: string;
   createdAt: number;
   pinned: boolean;
+  snippet?: boolean;
+  name?: string;
   sourceDevice?: string;
 }
 export interface ClipboardState {
@@ -51,7 +53,9 @@ export function clipboardResults(clips: ClipboardClip[], query: string) {
   return clips
     .filter((clip) =>
       terms.every((term) =>
-        (clip.kind === 'text' ? clip.content : 'Изображение').toLocaleLowerCase().includes(term),
+        (clip.kind === 'text' ? `${clip.name || ''} ${clip.content}` : 'Изображение')
+          .toLocaleLowerCase()
+          .includes(term),
       ),
     )
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt - a.createdAt);

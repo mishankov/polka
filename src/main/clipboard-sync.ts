@@ -380,10 +380,13 @@ export class ClipboardSync {
     if (this.options.history.getPreferences().paused) throw Error('История на паузе');
     if (request.method === 'GET' && request.url === '/manifest') {
       await this.options.history.prune();
-      return this.options.history.manifest();
+      return this.options.history.manifest(request.headers['x-everything-snippets'] === '1');
     }
     if (request.method === 'GET' && /^\/clip\/[a-f0-9]{64}$/.test(request.url || ''))
-      return this.transfer(request.url!.slice(6)) || null;
+      return (
+        this.transfer(request.url!.slice(6), request.headers['x-everything-snippets'] === '1') ||
+        null
+      );
     if (request.method === 'POST' && request.url === '/manifest') {
       const input = await readJson(request, MAX_MANIFEST_BYTES);
       if (!this.activePeer(peer)) throw Error('Устройство отвязано');
@@ -445,6 +448,7 @@ export class ClipboardSync {
           agent,
           headers: {
             'Content-Type': 'application/json',
+            'x-everything-snippets': '1',
             'x-everything-id': this.options.history.deviceId,
             'x-everything-token': peer.token,
           },
@@ -538,6 +542,8 @@ export class ClipboardSync {
         this.options.changed();
         try {
           const remote = await this.request(peer, '/manifest');
+          const snippets =
+            z.object({ snippets: z.literal(true).optional() }).parse(remote).snippets === true;
           if (!this.activePeer(peer)) continue;
           const missing = await this.options.history.mergeManifest(remote);
           for (const id of missing) {
@@ -549,10 +555,10 @@ export class ClipboardSync {
           if (!this.activePeer(peer)) continue;
           const response = z
             .object({ missing: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(200) })
-            .parse(await this.request(peer, '/manifest', this.options.history.manifest()));
+            .parse(await this.request(peer, '/manifest', this.options.history.manifest(snippets)));
           for (const id of response.missing) {
             if (!this.activePeer(peer)) break;
-            const transfer = this.transfer(id);
+            const transfer = this.transfer(id, snippets);
             if (transfer) await this.request(peer, '/clip', transfer);
           }
           if (this.activePeer(peer))
@@ -569,8 +575,9 @@ export class ClipboardSync {
       }
     }
   }
-  private transfer(id: string) {
+  private transfer(id: string, snippets = true) {
     const transfer = this.options.history.transfer(id);
+    if (transfer?.clip.snippet && !snippets) return;
     if (transfer) transfer.clip.sourceDevice ||= this.deviceName;
     return transfer;
   }
