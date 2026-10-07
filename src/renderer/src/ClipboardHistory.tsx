@@ -237,6 +237,22 @@ export default function ClipboardHistory({
     };
     onContextChange(context.current);
   });
+  useLayoutEffect(
+    () => () => {
+      // Hide and reopen can arrive in one React batch, before a scroll event or
+      // dismissal render. Sample the departing DOM before its refs are detached.
+      const content = root.current?.querySelector<HTMLElement>('.clipboard-preview-content');
+      onContextChange({
+        ...context.current,
+        scrollTop: list.current?.scrollTop ?? scroll.current.list,
+        previewScrollTop:
+          content?.getAttribute('aria-busy') !== 'true'
+            ? (content?.scrollTop ?? scroll.current.preview)
+            : scroll.current.preview,
+      });
+    },
+    [onContextChange],
+  );
   useLayoutEffect(() => {
     if (list.current) list.current.scrollTop = scroll.current.list;
   }, [preview?.id, confirmClear, !!state]);
