@@ -1,6 +1,7 @@
 import Foundation
 import Vision
 import ImageIO
+import CoreML
 
 // A single request per process. PNG bytes travel over stdin and never touch disk.
 // Revision and options are mirrored in IMAGE_TEXT_VERSION in the host.
@@ -9,6 +10,13 @@ do {
     request.revision = VNRecognizeTextRequestRevision3
     request.recognitionLevel = .accurate
     request.usesLanguageCorrection = true
+    // Background indexing must also work on virtual Macs without Metal/ANE.
+    // Select only CPU devices that Vision declares valid for each stage.
+    for (stage, devices) in try request.supportedComputeStageDevices {
+        if let cpu = devices.first(where: { if case .cpu = $0 { return true }; return false }) {
+            request.setComputeDevice(cpu, for: stage)
+        }
+    }
     let supported = try request.supportedRecognitionLanguages()
     let languages = ["ru-RU", "en-US"].filter { supported.contains($0) }
     guard !languages.isEmpty else { throw NSError(domain: "ImageText", code: 1) }
@@ -30,7 +38,12 @@ do {
     let output = try JSONSerialization.data(withJSONObject: ["text": text, "languages": languages])
     FileHandle.standardOutput.write(output)
 } catch {
-    // Do not expose recognized text, pixels, paths, or native diagnostics in logs.
-    FileHandle.standardError.write(Data("Image text recognition failed\n".utf8))
+    // Only safe domains/codes, never descriptions that could contain image data.
+    let failure = error as NSError
+    let domain = failure.domain.range(of: "^[A-Za-z0-9_.-]{1,120}$", options: .regularExpression) != nil
+        ? failure.domain : "Vision"
+    if let output = try? JSONSerialization.data(withJSONObject: ["error": ["domain": domain, "code": failure.code]]) {
+        FileHandle.standardOutput.write(output)
+    }
     exit(1)
 }

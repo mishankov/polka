@@ -5,7 +5,7 @@ import type { ClipboardHistory } from './clipboard-history';
 import type { ImageText } from '../shared/clipboard';
 
 // Bump on any recognition/normalization change. OS upgrades may change models.
-export const IMAGE_TEXT_VERSION = `vision-r3-accurate-ru-en-auto-correction-v1-${release()}`;
+export const IMAGE_TEXT_VERSION = `vision-r3-accurate-ru-en-auto-correction-cpu-v2-${release()}`;
 const outputSchema = z.object({
   text: z.string().max(1024 * 1024),
   languages: z.array(z.string().max(40)).max(20),
@@ -30,8 +30,23 @@ export function recognizeImageText(path: string, content: string, signal: AbortS
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      if (failed || code !== 0 || signal.aborted)
-        return reject(Error('Image text recognition failed'));
+      if (failed || code !== 0 || signal.aborted) {
+        let diagnostic = '';
+        try {
+          const result = z
+            .object({
+              error: z.object({
+                domain: z.string().regex(/^[A-Za-z0-9_.-]{1,120}$/),
+                code: z.number().int(),
+              }),
+            })
+            .parse(JSON.parse(Buffer.concat(output).toString('utf8')));
+          diagnostic = ` (${result.error.domain}:${result.error.code})`;
+        } catch {
+          /* Missing helper, cancellation or invalid diagnostics. */
+        }
+        return reject(Error(`Image text recognition failed${diagnostic}`));
+      }
       try {
         resolve(outputSchema.parse(JSON.parse(Buffer.concat(output).toString('utf8'))));
       } catch {

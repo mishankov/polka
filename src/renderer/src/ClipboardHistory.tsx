@@ -166,6 +166,7 @@ export default function ClipboardHistory({
   const request = useRef(0);
   const pending = useRef(false);
   const alive = useRef(true);
+  const restoreFocus = useRef<HTMLElement | undefined>(undefined);
   const root = useRef<HTMLElement>(null);
   const contextMounted = useRef(false);
   const list = useRef<HTMLDivElement>(null);
@@ -254,6 +255,14 @@ export default function ClipboardHistory({
               : []),
         ];
   const originalActionIndex = previewActions.findIndex((action) => action.id === 'original');
+  useLayoutEffect(() => {
+    if (busy) return;
+    const target = restoreFocus.current;
+    restoreFocus.current = undefined;
+    // A disabled button loses focus. Restore it only after React has committed
+    // the enabled control, without replacing a focus choice made by the user.
+    if (target?.isConnected && document.activeElement === document.body) target.focus();
+  }, [busy]);
   const context = useRef<ClipboardContext>({
     destination: 'clipboard',
     query,
@@ -360,17 +369,9 @@ export default function ClipboardHistory({
       );
     } finally {
       pending.current = false;
+      if (method === 'saveImage' && alive.current && focusedBefore instanceof HTMLElement)
+        restoreFocus.current = focusedBefore;
       setBusy(false);
-      if (method === 'saveImage' && alive.current)
-        requestAnimationFrame(() => {
-          if (
-            alive.current &&
-            focusedBefore instanceof HTMLElement &&
-            focusedBefore.isConnected &&
-            document.activeElement === document.body
-          )
-            focusedBefore.focus();
-        });
     }
   }
   return (

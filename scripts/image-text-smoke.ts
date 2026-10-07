@@ -20,7 +20,7 @@ async function main(test: DesktopTest) {
   await build({
     stdin: {
       contents: `
-      import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, safeStorage } from 'electron';
+      import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, safeStorage } from 'electron';
       import { ClipboardHistory } from './src/main/clipboard-history';
       import { createShelf } from './src/main/shelf';
       import { IMAGE_TEXT_VERSION } from './src/main/image-text';
@@ -31,6 +31,10 @@ async function main(test: DesktopTest) {
       globalShortcut.register = () => true;
       globalShortcut.unregister = () => {};
       globalThis.copies = [];
+      dialog.showSaveDialog = async owner => {
+        owner.emit('blur');
+        return new Promise(resolve => { globalThis.finishSave = () => resolve({ canceled: true }); });
+      };
       clipboard.write = async items => {
         const values = {};
         for (const type of items[0].types) {
@@ -127,6 +131,12 @@ async function main(test: DesktopTest) {
   const recognized = page.locator('.clipboard-image-text pre');
   assert.equal(await recognized.evaluate((e) => getComputedStyle(e).userSelect), 'text');
   const fullText = await recognized.innerText();
+  const save = page.getByRole('button', { name: 'Сохранить изображение…', exact: true });
+  await save.click();
+  await expect(save).toBeDisabled();
+  await app.evaluate(() => (globalThis as any).finishSave());
+  await expect(save).toBeEnabled();
+  await expect(save).toBeFocused();
   await page.screenshot({ path: join(artifacts, 'image-preview.png'), scale: 'css' });
   await page.getByRole('button', { name: 'Копировать текст', exact: true }).click();
   await expect.poll(() => app.evaluate(() => (globalThis as any).copies.length)).toBe(1);
