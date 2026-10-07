@@ -15,7 +15,7 @@ test('launcher searches native app names, descriptions and aliases and puts clip
   const apps = [native, ...BUILTIN_APPS];
   assert.deepEqual(
     launcherApps(apps, '').map((app) => app.id),
-    ['builtin:clipboard', 'builtin:emoji', 'mac:qa'],
+    ['builtin:clipboard', 'builtin:files', 'builtin:emoji', 'mac:qa'],
   );
   assert.deepEqual(
     launcherApps(apps, ' VISUAL studio ').map((app) => app.id),
