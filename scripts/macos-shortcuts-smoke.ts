@@ -77,8 +77,9 @@ async function main(test: DesktopTest) {
   );
   let app = await test.launch({ args: [entry] });
   let page = await app.firstWindow();
-  const input = () => page.getByRole('combobox', { name: 'Поиск по полке', exact: true });
+  const input = () => page.getByRole('combobox', { name: /^(Поиск по полке|Найти команду)$/ });
   const rows = () => page.locator('.launcher-result[data-kind="shortcut"]');
+  const folder = () => page.locator('.launcher-result[data-kind="shortcut-folder"]');
   const screenshot = async (name: string) => {
     await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
     await page.screenshot({ path: join(test.artifacts, name), scale: 'css' });
@@ -86,8 +87,28 @@ async function main(test: DesktopTest) {
   const runs = () => app.evaluate(() => (globalThis as any).shortcutTest.runs);
   await expect(input()).toBeFocused();
   assert.equal(await runs(), 0);
-  await expect(rows()).toHaveCount(3);
+  await expect(rows()).toHaveCount(0);
+  await expect(folder()).toHaveCount(1);
+  await expect(folder()).toHaveAttribute('aria-keyshortcuts', 'Enter');
+  assert.equal(
+    await page.locator('.launcher-result').last().getAttribute('data-kind'),
+    'shortcut-folder',
+    'The folder follows every app and individual shortcuts stay out of the default list',
+  );
+  await folder().scrollIntoViewIfNeeded();
   await screenshot('catalog.png');
+  const parentScroll = await page
+    .locator('.launcher-scroll')
+    .evaluate((element) => element.scrollTop);
+  await folder().click();
+  await expect(rows()).toHaveCount(3);
+  await page.getByRole('button', { name: 'Назад к приложениям', exact: true }).click();
+  await expect(input()).toHaveValue('');
+  await expect(input()).toBeFocused();
+  await expect(folder()).toHaveAttribute('aria-selected', 'true');
+  await expect
+    .poll(() => page.locator('.launcher-scroll').evaluate((element) => element.scrollTop))
+    .toBe(parentScroll);
   // Legacy opt-in settings cannot hide installed shortcuts or require setup.
   await expect
     .poll(() => app.evaluate(() => (globalThis as any).shortcutTest.saved()))
@@ -95,12 +116,45 @@ async function main(test: DesktopTest) {
   await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Команды macOS' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Открыть полку' }).click();
+  await input().fill('shortcuts');
+  await expect(folder()).toHaveCount(1);
+  await expect(rows()).toHaveCount(0);
+  await expect(folder()).toHaveAttribute('aria-keyshortcuts', 'Enter Meta+1');
+  await screenshot('folder-search.png');
+  for (const options of [{ repeat: true }, { isComposing: true }])
+    await input().dispatchEvent('keydown', { key: 'Enter', code: 'Enter', ...options });
+  await expect(page.getByRole('heading', { name: 'Команды macOS', exact: true })).toHaveCount(0);
+  await input().press('Enter');
+  await expect(page.getByRole('heading', { name: 'Команды macOS', exact: true })).toBeVisible();
+  await expect(rows()).toHaveCount(3);
+  assert.equal(await runs(), 0, 'Opening the folder never executes a command');
+  for (const options of [{ repeat: true }, { isComposing: true }])
+    await input().dispatchEvent('keydown', {
+      key: 'х',
+      code: 'BracketLeft',
+      metaKey: true,
+      ...options,
+    });
+  await expect(page.getByRole('heading', { name: 'Команды macOS', exact: true })).toBeVisible();
+  await screenshot('folder.png');
+  await input().fill('встречу');
+  await expect(rows()).toHaveCount(1);
+  const back = page.getByRole('button', { name: 'Назад к приложениям', exact: true });
+  await expect(back).toHaveAttribute('aria-keyshortcuts', 'Meta+[');
+  await back.click();
+  await expect(input()).toHaveValue('shortcuts');
+  await expect(input()).toBeFocused();
+  await input().dispatchEvent('keydown', { key: '!', code: 'Digit1', metaKey: true });
+  await expect(rows()).toHaveCount(3);
+  await input().dispatchEvent('keydown', { key: 'х', code: 'BracketLeft', metaKey: true });
+  await expect(input()).toHaveValue('shortcuts');
+  await folder().click();
   await input().fill('встречу');
   await expect(rows()).toHaveCount(1);
   await expect(rows()).toContainText('Команда macOS');
   assert.equal(await runs(), 0);
   await screenshot('search.png');
-  await expect(rows()).toHaveAttribute('aria-keyshortcuts', 'Meta+1');
+  await expect(rows()).toHaveAttribute('aria-keyshortcuts', 'Enter Meta+1');
   for (const options of [{ repeat: true }, { isComposing: true }])
     await input().dispatchEvent('keydown', { key: 'Enter', code: 'Enter', ...options });
   await page.evaluate(() => {
@@ -119,13 +173,17 @@ async function main(test: DesktopTest) {
   assert.equal(await runs(), 1);
   await screenshot('running.png');
   // Search and other actions remain available while the OS waits for interaction.
+  await input().press('Meta+BracketLeft');
+  await expect(input()).toHaveValue('shortcuts');
   await input().fill('2+2');
   await input().press('Enter');
   await expect
     .poll(() => app.evaluate(() => (globalThis as any).fixture.actions.at(-1)?.method))
     .toBe('shelf.copyCalculation');
   await app.evaluate(() => (globalThis as any).fixture.navigate('apps'));
-  await input().fill('встречу');
+  await input().fill('Подготовить встречу');
+  await expect(rows()).toHaveCount(1);
+  await screenshot('global-search.png');
   await input().press('Enter');
   assert.equal(await runs(), 1);
   await app.evaluate(() => (globalThis as any).shortcutTest.finish('completed'));
@@ -182,8 +240,12 @@ async function main(test: DesktopTest) {
   await app.evaluate(() => (globalThis as any).shortcutTest.failList(false));
   await retry.click();
   await expect(page.getByRole('alert')).toHaveCount(0);
+  await input().fill('shortcuts');
+  await folder().click();
   await app.evaluate(() => (globalThis as any).shortcutTest.empty());
-  await app.evaluate(() => (globalThis as any).fixture.navigate('apps'));
+  await input().press('Meta+r');
+  await expect(rows()).toHaveCount(0);
+  await expect(page.getByText('На этом Mac пока нет команд.', { exact: false })).toBeVisible();
   await input().fill('совещание');
   await expect(rows()).toHaveCount(0);
   await expect(
@@ -193,14 +255,15 @@ async function main(test: DesktopTest) {
   await test.close(app, true);
   app = await test.launch({ args: [entry] });
   page = await app.firstWindow();
-  await expect(rows()).toHaveCount(3);
+  await expect(folder()).toHaveCount(1);
+  await expect(rows()).toHaveCount(0);
   await input().fill('встречу');
   await expect(rows()).toHaveCount(1);
   assert.equal(await runs(), 0);
   // No fixture action touches the user's clipboard or launches their apps.
   test.assertNoRendererErrors();
   console.log(
-    'macOS Shortcuts UI: automatic discovery, shared app ranking, keyboard/mouse run, duplicate guard, responsive calculation, reopen, completion, cancellation, errors, rename, addition, removal, empty catalog and retry passed.',
+    'macOS Shortcuts UI: folder below apps, searchable folder and commands, keyboard/mouse navigation and run, query restoration, duplicate guard, responsive calculation, reopen, completion, cancellation, errors, rename, addition, removal, empty folder and retry passed.',
   );
 }
 void runDesktopTest('macos-shortcuts', main).catch((error) => {

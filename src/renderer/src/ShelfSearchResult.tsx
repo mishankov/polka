@@ -1,5 +1,6 @@
 import {
   IconSitemap,
+  IconFolder,
   IconCalculator,
   IconClipboard,
   IconArrowRight,
@@ -31,31 +32,36 @@ export default function SearchResult({
   onActivate: (copyOnly: boolean) => void;
 }) {
   const command = result.kind === 'shortcut' ? result.shortcut : undefined;
+  const folder = result.kind === 'shortcut-folder' ? result : undefined;
   const app = result.kind === 'app' ? result.app : undefined;
   const clip = result.kind === 'clip' ? result.clip : undefined;
   const calculation = result.kind === 'calculation' ? result.calculation : undefined;
-  const title = command
-    ? command.name
-    : app
-      ? app.name
-      : clip
-        ? clipboardSnippet(clip, query)
-        : calculation
-          ? calculation.displayValue || calculation.value
-          : 'Показать все записи';
-  const description = command
-    ? command.availability === 'unknown'
-      ? 'Доступность не проверена · Обновите список'
-      : 'Команда macOS'
-    : app
-      ? app.description || 'Полка'
-      : clip
-        ? `${clip.pinned ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
-        : calculation
-          ? calculation.interpretation || calculation.expression
-          : result.kind === 'more-clips'
-            ? `Найдено в истории: ${result.count}`
-            : '';
+  const title = folder
+    ? 'Команды macOS'
+    : command
+      ? command.name
+      : app
+        ? app.name
+        : clip
+          ? clipboardSnippet(clip, query)
+          : calculation
+            ? calculation.displayValue || calculation.value
+            : 'Показать все записи';
+  const description = folder
+    ? `Папка · Команды: ${folder.count}`
+    : command
+      ? command.availability === 'unknown'
+        ? 'Доступность не проверена · Обновите список'
+        : 'Команда macOS'
+      : app
+        ? app.description || 'Полка'
+        : clip
+          ? `${clip.pinned ? 'Закреплено · ' : ''}${new Date(clip.createdAt).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+          : calculation
+            ? calculation.interpretation || calculation.expression
+            : result.kind === 'more-clips'
+              ? `Найдено в истории: ${result.count}`
+              : '';
   const hint = command
     ? command.availability === 'available'
       ? 'Запустить'
@@ -82,7 +88,13 @@ export default function SearchResult({
       data-kind={app?.kind || result.kind}
       className={`launcher-result${selected ? ' selected' : ''}${calculation ? ' launcher-calculation' : ''}${calculation?.conversion ? ' launcher-conversion' : ''}`}
       aria-selected={selected}
-      aria-keyshortcuts={shortcut ? `Meta+${shortcut}` : undefined}
+      aria-keyshortcuts={
+        command || folder
+          ? `Enter${shortcut ? ` Meta+${shortcut}` : ''}`
+          : shortcut
+            ? `Meta+${shortcut}`
+            : undefined
+      }
       disabled={busy || (!!command && command.availability !== 'available')}
       onMouseMove={onSelect}
       onFocus={onSelect}
@@ -107,7 +119,9 @@ export default function SearchResult({
       }}
     >
       <span className="launcher-icon" aria-hidden="true">
-        {command ? (
+        {folder ? (
+          <IconFolder size={26} stroke={1.5} />
+        ) : command ? (
           <IconSitemap size={24} stroke={1.5} />
         ) : calculation ? (
           <IconCalculator size={26} stroke={1.5} />

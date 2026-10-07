@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MacShortcuts, parseShortcutList, shortcutRunResult } from '../src/main/macos-shortcuts';
-import { shelfSearch } from '../src/shared/shelf-search';
+import { shelfSearch, shortcutSearch } from '../src/shared/shelf-search';
 import { shelfMethodAllowed } from '../src/shared/features';
 const id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const second = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -120,12 +120,22 @@ test('reserve before discovery, reject duplicate runs and absent IDs, report out
   cancelled.service.stop();
   await assert.rejects(cancelled.service.run(id), /завершает/);
 });
-test('all shortcut names use app matching and share relevance ranking with apps', () => {
+test('shortcut folder follows apps, with folder and individual names searchable', () => {
   const commands = [
     { id, name: 'Resize Images', availability: 'available' as const },
     { id: second, name: 'Another Shortcut', availability: 'available' as const },
   ];
-  assert.equal(shelfSearch([], [], '', {}, {}, commands).results.length, 2);
+  assert.deepEqual(shelfSearch([], [], '', {}, {}, commands).results, [
+    { id: 'shortcut-folder', kind: 'shortcut-folder', count: 2 },
+  ]);
+  assert.equal(
+    shelfSearch([], [], 'Shortcuts', {}, {}, commands).results[0]?.kind,
+    'shortcut-folder',
+  );
+  assert.equal(
+    shelfSearch([], [], 'команды', {}, {}, commands).results[0]?.kind,
+    'shortcut-folder',
+  );
   assert.equal(shelfSearch([], [], 'another', {}, {}, commands).results[0]?.kind, 'shortcut');
   const apps = [
     {
@@ -137,8 +147,16 @@ test('all shortcut names use app matching and share relevance ranking with apps'
     },
   ];
   const matches = shelfSearch(apps, [], 'Resize Images', {}, {}, commands).results;
-  assert.equal(matches[0]?.kind, 'shortcut');
-  assert.equal(matches[1]?.kind, 'app');
+  assert.equal(matches[0]?.kind, 'app');
+  assert.equal(matches[1]?.kind, 'shortcut');
+  assert.deepEqual(
+    shelfSearch(apps, [], '', {}, {}, commands).results.map((r) => r.kind),
+    ['app', 'shortcut-folder'],
+  );
+  assert.equal(shortcutSearch(commands, '').length, 2);
+  assert.equal(shortcutSearch(commands, 'resize images')[0]?.id, `shortcut:${id}`);
+  assert.equal(shortcutSearch(commands, 'unrelated').length, 0);
+  assert.equal(shortcutSearch([], '').length, 0);
   assert.equal(shelfSearch([], [], '2+2', {}, {}, commands).results[0]?.kind, 'calculation');
   assert(shelfMethodAllowed('macShortcuts.run'));
   assert(!shelfMethodAllowed('macShortcuts.select'));

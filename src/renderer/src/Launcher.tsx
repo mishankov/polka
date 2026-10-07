@@ -8,14 +8,14 @@ import {
   useState,
 } from 'react';
 import { ActionIcon, Alert, Button, Loader, Text, TextInput, Tooltip } from './NativeControls';
-import { IconSettings, IconSearch, IconX } from '@tabler/icons-react';
+import { IconArrowLeft, IconSettings, IconSearch, IconX } from '@tabler/icons-react';
 import {
   type LauncherApp,
   type MacLauncherApp,
   type LauncherUsageStats,
 } from '../../shared/launcher';
 import { type ClipboardState } from '../../shared/clipboard';
-import { shelfSearch, type ShelfSearchResult } from '../../shared/shelf-search';
+import { shelfSearch, shortcutSearch, type ShelfSearchResult } from '../../shared/shelf-search';
 import { useMacShortcuts } from './useMacShortcuts';
 import SearchResult from './ShelfSearchResult';
 import { api, errorMessage, report } from './api';
@@ -29,7 +29,7 @@ import type { BuiltinContext } from './shelf-context';
 import { consumedKey, numberShortcut } from './shelf-keyboard';
 
 const resultGroup = (result?: ShelfSearchResult) =>
-  result?.kind === 'shortcut' ? 'app' : result?.kind;
+  result?.kind === 'shortcut-folder' ? 'app' : result?.kind;
 
 // Catalog data outlives a presentation; navigation only resets browsing state.
 function useLauncherCatalog() {
@@ -170,6 +170,10 @@ function LauncherEntry({
   const [copied, setCopied] = useState('');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string>();
+  const [shortcutsFolder, setShortcutsFolder] = useState(false);
+  const folderParent = useRef<{ query: string; selected?: string; scrollTop: number } | undefined>(
+    undefined,
+  );
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState('');
   const input = useRef<HTMLInputElement>(null);
@@ -179,14 +183,16 @@ function LauncherEntry({
   const clipboardRequest = useRef(0);
   // Keep an undated conversion anchored while the user reviews and copies it.
   const calculationNow = useMemo(() => new Date(), [query, entry.revision]);
-  const { results, calculation } = shelfSearch(
-    [...apps, ...macApps],
-    clipboard?.clips || [],
-    query,
-    usage,
-    { now: calculationNow },
-    catalog.shortcuts.state.shortcuts,
-  );
+  const { results, calculation } = shortcutsFolder
+    ? { results: shortcutSearch(catalog.shortcuts.state.shortcuts, query), calculation: undefined }
+    : shelfSearch(
+        [...apps, ...macApps],
+        clipboard?.clips || [],
+        query,
+        usage,
+        { now: calculationNow },
+        catalog.shortcuts.state.shortcuts,
+      );
   const index = Math.max(
     0,
     results.findIndex((app) => app.id === selected),
@@ -197,15 +203,17 @@ function LauncherEntry({
     clipboard.pasteAccess === 'granted' &&
     clipboard.pasteReady;
   const actionLabel =
-    selection?.kind === 'shortcut'
-      ? 'запустить команду'
-      : selection?.kind === 'calculation'
-        ? 'копировать результат'
-        : selection?.kind === 'clip'
-          ? canPaste
-            ? 'вставить'
-            : 'копировать'
-          : 'открыть';
+    selection?.kind === 'shortcut-folder'
+      ? 'открыть папку'
+      : selection?.kind === 'shortcut'
+        ? 'запустить команду'
+        : selection?.kind === 'calculation'
+          ? 'копировать результат'
+          : selection?.kind === 'clip'
+            ? canPaste
+              ? 'вставить'
+              : 'копировать'
+            : 'открыть';
   const refreshClipboard = useCallback(async () => {
     const id = ++clipboardRequest.current;
     try {
@@ -238,7 +246,11 @@ function LauncherEntry({
   );
   useEffect(() => {
     if (!builtin && !settings) input.current?.focus();
-  }, [builtin, settings, entry.revision]);
+  }, [builtin, settings, entry.revision, shortcutsFolder]);
+  useLayoutEffect(() => {
+    const scroll = document.querySelector('.launcher-scroll');
+    if (scroll) scroll.scrollTop = shortcutsFolder ? 0 : (folderParent.current?.scrollTop ?? 0);
+  }, [shortcutsFolder]);
   useEffect(() => {
     document.getElementById(`launcher-app-${selection?.id}`)?.scrollIntoView({ block: 'nearest' });
   }, [selection?.id]);
@@ -267,6 +279,19 @@ function LauncherEntry({
     }
   }
   async function activate(result: ShelfSearchResult, copyOnly = false) {
+    if (result.kind === 'shortcut-folder') {
+      if (launchPending.current) return;
+      folderParent.current = {
+        query,
+        selected: result.id,
+        scrollTop: document.querySelector('.launcher-scroll')?.scrollTop ?? 0,
+      };
+      setShortcutsFolder(true);
+      setQuery('');
+      setSelected(undefined);
+      void catalog.shortcuts.refresh();
+      return;
+    }
     if (result.kind === 'app') return open(result.app);
     if (result.kind === 'shortcut') {
       if (catalog.shortcuts.state.run?.status === 'running' || shortcutPending.current) return;
@@ -310,6 +335,11 @@ function LauncherEntry({
     }
   }
   const hide = () => void api('launcher.hide').catch((error) => setError(errorMessage(error)));
+  const leaveFolder = () => {
+    setShortcutsFolder(false);
+    setQuery(folderParent.current?.query ?? '');
+    setSelected(folderParent.current?.selected);
+  };
   const refreshing = loading || macLoading || catalog.shortcuts.loading;
   const refreshLists = async () => {
     if (refreshPending.current || refreshing) return;
@@ -335,6 +365,18 @@ function LauncherEntry({
       }}
       onKeyDown={(event) => {
         if (consumedKey(event)) return;
+        if (
+          shortcutsFolder &&
+          event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.shiftKey &&
+          (event.code === 'BracketLeft' || event.key === '[')
+        ) {
+          event.preventDefault();
+          if (!event.repeat) leaveFolder();
+          return;
+        }
         if (
           !builtin &&
           !settings &&
@@ -395,13 +437,30 @@ function LauncherEntry({
         />
       ) : (
         <>
+          {shortcutsFolder && (
+            <header className="clipboard-header">
+              <div className="clipboard-app-heading">
+                <Tooltip label="Назад к приложениям · ⌘[">
+                  <ActionIcon
+                    aria-label="Назад к приложениям"
+                    aria-keyshortcuts="Meta+["
+                    variant="subtle"
+                    onClick={leaveFolder}
+                  >
+                    <IconArrowLeft size={20} />
+                  </ActionIcon>
+                </Tooltip>
+                <h1>Команды macOS</h1>
+              </div>
+            </header>
+          )}
           <div className="launcher-search clipboard-search">
             <TextInput
               ref={input}
               autoFocus
               leftSection={<IconSearch size={22} />}
-              placeholder="Найти или посчитать…"
-              aria-label="Поиск по полке"
+              placeholder={shortcutsFolder ? 'Найти команду…' : 'Найти или посчитать…'}
+              aria-label={shortcutsFolder ? 'Найти команду' : 'Поиск по полке'}
               maxLength={10000}
               value={query}
               onChange={(event) => {
@@ -463,7 +522,7 @@ function LauncherEntry({
             </Tooltip>
           </div>
           <div className="launcher-scroll">
-            {!query.trim() && (
+            {!shortcutsFolder && !query.trim() && (
               <div className="launcher-start">
                 <UpdateNotice />
                 <ShelfWelcome />
@@ -564,8 +623,8 @@ function LauncherEntry({
                             ? 'Калькулятор'
                             : result.kind === 'clip'
                               ? 'Буфер обмена'
-                              : catalog.shortcuts.state.shortcuts.length
-                                ? 'Приложения и команды'
+                              : result.kind === 'shortcut'
+                                ? 'Команды macOS'
                                 : 'Приложения'}
                         </div>
                       )}
@@ -591,7 +650,9 @@ function LauncherEntry({
                   <Text c="dimmed" size="sm">
                     {query.trim()
                       ? 'Ничего не найдено. Попробуйте другое слово.'
-                      : 'Список приложений пока пуст. Попробуйте обновить его.'}
+                      : shortcutsFolder
+                        ? 'На этом Mac пока нет команд. Добавьте их в приложении «Команды».'
+                        : 'Список приложений пока пуст. Попробуйте обновить его.'}
                   </Text>
                 </div>
               )}
@@ -625,6 +686,11 @@ function LauncherEntry({
                   <span>
                     <kbd>esc</kbd> закрыть
                   </span>
+                  {shortcutsFolder && (
+                    <span>
+                      <kbd>⌘[</kbd> назад
+                    </span>
+                  )}
                 </>
               )}
             </div>

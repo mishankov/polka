@@ -6,9 +6,33 @@ import { launcherApps, type LauncherApp, type LauncherUsageStats } from './launc
 export type ShelfSearchResult =
   | { id: string; kind: 'app'; app: LauncherApp }
   | { id: string; kind: 'shortcut'; shortcut: MacShortcut }
+  | { id: string; kind: 'shortcut-folder'; count: number }
   | { id: string; kind: 'calculation'; calculation: Extract<Calculation, { status: 'result' }> }
   | { id: string; kind: 'clip'; clip: ClipboardClip }
   | { id: string; kind: 'more-clips'; count: number; query: string };
+
+const shortcutFolder: LauncherApp = {
+  kind: 'mac',
+  id: 'shortcut-folder',
+  name: 'Команды macOS',
+  description: 'Папка команд',
+  searchTerms: ['Shortcuts', 'команды', 'папка команд'],
+  icon: '',
+};
+
+export function shortcutSearch(shortcuts: MacShortcut[], query: string): ShelfSearchResult[] {
+  const byId = new Map(shortcuts.map((s) => [`shortcut:${s.id}`, s]));
+  return launcherApps(
+    shortcuts.map((s) => ({
+      kind: 'mac' as const,
+      id: `shortcut:${s.id}`,
+      name: s.name,
+      description: 'Команда macOS',
+      icon: '',
+    })),
+    query,
+  ).map((app) => ({ id: app.id, kind: 'shortcut', shortcut: byId.get(app.id)! }));
+}
 
 export function shelfSearch(
   apps: LauncherApp[],
@@ -26,22 +50,18 @@ export function shelfSearch(
       kind: 'calculation',
       calculation,
     });
-  const shortcutApps: LauncherApp[] = shortcuts.map((s) => ({
-    kind: 'mac',
-    id: `shortcut:${s.id}`,
-    name: s.name,
-    description: 'Команда macOS',
-    icon: '',
-  }));
-  const byId = new Map(shortcuts.map((s) => [`shortcut:${s.id}`, s]));
   results.push(
-    ...launcherApps([...apps, ...shortcutApps], query, usage).map((app) => {
-      const shortcut = byId.get(app.id);
-      return shortcut
-        ? { id: app.id, kind: 'shortcut' as const, shortcut }
-        : { id: `app:${app.id}`, kind: 'app' as const, app };
-    }),
+    ...launcherApps(apps, query, usage).map((app) => ({
+      id: `app:${app.id}`,
+      kind: 'app' as const,
+      app,
+    })),
   );
+  if (shortcuts.length && launcherApps([shortcutFolder], query).length)
+    results.push({ id: shortcutFolder.id, kind: 'shortcut-folder', count: shortcuts.length });
+  // Keep the main shelf compact. Individual commands are available through
+  // global search without requiring navigation into the folder.
+  if (query.trim()) results.push(...shortcutSearch(shortcuts, query));
   const matches = query.trim() ? clipboardResults(clips, query) : [];
   results.push(
     ...matches.slice(0, 3).map((clip) => ({ id: `clip:${clip.id}`, kind: 'clip' as const, clip })),
