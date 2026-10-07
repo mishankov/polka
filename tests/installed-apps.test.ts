@@ -13,9 +13,13 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   discoverApplicationBundles,
   InstalledApps,
+  openMacApplication,
   readApplicationInfo,
   readApplicationNames,
 } from '../src/main/installed-apps';
@@ -56,9 +60,8 @@ async function fixture(getNames?: (paths: string[]) => Promise<Map<string, strin
       return 'data:image/png;base64,icon';
     },
     getNames,
-    openPath: async (path) => {
+    openApplication: async (path) => {
       opened.push(path);
-      return '';
     },
   });
   return {
@@ -263,7 +266,9 @@ test('missing icons do not prevent listing; native launch errors reach the calle
       getIcon: async () => {
         throw Error('No icon');
       },
-      openPath: async () => 'LaunchServices failure',
+      openApplication: async () => {
+        throw Error('LaunchServices failure');
+      },
     });
     const [app] = await service.list();
     assert.equal(app.icon, '');
@@ -272,13 +277,55 @@ test('missing icons do not prevent listing; native launch errors reach the calle
       platform: 'linux',
       roots: [f.applications],
       getIcon: async () => '',
-      openPath: async () => '',
     });
     assert.deepEqual(await otherPlatform.list(), []);
   } finally {
     await f.cleanup();
   }
 });
+
+test(
+  'macOS launches the exact bundle with spaces, quotes and Unicode, preserves its files, and rejects launch failures',
+  { skip: process.platform !== 'darwin' },
+  async () => {
+    const f = await fixture();
+    try {
+      const path = await f.bundle("Полка QA 'quoted' app", {
+        CFBundleIdentifier: `qa.polka.launch.${process.pid}`,
+        CFBundleName: 'Polka Launch Test',
+      });
+      const executable = join(path, 'Contents/MacOS/main');
+      await writeFile(
+        executable,
+        '#!/bin/sh\nprintf launched > "$(dirname "$0")/../../../launch-marker"\nsleep 1\n',
+      );
+      const plist = join(path, 'Contents/Info.plist');
+      await promisify(execFile)('/usr/bin/plutil', ['-convert', 'xml1', plist]);
+      const before = await Promise.all([readFile(plist), readFile(executable)]);
+      const service = new InstalledApps({
+        platform: 'darwin',
+        roots: [f.applications],
+        extraPaths: async () => [],
+        getIcons: async () => new Map(),
+        getNames: async () => new Map(),
+      });
+      const [app] = await service.list();
+      assert(app, 'The native reader accepts the fixture bundle');
+      assert.deepEqual(await service.open(app.id), { opened: true });
+      const marker = join(f.applications, 'launch-marker');
+      let launched = '';
+      for (let attempt = 0; attempt < 100 && !launched; attempt++) {
+        launched = await readFile(marker, 'utf8').catch(() => '');
+        if (!launched) await delay(50);
+      }
+      assert.equal(launched, 'launched', 'LaunchServices executed the selected bundle');
+      assert.deepEqual(await Promise.all([readFile(plist), readFile(executable)]), before);
+      await assert.rejects(openMacApplication(join(f.root, 'Missing.app')));
+    } finally {
+      await f.cleanup();
+    }
+  },
+);
 
 test(
   'macOS property-list reader handles binary bundles without executing their contents',

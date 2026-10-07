@@ -20,6 +20,7 @@ import { useMacShortcuts } from './useMacShortcuts';
 import SearchResult from './ShelfSearchResult';
 import { api, errorMessage, report } from './api';
 import ClipboardHistory from './ClipboardHistory';
+import FileShelf from './FileShelf';
 import EmojiPicker from './EmojiPicker';
 import ShelfSettings from './ShelfSettings';
 import ShelfWelcome from './ShelfWelcome';
@@ -261,7 +262,13 @@ function LauncherEntry({
     setError('');
     try {
       if (app.kind === 'builtin') {
-        await api(app.id === 'builtin:emoji' ? 'shelf.showEmoji' : 'clipboardHistory.show');
+        await api(
+          app.id === 'builtin:emoji'
+            ? 'shelf.showEmoji'
+            : app.id === 'builtin:files'
+              ? 'shelf.showFiles'
+              : 'clipboardHistory.show',
+        );
         return;
       }
       if (app.kind === 'mac') {
@@ -378,8 +385,7 @@ function LauncherEntry({
           return;
         }
         if (
-          !builtin &&
-          !settings &&
+          entry.destination === 'apps' &&
           event.metaKey &&
           !event.ctrlKey &&
           !event.altKey &&
@@ -407,7 +413,9 @@ function LauncherEntry({
         }
       }}
     >
-      {settings ? (
+      {entry.destination === 'files' ? (
+        <FileShelf />
+      ) : settings ? (
         <ShelfSettings
           key={entry.revision}
           initialTab={entry.destination === 'about' ? 'about' : 'general'}

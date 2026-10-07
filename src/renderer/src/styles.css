@@ -826,3 +826,139 @@ html[data-window-mode='shelf'] .clipboard-paste-permission button {
 .shortcut-run-status span {
   color: var(--muted);
 }
+
+.file-shelf-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.file-shelf-view:focus {
+  outline: none;
+}
+.file-shelf-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(var(--notch-inset) + 10px) 16px 0;
+}
+.file-shelf-header h1 {
+  flex: 1;
+  font-size: 16px;
+  margin: 0;
+}
+.file-shelf-intro,
+.file-shelf-note {
+  margin: 0;
+  padding: 10px 20px;
+  color: #aaa;
+  font-size: 12px;
+}
+.file-shelf-note {
+  padding-top: 0;
+  font-size: 11px;
+}
+.file-shelf-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 12px;
+}
+.file-shelf-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 260px;
+  color: #aaa;
+  text-align: center;
+  padding: 20px;
+}
+.file-shelf-empty strong {
+  color: #fff;
+  font-size: 16px;
+}
+.file-shelf-empty span {
+  max-width: 300px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.file-shelf-row {
+  display: flex;
+  align-items: center;
+  border-radius: 9px;
+  padding-right: 6px;
+  margin-bottom: 4px;
+}
+.file-shelf-row:hover {
+  background: #ffffff0d;
+}
+.file-shelf-row.selected {
+  background: #ffffff20;
+}
+.file-shelf-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: inherit;
+  padding: 12px 8px;
+  cursor: grab;
+}
+.file-shelf-item img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+.file-shelf-item > span {
+  min-width: 0;
+}
+.file-shelf-item strong,
+.file-shelf-item small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.file-shelf-item strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.file-shelf-item small {
+  color: #aaa;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.file-shelf-row.unavailable .file-shelf-item {
+  cursor: default;
+}
+.file-shelf-row.unavailable small {
+  color: #ffbe70;
+}
+.file-shelf-row.unavailable img {
+  opacity: 0.45;
+}
+.file-shelf-error {
+  color: #ffbe70;
+  padding: 8px 20px;
+  margin: 0;
+  font-size: 12px;
+}
+.file-shelf-drop-hint {
+  position: absolute;
+  inset: calc(var(--notch-inset) + 90px) 12px 12px;
+  display: grid;
+  place-items: center;
+  background: #151515ed;
+  color: white;
+  border: 2px dashed #aaa;
+  border-radius: 12px;
+  z-index: 20;
+  pointer-events: none;
+}
