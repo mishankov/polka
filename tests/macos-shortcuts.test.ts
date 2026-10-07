@@ -62,7 +62,7 @@ test('parse identifiers separately from names, including duplicate names and pun
       `Name (with parentheses) (${id.toUpperCase()})\nName (with parentheses) (${second})\n`,
     ),
     [
-      { id, name: 'Name (with parentheses)' },
+      { id: id.toUpperCase(), name: 'Name (with parentheses)' },
       { id: second, name: 'Name (with parentheses)' },
     ],
   );
@@ -175,4 +175,20 @@ test('CLI completion and cancellation use exposed exit status and error details'
   assert.deepEqual(parseShortcutList(`First line\nSecond line (${id})\n`), [
     { id, name: 'First line\nSecond line' },
   ]);
+});
+
+test('native catalog identifiers survive case-insensitive lookup unchanged', async () => {
+  let executed: string | undefined;
+  const nativeId = id.toUpperCase();
+  const service = new MacShortcuts({
+    list: async () => [{ id: nativeId, name: 'Synthetic command' }],
+    run: async (value) => {
+      executed = value;
+      return { status: 'completed' };
+    },
+    changed: () => {},
+  });
+  assert.equal((await service.state()).shortcuts[0].id, nativeId);
+  assert.equal((await service.run(id)).run?.status, 'completed');
+  assert.equal(executed, nativeId);
 });

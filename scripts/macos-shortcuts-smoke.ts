@@ -58,6 +58,7 @@ async function main(test: DesktopTest) {
       rename: () => { catalog[0] = {...catalog[0], name: 'Подготовить совещание'}; },
       remove: () => { catalog = catalog.filter(s => s.id !== '${imageId}'); },
       add: () => { catalog.push({id: 'dddddddd-dddd-dddd-dddd-dddddddddddd', name: 'Подготовить отчёт'}); },
+      many: () => { catalog = Array.from({length: 40}, (_, i) => ({id: i.toString(16).padStart(8, '0') + '-aaaa-aaaa-aaaa-aaaaaaaaaaaa', name: 'Тестовая команда ' + String(i).padStart(2, '0')})); },
       empty: () => { catalog = []; },
       failList: enabled => { listError = enabled; },
       saved: () => store.handle('settings.get', {key: 'macShortcutsSelection'}),
@@ -242,6 +243,16 @@ async function main(test: DesktopTest) {
   await expect(page.getByRole('alert')).toHaveCount(0);
   await input().fill('shortcuts');
   await folder().click();
+  await app.evaluate(() => (globalThis as any).shortcutTest.many());
+  await input().press('Meta+r');
+  await expect(rows()).toHaveCount(40);
+  await rows().last().click();
+  await expect.poll(runs).toBe(4);
+  await expect(page.locator('.shortcut-run-status')).toBeInViewport();
+  await app.evaluate(() => (globalThis as any).shortcutTest.finish('failed'));
+  await expect(page.locator('.shortcut-run-status')).toContainText('Нет разрешения');
+  await expect(page.locator('.shortcut-run-status')).toBeInViewport();
+  await screenshot('scrolled-error.png');
   await app.evaluate(() => (globalThis as any).shortcutTest.empty());
   await input().press('Meta+r');
   await expect(rows()).toHaveCount(0);

@@ -812,6 +812,11 @@ html[data-window-mode='shelf'] .clipboard-paste-permission button {
   }
 }
 
+.launcher-feedback {
+  flex-shrink: 0;
+  max-height: 35%;
+  overflow-y: auto;
+}
 .shortcut-run-status {
   display: flex;
   flex-direction: column;

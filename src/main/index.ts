@@ -269,7 +269,7 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
     return macShortcuts.state(z.boolean().optional().parse(params.refresh));
   if (method === 'macShortcuts.run') {
     if (sender.mode !== 'shelf') throw Error('Запуск команды доступен только с полки.');
-    return macShortcuts.run(z.string().regex(SHORTCUT_ID).parse(params.id).toLowerCase());
+    return macShortcuts.run(z.string().regex(SHORTCUT_ID).parse(params.id));
   }
   if (method === 'macShortcuts.openApp') {
     await shell.openExternal('shortcuts://');

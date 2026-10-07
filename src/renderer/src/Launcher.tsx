@@ -529,6 +529,41 @@ function LauncherEntry({
               </ActionIcon>
             </Tooltip>
           </div>
+          <div className="launcher-feedback">
+            {catalog.shortcuts.state.run && (
+              <div className="shortcut-run-status" role="status">
+                <strong>
+                  {catalog.shortcuts.state.run.name} ·{' '}
+                  {catalog.shortcuts.state.run.status === 'running'
+                    ? 'Выполняется…'
+                    : catalog.shortcuts.state.run.status === 'completed'
+                      ? 'Выполнено'
+                      : catalog.shortcuts.state.run.status === 'cancelled'
+                        ? 'Отменено'
+                        : 'Не удалось выполнить'}
+                </strong>
+                <span>
+                  {catalog.shortcuts.state.run.status === 'running'
+                    ? 'Если macOS запросит ввод или разрешение, ответьте в системном окне. Если открылось окно команды, отменить выполнение можно в нём.'
+                    : catalog.shortcuts.state.run.message}
+                </span>
+              </div>
+            )}
+            {(error || catalog.error || macError) && (
+              <Alert color="red" mx="sm" mt="sm">
+                {error || catalog.error || macError}
+                <Button
+                  variant="subtle"
+                  disabled={refreshing}
+                  aria-label="Обновить список"
+                  aria-keyshortcuts="Meta+R"
+                  onClick={() => void refreshLists()}
+                >
+                  Обновить список · ⌘R
+                </Button>
+              </Alert>
+            )}
+          </div>
           <div className="launcher-scroll">
             {!shortcutsFolder && !query.trim() && (
               <div className="launcher-start">
@@ -554,25 +589,6 @@ function LauncherEntry({
             <span className="sr-only" role="status">
               {copied === selection?.id ? 'Результат скопирован' : ''}
             </span>
-            {catalog.shortcuts.state.run && (
-              <div className="shortcut-run-status" role="status">
-                <strong>
-                  {catalog.shortcuts.state.run.name} ·{' '}
-                  {catalog.shortcuts.state.run.status === 'running'
-                    ? 'Выполняется…'
-                    : catalog.shortcuts.state.run.status === 'completed'
-                      ? 'Выполнено'
-                      : catalog.shortcuts.state.run.status === 'cancelled'
-                        ? 'Отменено'
-                        : 'Не удалось выполнить'}
-                </strong>
-                <span>
-                  {catalog.shortcuts.state.run.status === 'running'
-                    ? 'Если macOS запросит ввод или разрешение, ответьте в системном окне. Если открылось окно команды, отменить выполнение можно в нём.'
-                    : catalog.shortcuts.state.run.message}
-                </span>
-              </div>
-            )}
             {catalog.shortcuts.state.error && (
               <Alert mx="sm" mt="sm" title="Команды macOS">
                 {catalog.shortcuts.state.error}
@@ -590,20 +606,6 @@ function LauncherEntry({
                   onClick={() => void api('macShortcuts.openApp').catch(report)}
                 >
                   Открыть «Команды»
-                </Button>
-              </Alert>
-            )}
-            {(error || catalog.error || macError) && (
-              <Alert color="red" mx="sm" mt="sm">
-                {error || catalog.error || macError}
-                <Button
-                  variant="subtle"
-                  disabled={refreshing}
-                  aria-label="Обновить список"
-                  aria-keyshortcuts="Meta+R"
-                  onClick={() => void refreshLists()}
-                >
-                  Обновить список · ⌘R
                 </Button>
               </Alert>
             )}

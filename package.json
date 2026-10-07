@@ -55,7 +55,8 @@
     "verify:workflows": "npm run test:workflows && npm run test:media",
     "test:file-shelf": "tsx scripts/file-shelf-smoke.ts",
     "test:file-shelf:native": "tsx scripts/file-shelf-native-smoke.ts",
-    "test:macos-shortcuts": "tsx scripts/macos-shortcuts-smoke.ts"
+    "test:macos-shortcuts": "tsx scripts/macos-shortcuts-smoke.ts && tsx scripts/macos-shortcuts-integration-smoke.ts",
+    "test:macos-shortcuts:native": "tsx scripts/macos-shortcuts-integration-smoke.ts --native"
   },
   "build": {
     "appId": "app.everything.desktop",

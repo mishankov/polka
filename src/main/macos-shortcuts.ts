@@ -11,8 +11,8 @@ export function parseShortcutList(output: string): InstalledShortcut[] {
     const name = output.slice(offset, match.index);
     if (!SHORTCUT_ID.test(match[1]) || !name.trim())
       throw Error('Не удалось прочитать список команд macOS. Откройте «Команды» и повторите.');
-    const id = match[1].toLowerCase();
-    entries.set(id, { id, name });
+    const id = match[1];
+    entries.set(id.toLowerCase(), { id, name });
     offset = match.index + match[0].length;
   }
   // Preserve names with line breaks, but reject unsupported output rather than
@@ -120,7 +120,7 @@ export class MacShortcuts {
     // Reserve before async discovery so concurrent IPC calls cannot start duplicates.
     this.runState = {
       id,
-      name: this.catalog.find((s) => s.id === id)?.name || 'Команда',
+      name: this.catalog.find((s) => s.id.toLowerCase() === id.toLowerCase())?.name || 'Команда',
       status: 'running',
     };
     this.notify();
@@ -128,14 +128,16 @@ export class MacShortcuts {
       const state = await this.state(true);
       if (state.error)
         throw Error('Не удалось проверить доступность команды. Обновите список на полке.');
-      const shortcut = state.shortcuts.find((s) => s.id === id);
+      const shortcut = state.shortcuts.find((s) => s.id.toLowerCase() === id.toLowerCase());
       if (!shortcut) throw Error('Команда удалена или недоступна на этом Mac. Список обновлён.');
       if (shortcut.availability !== 'available')
         throw Error('Не удалось проверить доступность команды. Обновите список на полке.');
       this.runState.name = shortcut.name;
       if (this.stopped) throw Error('Полка завершает работу.');
       this.controller = new AbortController();
-      const result = await this.deps.run(id, this.controller.signal);
+      // Treat UUIDs case-insensitively for lookup, but pass the native catalog
+      // identifier unchanged to macOS.
+      const result = await this.deps.run(shortcut.id, this.controller.signal);
       this.runState = { id, name: shortcut.name, ...result };
     } catch (error) {
       this.runState = {
