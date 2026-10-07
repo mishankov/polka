@@ -6,9 +6,9 @@ import {
 } from '@playwright/test';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { ChildProcess } from 'node:child_process';
+import { execFileSync, type ChildProcess } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { stopUpdateFixtureProcesses } from './update-fixture-cleanup';
 import type { ClipboardState } from '../src/shared/clipboard';
@@ -210,6 +210,26 @@ export class DesktopTest {
     this.artifacts = resolve('artifacts/desktop', name);
   }
   async launch(options: LaunchOptions) {
+    if (
+      process.platform === 'darwin' &&
+      options.executablePath?.endsWith('/Contents/MacOS/Polka')
+    ) {
+      // Packaged workflow suites exercise storage, not acknowledgement of the
+      // informational dialog. Remember it in the disposable profile before startup.
+      const version = execFileSync(
+        '/usr/libexec/PlistBuddy',
+        [
+          '-c',
+          'Print :CFBundleShortVersionString',
+          join(dirname(options.executablePath), '../Info.plist'),
+        ],
+        { encoding: 'utf8' },
+      ).trim();
+      await writeFile(
+        join(options.env?.EVERYTHING_PROFILE || this.profile, 'keychain-notice-version'),
+        version,
+      );
+    }
     const app = await electron.launch({
       timeout: 30000,
       ...options,

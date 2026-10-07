@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ClipboardStorageState } from '../../shared/clipboard';
 import { Alert, Button } from './NativeControls';
 import { api, errorMessage } from './api';
+import { KEYCHAIN_ACCESS_RECOVERY } from '../../shared/keychain-access';
 
 export default function ClipboardStorageFailure({
   storage,
@@ -34,6 +35,9 @@ export default function ClipboardStorageFailure({
         Файл не сброшен. Восстановите доступ к хранилищу и перезапустите Полку. Перед заменой файла
         сохраните его зашифрованную копию.
       </p>
+      {['decrypt', 'encrypt'].includes(storage.diagnostic?.stage ?? '') && (
+        <p>{KEYCHAIN_ACCESS_RECOVERY}</p>
+      )}
       <details>
         <summary>Подробности ошибки</summary>
         <p>

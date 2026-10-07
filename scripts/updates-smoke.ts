@@ -128,7 +128,10 @@ safeStorage.decryptString = (bytes) => {
   decipher.setAuthTag(bytes.subarray(12, 28));
   return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8');
 };
-const { writeFileSync, renameSync } = require('node:fs');
+const { writeFileSync, renameSync, mkdirSync } = require('node:fs');
+// This fixture replaces Keychain, so acknowledge its explanation without a native dialog.
+mkdirSync(process.env.EVERYTHING_PROFILE, { recursive: true });
+writeFileSync(require('node:path').join(process.env.EVERYTHING_PROFILE, 'keychain-notice-version'), app.getVersion());
 const receiptPath = ${JSON.stringify(relaunchReceipt)};
 function report(value) {
   writeFileSync(receiptPath + '.tmp', JSON.stringify(value));
