@@ -35,6 +35,7 @@ import {
 } from '../../shared/clipboard-actions';
 import { api, errorMessage } from './api';
 import ClipboardPasteHint from './ClipboardPasteHint';
+import { clipboardSnippet } from '../../shared/shelf-search';
 import type { ClipboardContext } from './shelf-context';
 import { consumedKey, editingTarget, numberShortcut } from './shelf-keyboard';
 import ClipboardStorageFailure from './ClipboardStorageFailure';
@@ -113,6 +114,7 @@ function ClipboardPreview({
         </div>
       ) : image ? (
         <img
+          className="clipboard-preview-image"
           src={image}
           alt="Просмотр скопированного изображения"
           onLoad={() => {
@@ -122,6 +124,25 @@ function ClipboardPreview({
         />
       ) : (
         <Loader size="sm" color="gray" />
+      )}
+      {clip.kind === 'image' && (
+        <section className="clipboard-image-text" aria-label="Распознанный текст">
+          <h2>Текст на изображении</h2>
+          {!clip.ocr ? (
+            <p role="status">Распознаём текст на этом Mac… Изображение уже можно копировать.</p>
+          ) : clip.ocr.status === 'failed' ? (
+            <p role="status">Не удалось распознать текст. Повторите распознавание.</p>
+          ) : clip.ocr.status === 'empty' ? (
+            <p role="status">Текст на изображении не найден.</p>
+          ) : (
+            <pre tabIndex={0} aria-label="Распознанный текст">
+              {clip.ocr.text}
+            </pre>
+          )}
+          {clip.ocr && clip.ocr.status !== 'failed' && !clip.ocr.languages.includes('ru-RU') && (
+            <p>Эта версия macOS не поддерживает распознавание русского текста.</p>
+          )}
+        </section>
       )}
     </div>
   );
@@ -162,6 +183,7 @@ export default function ClipboardHistory({
   const request = useRef(0);
   const pending = useRef(false);
   const alive = useRef(true);
+  const restoreFocus = useRef<HTMLElement | undefined>(undefined);
   const root = useRef<HTMLElement>(null);
   const contextMounted = useRef(false);
   const list = useRef<HTMLDivElement>(null);
@@ -242,8 +264,44 @@ export default function ClipboardHistory({
               void run('saveImage', { id: preview.id });
             },
           },
+          ...(preview.ocr?.status === 'ready'
+            ? [
+                {
+                  id: 'copyImageText',
+                  label: 'Копировать текст',
+                  disabled: busy,
+                  run: () => {
+                    void run('copyImageText', { id: preview.id });
+                  },
+                },
+              ]
+            : preview.ocr?.status === 'failed'
+              ? [
+                  {
+                    id: 'retryImageText',
+                    label: 'Повторить распознавание',
+                    disabled: busy || !writable,
+                    run: () => {
+                      void run('retryImageText', { id: preview.id });
+                    },
+                  },
+                ]
+              : []),
         ];
   const originalActionIndex = previewActions.findIndex((action) => action.id === 'original');
+  useLayoutEffect(() => {
+    if (busy) return;
+    const target = restoreFocus.current;
+    restoreFocus.current = undefined;
+    // A disabled button loses focus. Restore it only after React has committed
+    // the enabled control, without replacing a focus choice made by the user.
+    if (target && document.activeElement === document.body) {
+      const destination = target.isConnected
+        ? target
+        : root.current?.querySelector<HTMLButtonElement>('.clipboard-back');
+      destination?.focus();
+    }
+  }, [busy]);
   const context = useRef<ClipboardContext>({
     destination: snippets ? 'snippets' : 'clipboard',
     query,
@@ -399,17 +457,13 @@ export default function ClipboardHistory({
       );
     } finally {
       pending.current = false;
+      if (
+        (method === 'saveImage' || method === 'retryImageText') &&
+        alive.current &&
+        focusedBefore instanceof HTMLElement
+      )
+        restoreFocus.current = focusedBefore;
       setBusy(false);
-      if (method === 'saveImage' && alive.current)
-        requestAnimationFrame(() => {
-          if (
-            alive.current &&
-            focusedBefore instanceof HTMLElement &&
-            focusedBefore.isConnected &&
-            document.activeElement === document.body
-          )
-            focusedBefore.focus();
-        });
     }
   }
   function createSnippet() {
@@ -524,11 +578,11 @@ export default function ClipboardHistory({
           !event.ctrlKey &&
           !event.altKey &&
           !event.shiftKey &&
-          /^[1-9]$/.test(event.key) &&
+          /^[1-9]$/.test(actionNumber) &&
           !document.querySelector('[role="dialog"], [role="menu"]')
         ) {
           event.preventDefault();
-          const action = previewActions[Number(event.key) - 1];
+          const action = previewActions[Number(actionNumber) - 1];
           if (action && !action.disabled && !event.repeat) action.run();
           return;
         }
@@ -681,7 +735,9 @@ export default function ClipboardHistory({
             ref={input}
             autoFocus
             aria-label={snippets ? 'Найти сниппет' : 'Найти в истории'}
-            placeholder={snippets ? 'Найти текст или название…' : 'Найти текст…'}
+            placeholder={
+              snippets ? 'Найти текст или название…' : 'Найти текст, в том числе на изображениях…'
+            }
             leftSection={<IconSearch size={17} />}
             value={query}
             onChange={(event) => {
@@ -1061,7 +1117,9 @@ export default function ClipboardHistory({
                   <span className="clipboard-row-content">
                     <span className="clipboard-text">
                       {clip.kind === 'image'
-                        ? 'Изображение'
+                        ? query.trim()
+                          ? clipboardSnippet(clip, query)
+                          : 'Изображение'
                         : clip.name || clip.preview.trim() || 'Пустой текст'}
                     </span>
                     {clip.name && (
@@ -1070,6 +1128,7 @@ export default function ClipboardHistory({
                     <span className="clipboard-meta">
                       {!snippets && clip.pinned && <IconPin size={12} aria-label="Закреплено" />}
                       <span className="clipboard-origin" title={clip.sourceDevice}>
+                        {clip.kind === 'image' && query.trim() && 'Изображение · '}
                         {clipDate(clip.createdAt)}
                         {clip.sourceDevice && ` · ${clip.sourceDevice}`}
                       </span>

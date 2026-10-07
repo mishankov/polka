@@ -57,6 +57,10 @@ jobs:
         run: npm run build:prepare
       - name: Verify types, unit tests and desktop workflows
         timeout-minutes: 10
+        env:
+          # Hosted Vision accurate-model compilation fails; keep native OCR local.
+          # OCR unit logic and desktop UI still run with synthetic recognition.
+          POLKA_SKIP_NATIVE_OCR: '1'
         run: npm run verify:${{ matrix.suite }}
 
       - name: Upload desktop screenshots

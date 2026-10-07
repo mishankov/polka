@@ -10,13 +10,14 @@ const helpers = [
   ['native/MediaProbe.swift', 'build/media-probe'],
   ['native/ClipboardProbe.swift', 'build/clipboard-probe'],
   ['native/SyncDiscovery.swift', 'build/sync-discovery'],
+  ['native/ImageText.swift', 'build/image-text', 'native/ImageTextInfo.plist'],
   ['native/FileShelfProbe.swift', 'build/file-shelf-probe'],
 ];
 const stale = await Promise.all(
-  helpers.map(async ([source, output]) => {
-    const input = await stat(source);
+  helpers.map(async ([source, output, ...dependencies]) => {
+    const inputs = await Promise.all([source, ...dependencies].map((path) => stat(path)));
     const built = await stat(output).catch(() => undefined);
-    return !built || built.mtimeMs < input.mtimeMs;
+    return !built || inputs.some((input) => built.mtimeMs < input.mtimeMs);
   }),
 );
 if (stale.some(Boolean)) execFileSync('npm', ['run', 'native:build'], { stdio: 'inherit' });

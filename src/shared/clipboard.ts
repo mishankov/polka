@@ -16,6 +16,13 @@ export interface ClipboardClip {
   snippet?: boolean;
   name?: string;
   sourceDevice?: string;
+  ocr?: ImageText;
+}
+export interface ImageText {
+  version: string;
+  status: 'ready' | 'empty' | 'failed';
+  text: string;
+  languages: string[];
 }
 export interface ClipboardState {
   clips: ClipboardClip[];
@@ -55,7 +62,10 @@ export function clipboardResults(clips: ClipboardClip[], query: string) {
   return clips
     .filter((clip) =>
       terms.every((term) =>
-        (clip.kind === 'text' ? `${clip.name || ''} ${clip.content}` : 'Изображение')
+        (clip.kind === 'text'
+          ? `${clip.name || ''} ${clip.content}`
+          : `Изображение ${clip.ocr?.text ?? ''}`
+        )
           .toLocaleLowerCase()
           .includes(term),
       ),

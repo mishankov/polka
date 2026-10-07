@@ -8,6 +8,7 @@ import {
   type ClipboardClip,
   type ClipboardSnippet,
   type ClipboardPreferences,
+  type ImageText,
 } from '../shared/clipboard';
 
 export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
@@ -67,7 +68,20 @@ const syncSchema = z.object({
 const savedSchema = z.object({
   version: z.literal(1),
   preferences: preferencesSchema,
-  clips: z.array(clipSchema).max(MAX_HISTORY_ITEMS),
+  clips: z
+    .array(
+      clipSchema.extend({
+        ocr: z
+          .object({
+            version: z.string().max(100),
+            status: z.enum(['ready', 'empty', 'failed']),
+            text: z.string().max(1024 * 1024),
+            languages: z.array(z.string().max(40)).max(20),
+          })
+          .optional(),
+      }),
+    )
+    .max(MAX_HISTORY_ITEMS),
   snippets: z
     .array(snippetSchema)
     .max(MAX_SNIPPET_ITEMS)
@@ -126,7 +140,10 @@ function trimHistory(state: Saved, now: number) {
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt - a.createdAt);
   let size = 0;
   state.clips = state.clips.filter((clip, index) => {
-    size += Buffer.byteLength(clip.content) + Buffer.byteLength(clip.preview);
+    size +=
+      Buffer.byteLength(clip.content) +
+      Buffer.byteLength(clip.preview) +
+      Buffer.byteLength(clip.ocr?.text ?? '');
     return index < MAX_HISTORY_ITEMS && size <= MAX_HISTORY_BYTES;
   });
 }
@@ -156,6 +173,7 @@ export class ClipboardHistory {
     snippets: [],
   };
   private queue: Promise<unknown> = Promise.resolve();
+  private incarnations = new Map<string, number>();
   readonly storage: ClipboardStorage;
   preferencesAvailable = false;
   constructor(
@@ -282,7 +300,13 @@ export class ClipboardHistory {
         await fs.writeFile(temporary, encoded, { mode: 0o600 });
         await fs.rename(temporary, this.path);
       });
+      const previousClips = this.state.clips;
       this.state = next;
+      // In-flight derived data belongs to this incarnation, even if the same
+      // image is copied again after a deletion or remote clear.
+      for (const clip of previousClips)
+        if (!next.clips.some((item) => item.id === clip.id))
+          this.incarnations.set(clip.id, (this.incarnations.get(clip.id) ?? 0) + 1);
       this.changed();
     });
     this.queue = result.catch(() => {});
@@ -310,6 +334,7 @@ export class ClipboardHistory {
         preview,
         createdAt: this.now(),
         pinned: existing?.pinned || false,
+        ...(existing?.ocr ? { ocr: existing.ocr } : {}),
       });
     });
   }
@@ -491,7 +516,8 @@ export class ClipboardHistory {
   transfer(id: string) {
     const clip = records(this.state).find((item) => item.id === id);
     const stamp = this.state.sync!.entries[id]?.seen;
-    return clip && stamp ? structuredClone({ clip, stamp }) : undefined;
+    // OCR is local derived data. Keep the v1 peer payload unchanged.
+    return clip && stamp ? structuredClone({ clip: clipSchema.parse(clip), stamp }) : undefined;
   }
   async receive(input: unknown, sourceDevice: string) {
     this.storage.requireReady();
@@ -528,10 +554,12 @@ export class ClipboardHistory {
       )
         return;
       entry.seen = stamp;
+      const localOcr = next.clips.find((item) => item.id === clip.id)?.ocr;
       next.clips = next.clips.filter((item) => item.id !== clip.id);
       next.snippets = next.snippets.filter((item) => item.id !== clip.id);
       const received = {
         ...clip,
+        ...(localOcr ? { ocr: localOcr } : {}),
         pinned: entry.pin?.value ?? false,
         sourceDevice: clip.sourceDevice || sourceDevice,
       };
@@ -554,5 +582,29 @@ export class ClipboardHistory {
   }
   flush() {
     return this.queue;
+  }
+  imageTextImages() {
+    return this.state.clips
+      .filter((clip) => clip.kind === 'image')
+      .map((clip) => ({
+        id: clip.id,
+        content: clip.content,
+        ocr: clip.ocr,
+        incarnation: this.incarnations.get(clip.id) ?? 0,
+      }));
+  }
+  saveImageText(id: string, incarnation: number, result: ImageText) {
+    return this.update((next) => {
+      const clip = next.clips.find((item) => item.id === id && item.kind === 'image');
+      if (clip && (this.incarnations.get(id) ?? 0) === incarnation) clip.ocr = result;
+    });
+  }
+  retryImageText(id: string) {
+    return this.update((next) => {
+      const clip = next.clips.find((item) => item.id === id && item.kind === 'image');
+      if (!clip) throw Error('Запись уже удалена');
+      if (clip.ocr?.status !== 'failed') throw Error('Распознавание не требует повтора');
+      delete clip.ocr;
+    });
   }
 }

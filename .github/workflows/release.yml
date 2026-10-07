@@ -175,6 +175,9 @@ jobs:
       - name: Verify types, unit tests and desktop workflows
         if: matrix.suite == 'desktop'
         timeout-minutes: 10
+        env:
+          # Native OCR fixtures run locally; retain synthetic OCR logic/UI checks.
+          POLKA_SKIP_NATIVE_OCR: '1'
         run: npm run typecheck && npm test && npm run test:desktop
       - name: Verify clipboard workflows and media indicator
         if: matrix.suite == 'workflows'
