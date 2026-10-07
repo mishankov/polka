@@ -7,6 +7,7 @@ import { runDesktopTest, type DesktopTest } from './desktop-test';
 import type { ClipboardState } from '../src/shared/clipboard';
 
 async function main(test: DesktopTest) {
+  const syntheticRecognition = process.env.POLKA_SKIP_NATIVE_OCR === '1';
   const entry = join(test.profile, 'ocr-fixture.cjs');
   const fixtures = await Promise.all(
     ['english', 'russian', 'mixed', 'empty', 'failure'].map(async (name) => ({
@@ -14,7 +15,9 @@ async function main(test: DesktopTest) {
       content: (await readFile(`tests/fixtures/image-text/${name}.png`)).toString('base64'),
     })),
   );
-  // Real encrypted history, native Vision indexer, shelf handlers and renderer.
+  // Real encrypted history, indexer, shelf handlers and renderer. Local runs use
+  // native Vision; hosted CI substitutes only the recognition function because
+  // Apple's accurate model cannot compile on that runner.
   // Only the fixture's clipboard, global shortcuts and native reveal are stubbed:
   // this test neither reads/writes the shared clipboard nor steals desktop focus.
   await build({
@@ -95,6 +98,43 @@ async function main(test: DesktopTest) {
     format: 'cjs',
     external: ['electron'],
     define: { __dirname: JSON.stringify(resolve('out/main')) },
+    plugins: syntheticRecognition
+      ? [
+          {
+            name: 'synthetic-vision',
+            setup(builder) {
+              builder.onResolve({ filter: /^\.\/image-text$/ }, () => ({
+                path: 'synthetic-vision',
+                namespace: 'synthetic-vision',
+              }));
+              builder.onLoad({ filter: /.*/, namespace: 'synthetic-vision' }, () => ({
+                contents: `
+                  export { ImageTextIndexer } from './src/main/image-text';
+                  import { setTimeout } from 'node:timers/promises';
+                  const texts = {
+                    english: 'Project Aurora\\nDelivery confirmed\\nInvoice 2048',
+                    russian: 'Проект Север\\nДоставка подтверждена\\nСчёт 2048',
+                    mixed: 'Project Aurora / Проект Север\\nDelivery confirmed / Доставка подтверждена\\nInvoice 2048 / Счёт 2048',
+                    empty: '',
+                    failure: 'Retry succeeded',
+                  };
+                  const fixtures = ${JSON.stringify(fixtures)};
+                  export async function recognizeImageText(path, content, signal) {
+                    // Keep recognition asynchronous so pending/retry states and
+                    // actual indexer scheduling remain exercised in CI.
+                    await setTimeout(250, undefined, { signal });
+                    const fixture = fixtures.find(f => f.content === content);
+                    if (!fixture) throw Error('Unexpected synthetic OCR input');
+                    return { text: texts[fixture.name], languages: ['ru-RU', 'en-US'] };
+                  }
+                `,
+                resolveDir: resolve('.'),
+                loader: 'ts',
+              }));
+            },
+          },
+        ]
+      : [],
   });
   const app = await test.launch({ args: [entry] });
   const page = await app.firstWindow();
@@ -239,7 +279,7 @@ async function main(test: DesktopTest) {
   assert(!saved.includes(Buffer.from('Aurora')));
   test.assertNoRendererErrors();
   console.log(
-    'OCR desktop passed: encrypted backfill, Russian/English/mixed search, excerpts, selectable text, explicit text copy, unchanged image selection, empty/failure/retry, shortcut metadata, keyboard actions/focus, non-English physical digits, composition/repeat/busy/dialog guards. No shared clipboard or desktop focus used.',
+    `OCR desktop passed (${syntheticRecognition ? 'synthetic recognition; native Vision excluded' : 'native Vision'}): encrypted backfill, Russian/English/mixed search, excerpts, selectable text, explicit text copy, unchanged image selection, empty/failure/retry, shortcut metadata, keyboard actions/focus, non-English physical digits, composition/repeat/busy/dialog guards. No shared clipboard or desktop focus used.`,
   );
 }
 runDesktopTest('image-text', main).catch((error) => {

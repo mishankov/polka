@@ -200,9 +200,11 @@ test(
   'Vision recognizes English, Russian and mixed full-resolution fixtures and distinguishes blank/invalid images',
   {
     skip:
-      process.platform !== 'darwin' || !existsSync('build/image-text')
-        ? 'Build native helper on macOS first'
-        : false,
+      process.env.POLKA_SKIP_NATIVE_OCR === '1'
+        ? 'Native Vision fixtures run locally: hosted macOS cannot compile the accurate model'
+        : process.platform !== 'darwin' || !existsSync('build/image-text')
+          ? 'Build native helper on macOS first'
+          : false,
     timeout: 60000,
   },
   async () => {
