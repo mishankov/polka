@@ -10,3 +10,5 @@ artifacts/
 build/clipboard-probe
 
 build/sync-discovery
+
+build/file-shelf-probe

@@ -14,7 +14,7 @@ export interface MacLauncherApp {
 }
 export interface BuiltinLauncherApp {
   kind: 'builtin';
-  id: 'builtin:clipboard' | 'builtin:emoji' | 'builtin:snippets';
+  id: 'builtin:clipboard' | 'builtin:emoji' | 'builtin:snippets' | 'builtin:files';
   name: string;
   icon: string;
   description: string;
@@ -28,6 +28,14 @@ export const BUILTIN_APPS: BuiltinLauncherApp[] = [
     icon: 'snippets',
     description: 'Адреса, реквизиты и готовые ответы — создать и вставить',
     searchTerms: ['snippet', 'snippets', 'сниппет', 'шаблоны', 'готовые ответы'],
+  },
+  {
+    kind: 'builtin',
+    id: 'builtin:files',
+    name: 'Файлы на полке',
+    icon: 'files',
+    description: 'Временно оставить файлы и перетащить в другую программу',
+    searchTerms: ['files', 'shelf', 'файлы', 'перетащить'],
   },
   {
     kind: 'builtin',

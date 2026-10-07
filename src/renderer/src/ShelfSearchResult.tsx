@@ -5,6 +5,7 @@ import {
   IconTextSize,
   IconMoodSmile,
   IconNotes,
+  IconFiles,
 } from '@tabler/icons-react';
 import { clipboardSnippet, type ShelfSearchResult } from '../../shared/shelf-search';
 import { consumedKey } from './shelf-keyboard';
@@ -108,6 +109,8 @@ export default function SearchResult({
           app.kind === 'builtin' ? (
             app.id === 'builtin:snippets' ? (
               <IconNotes size={22} stroke={1.5} />
+            ) : app.id === 'builtin:files' ? (
+              <IconFiles size={22} stroke={1.5} />
             ) : app.id === 'builtin:emoji' ? (
               <IconMoodSmile size={22} stroke={1.5} />
             ) : (

@@ -20,6 +20,7 @@ import SearchResult from './ShelfSearchResult';
 import { api, errorMessage, report } from './api';
 import ClipboardHistory from './ClipboardHistory';
 import Snippets from './Snippets';
+import FileShelf from './FileShelf';
 import EmojiPicker from './EmojiPicker';
 import ShelfSettings from './ShelfSettings';
 import ShelfWelcome from './ShelfWelcome';
@@ -252,7 +253,9 @@ function LauncherEntry({
             ? 'shelf.showEmoji'
             : app.id === 'builtin:snippets'
               ? 'shelf.showSnippets'
-              : 'clipboardHistory.show',
+              : app.id === 'builtin:files'
+                ? 'shelf.showFiles'
+                : 'clipboardHistory.show',
         );
         return;
       }
@@ -336,7 +339,9 @@ function LauncherEntry({
         }
       }}
     >
-      {settings ? (
+      {entry.destination === 'files' ? (
+        <FileShelf />
+      ) : settings ? (
         <ShelfSettings
           key={entry.revision}
           initialTab={entry.destination === 'about' ? 'about' : 'general'}

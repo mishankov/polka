@@ -53,11 +53,13 @@ async function main(test: DesktopTest) {
     };
     const spawn = childProcess.spawn;
     childProcess.spawn = (path, ...args) => {
-      if (!path.endsWith('/clipboard-probe')) return spawn(path, ...args);
+      if (!path.endsWith('/clipboard-probe') && !path.endsWith('/file-shelf-probe'))
+        return spawn(path, ...args);
       const child = new EventEmitter();
       child.stdout = new PassThrough();
       const emit = value => child.stdout.write(JSON.stringify(value) + '\\n');
       child.stdin = new Writable({ write(chunk, encoding, done) {
+        if (path.endsWith('/file-shelf-probe')) { done(); return; }
         const command = JSON.parse(String(chunk));
         const result = global.__snippetPasteEnabled
           ? { trusted: true, ...(command.method === 'capture' ? { token: '00000000-0000-4000-8000-000000000001' } : {}), ...(command.method === 'paste' ? { sent: true } : {}) }
