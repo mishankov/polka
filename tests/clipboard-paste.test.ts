@@ -108,3 +108,23 @@ test('paste consumes the target before native dismissal and ignores replies from
   assert.equal(paste.failureReason, undefined);
   paste.stop();
 });
+
+test('a permission reply queued before helper exit cannot restore granted access', async () => {
+  const { paste, reply } = fixture();
+  const status = paste.status();
+  reply(0, { trusted: true });
+  paste.stop();
+  assert.equal(await status, 'unavailable');
+  assert.equal(paste.ready, false);
+});
+
+test('a target token cannot make paste ready without granted permission', async () => {
+  const { paste, reply } = fixture();
+  const capture = paste.capture();
+  reply(0, { trusted: false, token: 'invalid-target' });
+  await capture;
+  assert.equal(paste.access, 'required');
+  assert.equal(paste.ready, false);
+  assert.equal(await paste.paste(), false);
+  paste.stop();
+});

@@ -21,8 +21,23 @@ export interface ClipboardState {
   registered: boolean;
   pasteAccess: 'granted' | 'required' | 'unavailable';
   pasteReady: boolean;
+  preferencesAvailable: boolean;
+  storage: ClipboardStorageState;
+  helper: {
+    status: 'starting' | 'running' | 'failed' | 'stopped';
+    error?: string;
+  };
   error?: string;
   sync?: ClipboardSyncState;
+}
+export interface ClipboardStorageState {
+  status: 'starting' | 'ready' | 'failed';
+  path: string;
+  diagnostic?: {
+    stage: 'read' | 'decrypt' | 'parse' | 'encrypt' | 'write';
+    code?: string;
+    message: string;
+  };
 }
 export const DEFAULT_CLIPBOARD_PREFERENCES: ClipboardPreferences = {
   paused: false,
@@ -44,6 +59,8 @@ export function clipboardResults(clips: ClipboardClip[], query: string) {
 
 export interface ClipboardSyncState {
   enabled: boolean;
+  status: 'starting' | 'disabled' | 'active' | 'paused' | 'blocked' | 'failed';
+  storage: ClipboardStorageState;
   deviceName: string;
   nearby: { id: string; name: string }[];
   peers: {

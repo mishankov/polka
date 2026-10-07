@@ -1,10 +1,11 @@
-import { _electron as electron, expect, type ElectronApplication } from '@playwright/test';
+import { runDesktopTest, type DesktopTest } from './desktop-test';
+import { expect, type ElectronApplication } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { spawnSync, execFileSync } from 'node:child_process';
-import { readFile, writeFile, mkdtemp, mkdir, rm } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { stopUpdateFixtureProcesses } from './update-fixture-cleanup';
 // @ts-expect-error Build-time JavaScript.
@@ -20,12 +21,12 @@ import { verifySignedBundle } from './sign-macos.mjs';
 import { assertPreparedApp } from './prepared-app.mjs';
 
 // Real bundles, disposable signing keys and localhost feed. Nothing is published.
-async function main() {
+async function main(test: DesktopTest) {
   const migrateSigning = process.argv.includes('--migrate-self-signed');
   const selfSigned = migrateSigning || process.argv.includes('--self-signed');
   let fingerprint = '';
   let originalRequirements: Record<string, string> | undefined;
-  const directory = await mkdtemp(join(tmpdir(), 'polka-update-smoke-'));
+  const directory = test.profile;
   const pkg = JSON.parse(await readFile('package.json', 'utf8'));
   const productName = `Polka Update Smoke ${Date.now()}`;
   const appId = `app.polka.update-smoke.${Date.now()}`;
@@ -62,6 +63,15 @@ async function main() {
     }
   });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  test.deferCleanup(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((done) => server.close(() => done()));
+    await stopUpdateFixtureProcesses(directory, appId);
+    const removal = { recursive: true, force: true, maxRetries: 5, retryDelay: 100 };
+    await rm(join(homedir(), 'Library/Caches', appId), removal);
+    await rm(join(homedir(), 'Library/Preferences', `${appId}.plist`), { force: true });
+  });
+
   const address = server.address();
   assert(address && typeof address !== 'string');
   const origin = `http://127.0.0.1:${address.port}`;
@@ -88,7 +98,7 @@ async function main() {
       { encoding: 'utf8' },
     ).trim();
   }
-  try {
+  {
     if (process.argv.includes('--prebuilt')) await assertPreparedApp();
     else run('npm', ['run', 'build:prepare']);
     run('npm', ['run', 'sparkle:build']);
@@ -243,7 +253,7 @@ require('./index.js');
     );
     feed = localFeed.replace(signed.stdout.trim(), Buffer.alloc(64).toString('base64'));
     const launch = async () => {
-      const instance = await electron.launch({
+      const instance = await test.launch({
         executablePath: executable,
         args: [],
         env,
@@ -266,6 +276,10 @@ require('./index.js');
     feed = localFeed;
     await page.evaluate(() => window.platform.call('updates.check'));
     await expect.poll(async () => (await status()).status, { timeout: 90000 }).toBe('ready');
+    // Sparkle's signature-rejection UI can blur and dismiss the native shelf.
+    // Its DOM remains mounted, so a visible locator alone is not proof of reopening.
+    await page.evaluate(() => window.platform.call('launcher.show', { destination: 'apps' }));
+    await test.shelfReady(running, page, 'Поиск по полке');
     assert.equal(version(bundle), pkg.version, 'Download must not install or restart');
     assert.deepEqual((await status()).releaseNotes, newPkg.releaseNotes);
     const notice = page.getByRole('region', {
@@ -294,7 +308,7 @@ require('./index.js');
     assert.equal((await status()).notification, 'deferred');
     console.log('Valid update ready; testing ordinary quit cancellation');
     // A normal quit must cancel staging rather than authorize installation.
-    await running.close();
+    await test.close(running, true);
     running = undefined;
     await expect.poll(() => version(bundle), { timeout: 5000 }).toBe(pkg.version);
     // Verify no asynchronous installation occurred while the app was closed.
@@ -302,6 +316,8 @@ require('./index.js');
     assert.equal(version(bundle), pkg.version, 'Ordinary quit must not install a staged update');
     running = await launch();
     page = await running.firstWindow();
+    await page.evaluate(() => window.platform.call('launcher.show', { destination: 'apps' }));
+    await test.shelfReady(running, page, 'Поиск по полке');
     await expect.poll(async () => (await status()).status, { timeout: 90000 }).toBe('ready');
     assert.equal((await status()).notification, 'deferred', 'Reminder must survive restart');
     await page.evaluate(
@@ -376,24 +392,9 @@ require('./index.js');
     console.log(
       'Packaged update passed: signature rejection, automatic download, ordinary quit cancellation, explicit install, relaunch and preserved data.',
     );
-  } finally {
-    // Assertions above already verified orderly quit and relaunch. Playwright can
-    // detach its debugger before a final quit acknowledgement, so terminate only
-    // this disposable fixture during cleanup instead of waiting indefinitely.
-    running?.process().kill('SIGKILL');
-    await running?.close().catch(() => {});
-    server.closeAllConnections();
-    await new Promise<void>((done) => server.close(() => done()));
-    // Signal delivery alone does not mean exit: the detached app can still write caches.
-    await stopUpdateFixtureProcesses(directory, appId);
-    const removal = { recursive: true, force: true, maxRetries: 5, retryDelay: 100 };
-    await rm(profile, removal);
-    await rm(join(homedir(), 'Library/Caches', appId), removal);
-    await rm(join(homedir(), 'Library/Preferences', `${appId}.plist`), { force: true });
-    await rm(directory, removal);
   }
 }
-main().catch((error) => {
+runDesktopTest('updates', main).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

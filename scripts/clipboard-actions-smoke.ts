@@ -1,25 +1,17 @@
-import { _electron as electron, expect } from '@playwright/test';
+import { runDesktopTest, type DesktopTest } from './desktop-test';
+import { clipId } from '../src/main/clipboard-history';
+import { expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { ClipboardState } from '../src/shared/clipboard';
-import { clipId } from '../src/main/clipboard-history';
 
-async function main() {
-  const profile = await mkdtemp(join(tmpdir(), 'everything-clipboard-actions-'));
-  const env: Record<string, string> = Object.fromEntries(
-    Object.entries(process.env)
-      .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => [key, value!]),
-  );
-  env.EVERYTHING_PROFILE = profile;
-  delete env.ELECTRON_RUN_AS_NODE;
-  const app = await electron.launch({
+async function main(test: DesktopTest) {
+  const profile = test.profile;
+  const app = await test.launch({
     ...(process.env.EVERYTHING_EXECUTABLE
       ? { executablePath: resolve(process.env.EVERYTHING_EXECUTABLE), args: [], cwd: profile }
       : { args: [resolve('.')] }),
-    env,
   });
   try {
     const panel = await app.firstWindow();
@@ -37,21 +29,10 @@ async function main() {
         pasteOnSelect: false,
       }),
     );
-    // Retain all original clipboard formats in memory, including lazy image data.
-    await app.evaluate(async ({ clipboard, ClipboardItem, shell, dialog }) => {
+    await test.backupClipboard(app);
+    // Substitute only the OS action boundaries; storage and IPC stay real.
+    await app.evaluate(async ({ shell, dialog }) => {
       const qa = globalThis as any;
-      qa.actionBackup = await Promise.all(
-        (await clipboard.read())
-          .filter((i) => i.types.length)
-          .map(
-            async (i) =>
-              new ClipboardItem(
-                Object.fromEntries(
-                  await Promise.all(i.types.map(async (type) => [type, await i.getType(type)])),
-                ),
-              ),
-          ),
-      );
       qa.originalOpen = shell.openExternal;
       qa.originalSave = dialog.showSaveDialog;
       qa.opened = [];
@@ -82,7 +63,7 @@ async function main() {
     const preview = panel.getByRole('region', { name: 'Просмотр записи' });
     const source = 'Привет, World!\r\n  Вторая строка\r\n\r\nАбзац 🦔';
     await copy(source);
-    await expect.poll(async () => (await clips()).length).toBe(1);
+    await test.keepClipboardFixture(panel, clipId('text', source));
     await show();
     await search.fill('World');
     await search.press('Meta+Enter');
@@ -313,21 +294,15 @@ async function main() {
     );
   } finally {
     await app
-      .evaluate(async ({ clipboard, shell, dialog }) => {
+      .evaluate(async ({ shell, dialog }) => {
         const qa = globalThis as any;
         if (qa.originalOpen) shell.openExternal = qa.originalOpen;
         if (qa.originalSave) dialog.showSaveDialog = qa.originalSave;
-        if (qa.actionBackup) {
-          if (qa.actionBackup.length) await clipboard.write(qa.actionBackup);
-          else clipboard.clear();
-        }
       })
       .catch(() => {});
-    await app.close();
-    await rm(profile, { recursive: true, force: true });
   }
 }
-main().catch((error) => {
+runDesktopTest('clipboard-actions', main).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

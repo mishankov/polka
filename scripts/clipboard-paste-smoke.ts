@@ -1,17 +1,21 @@
+import { runDesktopTest, type DesktopTest } from './desktop-test';
+import { clipId } from '../src/main/clipboard-history';
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { ViteDevServer } from 'vite';
 
-async function main() {
-  const profile = await mkdtemp(join(tmpdir(), 'everything-paste-'));
+async function main(test: DesktopTest) {
+  const profile = test.profile;
   const development = process.argv.includes('--dev');
   let rendererServer: ViteDevServer | undefined;
   let rendererUrl: string | undefined;
+  test.deferCleanup(async () => {
+    await rendererServer?.close();
+  });
   if (development) {
     const [{ resolveConfig }, { createServer }] = await Promise.all([
       import('electron-vite'),
@@ -29,52 +33,23 @@ async function main() {
     rendererUrl = `http://127.0.0.1:${address.port}`;
     console.log(`Testing development renderer: ${rendererUrl}`);
   }
-  const env: Record<string, string> = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[0] !== 'ELECTRON_RUN_AS_NODE' && entry[1] !== undefined,
-    ),
-  );
-  const app = await electron
-    .launch({
-      args: [resolve('.')],
-      env: {
-        ...env,
-        EVERYTHING_PROFILE: profile,
-        EVERYTHING_PASTE_DEBUG: process.env.EVERYTHING_PASTE_DEBUG ?? '1',
-        ...(rendererUrl ? { ELECTRON_RENDERER_URL: rendererUrl } : {}),
-      },
-    })
-    .catch(async (error) => {
-      await rendererServer?.close();
-      await rm(profile, { recursive: true, force: true });
-      throw error;
-    });
+  const app = await test.launch({
+    args: [resolve('.')],
+    env: {
+      ...process.env,
+      EVERYTHING_PROFILE: profile,
+      EVERYTHING_PASTE_DEBUG: process.env.EVERYTHING_PASTE_DEBUG ?? '1',
+      ...(rendererUrl ? { ELECTRON_RENDERER_URL: rendererUrl } : {}),
+    },
+  });
   app.on('console', (message) => {
     if (message.text().startsWith('Clipboard paste')) console.log(message.text());
   });
   let target: Awaited<ReturnType<typeof electron.launch>> | undefined;
-  let backedUp = false;
   try {
     const shell = await app.firstWindow();
     await shell.locator('.launcher').waitFor();
-    await app.evaluate(async ({ clipboard, ClipboardItem }) => {
-      (globalThis as any).__clipboardBackup = await Promise.all(
-        (await clipboard.read())
-          .filter((item) => item.types.length > 0)
-          .map(
-            async (item) =>
-              new ClipboardItem(
-                Object.fromEntries(
-                  await Promise.all(
-                    item.types.map(async (type) => [type, await item.getType(type)]),
-                  ),
-                ),
-              ),
-          ),
-      );
-    });
-    backedUp = true;
+    await test.backupClipboard(app);
     await shell.evaluate(() =>
       window.platform.call('clipboardHistory.preferences', {
         hoverEnabled: false,
@@ -88,21 +63,19 @@ async function main() {
         ),
       )
       .toBe(true);
-    // Probe's ready message precedes the first clipboard change.
     await app.evaluate(({ clipboard }) => clipboard.writeText('Paste fixture: one selection'));
-    await expect
-      .poll(() =>
-        shell.evaluate(() =>
-          window.platform.call('clipboardHistory.state').then((state) => state.clips.length),
-        ),
-      )
-      .toBe(1);
+    await test.keepClipboardFixture(shell, clipId('text', 'Paste fixture: one selection'));
     const fixture = join(profile, 'target.cjs');
     const focusProbeSource = join(profile, 'menu-owner.swift');
     const focusProbe = join(profile, 'menu-owner');
     await writeFile(
       focusProbeSource,
-      'import AppKit\nprint((CommandLine.arguments.contains("--front") ? NSWorkspace.shared.frontmostApplication : NSWorkspace.shared.menuBarOwningApplication)?.processIdentifier ?? 0)\n',
+      `import AppKit
+let owner = CommandLine.arguments.contains("--front") ? NSWorkspace.shared.frontmostApplication : NSWorkspace.shared.menuBarOwningApplication
+let details: [String: Any] = ["pid": owner?.processIdentifier ?? 0, "bundle": owner?.bundleIdentifier ?? "", "name": owner?.localizedName ?? ""]
+let data = try JSONSerialization.data(withJSONObject: details)
+print(String(data: data, encoding: .utf8)!)
+`,
     );
     await promisify(execFile)('swiftc', [
       focusProbeSource,
@@ -111,13 +84,17 @@ async function main() {
       '-framework',
       'AppKit',
     ]);
-    const menuOwner = async () => Number((await promisify(execFile)(focusProbe)).stdout.trim());
+    const menuOwner = async () => {
+      const owner = JSON.parse((await promisify(execFile)(focusProbe)).stdout.trim());
+      test.recordDiagnostic('menuOwner', owner);
+      return Number(owner.pid);
+    };
     await writeFile(
       fixture,
-      `const {app,BrowserWindow,Menu}=require('electron');
-app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setApplicationMenu(Menu.buildFromTemplate([{role:'editMenu'}]));const w=new BrowserWindow({width:500,height:250,title:'Paste test target'});w.loadURL('data:text/html,<title>Paste test target</title><textarea id="first" autofocus></textarea><textarea id="second"></textarea>');});app.on('window-all-closed',()=>app.quit());`,
+      `const {app,BrowserWindow,Menu}=require('electron');app.setPath('userData', ${JSON.stringify(join(profile, 'target-profile'))});
+app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setApplicationMenu(Menu.buildFromTemplate([{role:'editMenu'}]));const w=new BrowserWindow({show:false,width:500,height:250,title:'Paste test target'});w.loadURL('data:text/html,<title>Paste test target</title><textarea id="first" autofocus></textarea><textarea id="second"></textarea>').then(()=>{w.show();w.focus();});});app.on('window-all-closed',()=>app.quit());`,
     );
-    target = await electron.launch({ args: [fixture], env });
+    target = await test.launch({ args: [fixture] });
     const inputWindow = await target.firstWindow();
     const accessibility = await target.context().newCDPSession(inputWindow);
     await accessibility.send('Accessibility.enable');
@@ -131,10 +108,38 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
         }<textarea id="second"></textarea>`,
       );
       const input = inputWindow.locator('#first');
-      await target.evaluate(({ BrowserWindow, app }) => {
-        app.focus({ steal: true });
-        BrowserWindow.getAllWindows()[0].focus();
-      });
+      await expect
+        .poll(async () => {
+          const owner = await menuOwner();
+          // AppKit can retain a key window in an inactive app. The menu-bar
+          // owner identifies actual activation; acquire it before the scenario.
+          const window = await target!.evaluate(({ BrowserWindow, app }, activate) => {
+            const window = BrowserWindow.getAllWindows()[0];
+            if (activate) app.focus({ steal: true });
+            if (!window.isVisible()) window.show();
+            if (!window.isFocused()) window.focus();
+            return { visible: window.isVisible(), focused: window.isFocused() };
+          }, owner !== target!.process().pid);
+          return { owner, ...window };
+        })
+        .toEqual({ owner: target.process().pid, visible: true, focused: true });
+      let focusedSince: number | undefined;
+      await expect
+        .poll(
+          async () => {
+            const focused = await target!.evaluate(({ BrowserWindow }) =>
+              BrowserWindow.getAllWindows()[0].isFocused(),
+            );
+            // AppKit activation and renderer focus are separate transitions.
+            // Require native focus to settle before a panel can take it back.
+            if (!focused) focusedSince = undefined;
+            else focusedSince ??= Date.now();
+            return focusedSince !== undefined && Date.now() - focusedSince >= 100;
+          },
+          { intervals: [20] },
+        )
+        .toBe(true);
+      await test.shelfHidden(app, shell);
       await input.fill('Before: replace after');
       await inputWindow.evaluate(() => {
         const field = document.querySelector<HTMLElement>('#first')!;
@@ -183,15 +188,7 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
         await shell.evaluate(() => window.platform.call('launcher.show', { destination: 'apps' }));
       await expect.poll(() => app.windows().some((w) => w.url().includes('mode=shelf'))).toBe(true);
       shelf = app.windows().find((w) => w.url().includes('mode=shelf'))!;
-      await expect
-        .poll(() =>
-          app.evaluate(({ BrowserWindow }) =>
-            BrowserWindow.getAllWindows()
-              .find((w) => w.webContents.getURL().includes('mode=shelf'))
-              ?.isFocused(),
-          ),
-        )
-        .toBe(true);
+      await test.shelfReady(app, shelf, 'Поиск по полке');
       const search = shelf.getByRole('combobox', { name: 'Поиск по полке' });
       await expect(search).toBeFocused();
       if (scenario === 'retained' && !development)
@@ -247,11 +244,14 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
       if (scenario === 'transformed') {
         await selectionSearch.press('Meta+Enter');
         const preview = shelf.getByRole('region', { name: 'Просмотр записи' });
-        await preview.getByRole('button', { name: 'ПРОПИСНЫЕ', exact: true }).click();
+        // CDP mouse clicks on a nonactivating macOS panel can transfer native
+        // focus to the external fixture. Mouse actions have their own suite;
+        // keep this fixture on the keyboard path while testing real AX paste.
+        await preview.getByRole('button', { name: 'ПРОПИСНЫЕ', exact: true }).press('Meta+1');
         await expect(preview.locator('pre')).toHaveText(expectedText);
         await preview
           .getByRole('button', { name: state.pasteReady ? 'Вставить' : 'Копировать', exact: true })
-          .click();
+          .press('Enter');
       } else await selectionSearch.press('Enter');
 
       await expect
@@ -356,7 +356,9 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
             .toBe(false);
           console.log('Native target after ordinary dismissal', {
             dismissal,
-            frontPID: Number((await promisify(execFile)(focusProbe, ['--front'])).stdout.trim()),
+            frontPID: Number(
+              JSON.parse((await promisify(execFile)(focusProbe, ['--front'])).stdout.trim()).pid,
+            ),
             targetPID: target.process().pid,
           });
           await shell.evaluate(() => window.platform.call('launcher.show'));
@@ -525,21 +527,9 @@ app.whenReady().then(()=>{app.setAccessibilitySupportEnabled(true);Menu.setAppli
           screen.getCursorScreenPoint = (globalThis as any).__realCursor;
       })
       .catch(() => {});
-    if (target) await target.close();
-    if (backedUp)
-      await app
-        .evaluate(async ({ clipboard }) => {
-          const items = (globalThis as any).__clipboardBackup;
-          if (items.length) await clipboard.write(items);
-          else clipboard.clear();
-        })
-        .catch(() => {});
-    await app.close();
-    await rendererServer?.close();
-    await rm(profile, { recursive: true, force: true });
   }
 }
-void main().catch((error) => {
+void runDesktopTest('clipboard-paste', main).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

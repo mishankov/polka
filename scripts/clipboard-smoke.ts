@@ -1,14 +1,15 @@
-import { _electron as electron, expect } from '@playwright/test';
+import { runDesktopTest, type DesktopTest } from './desktop-test';
+import { clipId } from '../src/main/clipboard-history';
+import { expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile, mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { shelfGeometry } from '../src/main/clipboard-hover';
 
-async function main() {
-  const profile = await mkdtemp(join(tmpdir(), 'everything-clipboard-'));
+async function main(test: DesktopTest) {
+  const profile = test.profile;
   const launch = () =>
-    electron.launch({
+    test.launch({
       ...(process.env.EVERYTHING_EXECUTABLE
         ? { executablePath: resolve(process.env.EVERYTHING_EXECUTABLE), args: [], cwd: profile }
         : { args: [resolve('.')] }),
@@ -16,15 +17,13 @@ async function main() {
     });
   let app = await launch();
   const errors: string[] = [];
-  let savedClipboard: { type: string; bytes?: string; bookmark?: unknown }[][] = [];
-  let originalClipboardSaved = false;
   function watch() {
     app
       .context()
       .on('page', (page) => page.on('pageerror', (reason) => errors.push(reason.message)));
   }
   watch();
-  try {
+  {
     let shell = await app.firstWindow();
     await shell.locator('.launcher').waitFor();
     await expect
@@ -42,25 +41,9 @@ async function main() {
       }),
     );
     // Back up all formats in memory and restore on exit; never print the user's clipboard.
-    savedClipboard = await app.evaluate(async ({ clipboard }) => {
-      return Promise.all(
-        (await clipboard.read())
-          .filter((item) => item.types.length > 0)
-          .map((item) =>
-            Promise.all(
-              item.types.map(async (type) => {
-                const data = await item.getType(type);
-                return data instanceof Blob
-                  ? { type, bytes: Buffer.from(await data.arrayBuffer()).toString('base64') }
-                  : { type, bookmark: data };
-              }),
-            ),
-          ),
-      );
-    });
-    originalClipboardSaved = true;
+    await test.backupClipboard(app);
     // Ensure the helper has started before changing the clipboard.
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await test.clipboardReady(shell);
     assert.equal(
       (await shell.evaluate(() => window.platform.call('clipboardHistory.state'))).error,
       undefined,
@@ -74,7 +57,7 @@ async function main() {
         window.platform.call('clipboardHistory.state').then((state) => state.clips),
       );
     await copy('Первый пример: план проекта');
-    await expect.poll(async () => (await clips()).length).toBe(1);
+    await test.keepClipboardFixture(shell, clipId('text', 'Первый пример: план проекта'));
     await copy('Второй пример: https://example.com/reference');
     await expect.poll(async () => (await clips()).length).toBe(2);
     // The main shelf combines arithmetic, app launch and clipboard search.
@@ -461,7 +444,7 @@ async function main() {
     );
     const encrypted = await readFile(join(profile, 'clipboard-history', 'history.enc'));
     assert(!encrypted.includes(Buffer.from('Первый пример')));
-    await app.close();
+    await test.close(app);
     app = await launch();
     watch();
     shell = await app.firstWindow();
@@ -489,36 +472,9 @@ async function main() {
     console.log(
       'Clipboard smoke passed: capture, search, pins, pause, sensitive exclusion, images, hover, encryption, restart and clear.',
     );
-  } finally {
-    if (originalClipboardSaved)
-      await app
-        .evaluate(async ({ clipboard, ClipboardItem }, items) => {
-          if (!items.length) {
-            clipboard.clear();
-            return;
-          }
-          await clipboard.write(
-            items.map(
-              (item) =>
-                new ClipboardItem(
-                  Object.fromEntries(
-                    item.map((entry) => [
-                      entry.type,
-                      entry.bytes !== undefined
-                        ? new Blob([Buffer.from(entry.bytes, 'base64')])
-                        : (entry.bookmark as any),
-                    ]),
-                  ),
-                ),
-            ),
-          );
-        }, savedClipboard)
-        .catch(() => {});
-    await app.close().catch(() => {});
-    await rm(profile, { recursive: true, force: true });
   }
 }
-main().catch((error) => {
+runDesktopTest('clipboard', main).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

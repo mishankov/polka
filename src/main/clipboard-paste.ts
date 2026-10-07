@@ -48,7 +48,9 @@ export class ClipboardPaste {
     });
   }
   async status(prompt = false) {
+    const generation = this.generation;
     const result = await this.request(prompt ? 'requestAccess' : 'status');
+    if (generation !== this.generation) return this.access;
     this.access =
       result.trusted === true ? 'granted' : result.trusted === false ? 'required' : 'unavailable';
     return this.access;
@@ -61,10 +63,10 @@ export class ClipboardPaste {
     if (generation !== this.generation) return;
     this.access =
       result.trusted === true ? 'granted' : result.trusted === false ? 'required' : 'unavailable';
-    this.token = result.token;
+    this.token = result.trusted === true ? result.token : undefined;
   }
   get ready() {
-    return !!this.token;
+    return this.access === 'granted' && !!this.token;
   }
   async paste(beforeSend: () => void = () => {}) {
     const token = this.token;

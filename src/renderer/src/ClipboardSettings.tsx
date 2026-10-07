@@ -3,10 +3,12 @@ import { Alert, Button, Group, Select, Stack, Switch, Text, TextInput } from './
 import type { ClipboardState } from '../../shared/clipboard';
 import { shortcutLabel } from '../../shared/launcher';
 import ClipboardSyncSettings from './ClipboardSyncSettings';
+import ClipboardStorageFailure from './ClipboardStorageFailure';
 import { api, errorMessage } from './api';
 
 export default function ClipboardSettings() {
   const [state, setState] = useState<ClipboardState>();
+  const writable = !!state && state.storage?.status === 'ready';
   const [error, setError] = useState('');
   const [recording, setRecording] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -54,16 +56,22 @@ export default function ClipboardSettings() {
         Встроенное приложение на полке. Откройте его из списка приложений или своим сочетанием
         клавиш. Выбор записи копирует её и вставляет в поле, которое было активно до открытия полки.
       </Text>
+      <ClipboardStorageFailure
+        storage={state?.storage}
+        store="history"
+        readable={state?.preferencesAvailable}
+      />
+      {state?.helper?.status === 'failed' && <Alert color="red">{state.helper.error}</Alert>}
       <Switch
         label="Сохранять скопированный текст и изображения"
-        checked={!!state && !state.preferences.paused}
-        disabled={!state || saving}
+        checked={writable && !state.preferences.paused}
+        disabled={!writable || saving}
         onChange={(event) => void save('preferences', { paused: !event.currentTarget.checked })}
       />
       <Switch
         label="Вставлять выбранную запись в предыдущее поле"
-        checked={state?.preferences.pasteOnSelect ?? true}
-        disabled={!state || saving}
+        checked={state?.preferences.pasteOnSelect ?? false}
+        disabled={!writable || saving}
         onChange={(event) =>
           void save('preferences', { pasteOnSelect: event.currentTarget.checked })
         }
@@ -72,7 +80,9 @@ export default function ClipboardSettings() {
         <Text size="xs" c="dimmed">
           {state.pasteAccess === 'granted'
             ? 'Доступ разрешён. Для копирования без вставки используйте ⇧ Enter в истории.'
-            : 'macOS требует разрешение в «Конфиденциальность и безопасность → Универсальный доступ». Разрешите приложение, указанное в системном запросе. Без разрешения запись только копируется; используйте ⌘ V.'}
+            : state.pasteAccess === 'unavailable'
+              ? 'Автоматическая вставка недоступна: не удалось проверить разрешение. Запись можно скопировать и вставить сочетанием ⌘ V.'
+              : 'macOS требует разрешение в «Конфиденциальность и безопасность → Универсальный доступ». Разрешите приложение, указанное в системном запросе. Без разрешения запись только копируется; используйте ⌘ V.'}
         </Text>
       )}
       {state?.preferences.pasteOnSelect && state.pasteAccess === 'required' && (
@@ -88,7 +98,7 @@ export default function ClipboardSettings() {
           { value: '7', label: '7 дней' },
           { value: '30', label: '30 дней' },
         ]}
-        disabled={!state || saving}
+        disabled={!writable || saving}
         onChange={(value) => {
           if (value) void save('preferences', { retentionDays: Number(value) });
         }}
@@ -96,7 +106,7 @@ export default function ClipboardSettings() {
       <TextInput
         label="Сочетание для истории буфера"
         readOnly
-        disabled={!state || saving}
+        disabled={!writable || saving}
         value={
           recording
             ? ''
@@ -151,7 +161,7 @@ export default function ClipboardSettings() {
         </Button>
         <Button
           variant="subtle"
-          disabled={!state?.preferences.accelerator || saving}
+          disabled={!writable || !state?.preferences.accelerator || saving}
           onClick={() => void save('shortcut', { accelerator: '' })}
         >
           Отключить сочетание
