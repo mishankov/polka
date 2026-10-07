@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: '24.18.0'
+          node-version-file: .node-version
           cache: npm
 
       - name: Check Apple silicon and macOS version
@@ -54,10 +54,10 @@ jobs:
         # Electron downloads lazily; finish before Playwright resolves its executable.
         run: node -e 'console.log(require("electron"))'
       - name: Build app and native helpers once
-        run: npm run build:prepare
-      - name: Verify types, unit tests and desktop workflows
+        run: npm run build
+      - name: Verify formatting, types, Node tests and desktop workflows
         timeout-minutes: 10
-        run: npm run verify:${{ matrix.suite }}
+        run: npm run verify -- ${{ matrix.suite }} --prebuilt
 
       - name: Upload desktop screenshots
         if: always()
@@ -65,8 +65,7 @@ jobs:
         with:
           name: macos-arm64-${{ matrix.suite }}-smoke-screenshots
           path: |
-            /tmp/everything-*.png
-            artifacts/**/*.png
+            artifacts/desktop/**/*.png
             artifacts/desktop/**/*.zip
             artifacts/desktop/**/failure.json
           if-no-files-found: ignore
@@ -80,7 +79,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: '24.18.0'
+          node-version-file: .node-version
           cache: npm
       - name: Check Apple silicon and macOS version
         run: |
@@ -89,13 +88,13 @@ jobs:
           xcodebuild -version
       - run: npm ci
       - name: Build app and native helpers once
-        run: npm run build:prepare
+        run: npm run build
       - name: Package arm64 DMG and ZIP
         env:
           # electron-builder skips even ad-hoc signing for pull requests by default.
           # Force the certificate-free identity below; no release secrets are used.
           CSC_FOR_PULL_REQUEST: 'true'
-        run: npm run package:prepared -- --publish never -c.mac.identity=-
+        run: npm run package -- --prebuilt --publish never -c.mac.identity=-
 
       - name: Verify packaged app signature and disk image
         run: |
@@ -106,7 +105,7 @@ jobs:
 
       - name: Test packaged app
         timeout-minutes: 5
-        run: npm run test:packaged
+        run: npm run test:desktop -- shelf --packaged
 
       - uses: actions/upload-artifact@v7
         with:
@@ -124,8 +123,7 @@ jobs:
         with:
           name: macos-arm64-smoke-screenshots
           path: |
-            /tmp/everything-*.png
-            artifacts/**/*.png
+            artifacts/desktop/**/*.png
             artifacts/desktop/**/*.zip
             artifacts/desktop/**/failure.json
           if-no-files-found: ignore
@@ -138,11 +136,11 @@ jobs:
       matrix:
         include:
           - mode: ad-hoc
-            script: test:updates
+            flags: ''
           - mode: self-signed
-            script: test:updates:self-signed
+            flags: --self-signed
           - mode: signing-migration
-            script: test:updates:signing-migration
+            flags: --migrate-self-signed
     # GUI workflows use separate runners: clipboard, focus and shortcuts are shared.
     runs-on: xcode-27
     timeout-minutes: 15
@@ -150,7 +148,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: '24.18.0'
+          node-version-file: .node-version
           cache: npm
       - name: Check Apple silicon and macOS version
         run: |
@@ -161,10 +159,10 @@ jobs:
       - name: Prepare Electron binary
         run: node -e 'console.log(require("electron"))'
       - name: Build app and native helpers once
-        run: npm run build:prepare
+        run: npm run build
       - name: Test update and relaunch (${{ matrix.mode }})
         timeout-minutes: 8
-        run: npm run ${{ matrix.script }} -- --prebuilt
+        run: npm run test:desktop -- updates --prebuilt ${{ matrix.flags }}
 
       - name: Upload updater diagnostics
         if: always()
