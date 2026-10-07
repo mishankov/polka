@@ -36,6 +36,8 @@ import type { ShelfDestination, ShelfPresentation } from '../shared/shelf';
 import { calculate } from '../shared/calculator';
 import { emojiById } from '../shared/emoji';
 import { ShelfLifecycle } from './shelf-lifecycle';
+import { explainKeychainAccess } from './keychain-access-notice';
+import { KEYCHAIN_ACCESS_RECOVERY } from '../shared/keychain-access';
 
 export function createShelf(
   root: string,
@@ -93,13 +95,16 @@ export function createShelf(
       clearInterval(expiryTimer);
       void sync.stop().catch(failed);
       const storage = history.storage.state();
+      const keychainHelp = ['decrypt', 'encrypt'].includes(storage.diagnostic?.stage ?? '')
+        ? `\n\n${KEYCHAIN_ACCESS_RECOVERY}`
+        : '';
       // Do not await acknowledgement: native startup remains independent.
       void dialog
         .showMessageBox({
           type: 'error',
           title: 'История буфера недоступна',
           message: 'Не удалось открыть или сохранить историю буфера обмена',
-          detail: `${storage.diagnostic?.message}. Файл не сброшен. Сохранение новых записей и синхронизация остановлены.\n\n${storage.path}\n\nВосстановите доступ к хранилищу и перезапустите Полку. Перед заменой файла сохраните его зашифрованную копию.`,
+          detail: `${storage.diagnostic?.message}. Файл не сброшен. Сохранение новых записей и синхронизация остановлены.${keychainHelp}\n\n${storage.path}\n\nВосстановите доступ к хранилищу и перезапустите Полку. Перед заменой файла сохраните его зашифрованную копию.`,
           buttons: ['Понятно'],
         })
         .catch(() => console.error('Could not display clipboard storage alert'));
@@ -691,6 +696,12 @@ export function createShelf(
   }
   async function startHistory() {
     try {
+      if (app.isPackaged && process.platform === 'darwin') {
+        await explainKeychainAccess(root, app.getVersion(), (options) =>
+          dialog.showMessageBox(options),
+        );
+      }
+      if (disposed) return;
       await history.initialize();
     } catch (reason) {
       // Storage owns its persistent diagnostic and original cause.
