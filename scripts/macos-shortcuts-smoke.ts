@@ -100,6 +100,18 @@ async function main(test: DesktopTest) {
   await expect(rows()).toContainText('Команда macOS');
   assert.equal(await runs(), 0);
   await screenshot('search.png');
+  await expect(rows()).toHaveAttribute('aria-keyshortcuts', 'Meta+1');
+  for (const options of [{ repeat: true }, { isComposing: true }])
+    await input().dispatchEvent('keydown', { key: 'Enter', code: 'Enter', ...options });
+  await page.evaluate(() => {
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    dialog.id = 'keyboard-dialog';
+    document.body.append(dialog);
+  });
+  await input().press('Enter');
+  assert.equal(await runs(), 0, 'Composition, held keys and dialogs cannot execute commands');
+  await page.locator('#keyboard-dialog').evaluate((element) => element.remove());
   await input().press('Enter');
   await expect.poll(runs).toBe(1);
   await input().press('Enter');
@@ -121,7 +133,8 @@ async function main(test: DesktopTest) {
   await expect(rows()).toBeEnabled();
   await rows().dispatchEvent('click', { detail: 2 });
   assert.equal(await runs(), 1);
-  await rows().click();
+  // Physical digit codes preserve numbered commands on non-English layouts.
+  await input().dispatchEvent('keydown', { key: '!', code: 'Digit1', metaKey: true });
   await expect.poll(runs).toBe(2);
   await app.evaluate(() => (globalThis as any).shortcutTest.finish('cancelled'));
   await expect(page.locator('.shortcut-run-status')).toContainText('Отменено');
@@ -155,10 +168,20 @@ async function main(test: DesktopTest) {
   await input().fill('совещание');
   await expect(page.getByRole('alert')).toContainText('Последний список сохранён');
   await expect(rows()).toBeDisabled();
+  await screenshot('catalog-error.png');
   await app.evaluate(() => (globalThis as any).shortcutTest.failList(false));
-  await page.getByRole('button', { name: 'Обновить команды', exact: true }).click();
+  const retry = page.getByRole('button', { name: 'Обновить команды', exact: true });
+  await expect(retry).toHaveAttribute('aria-keyshortcuts', 'Meta+R');
+  await input().dispatchEvent('keydown', { key: 'к', code: 'KeyR', metaKey: true });
   await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(input()).toHaveValue('совещание');
   await expect(rows()).toBeEnabled();
+  await app.evaluate(() => (globalThis as any).shortcutTest.failList(true));
+  await app.evaluate(() => (globalThis as any).fixture.navigate('apps'));
+  await expect(retry).toBeEnabled();
+  await app.evaluate(() => (globalThis as any).shortcutTest.failList(false));
+  await retry.click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
   await app.evaluate(() => (globalThis as any).shortcutTest.empty());
   await app.evaluate(() => (globalThis as any).fixture.navigate('apps'));
   await input().fill('совещание');

@@ -253,22 +253,28 @@ export class DesktopTest {
     await app.evaluate(({ app, BrowserWindow }) => {
       const events: { time: number; window: number; event: string }[] = [];
       (globalThis as any).__polkaDesktopTestEvents = events;
+      const observer = {
+        record(window: InstanceType<typeof BrowserWindow>, event: string) {
+          events.push({ time: Date.now(), window: window.id, event });
+          if (events.length > 100) events.shift();
+        },
+        observe(window: InstanceType<typeof BrowserWindow>) {
+          for (const event of ['focus', 'blur', 'show', 'hide', 'closed'])
+            window.on(event as any, () => observer.record(window, event));
+          window.webContents.on('did-fail-load', (_, code, description) =>
+            observer.record(window, `did-fail-load: ${code} ${description}`),
+          );
+          window.webContents.on('render-process-gone', (_, details) =>
+            observer.record(window, `render-process-gone: ${details.reason} (${details.exitCode})`),
+          );
+        },
+      };
       // Keep serialized callbacks anonymous: tsx's inferred-name helper is not
       // available in Electron's separate evaluation context.
       app.on('browser-window-created', (_, window) => {
-        for (const event of ['focus', 'blur', 'show', 'hide'])
-          window.on(event as any, () => {
-            events.push({ time: Date.now(), window: window.id, event });
-            if (events.length > 100) events.shift();
-          });
+        observer.observe(window);
       });
-      BrowserWindow.getAllWindows().forEach((window) => {
-        for (const event of ['focus', 'blur', 'show', 'hide'])
-          window.on(event as any, () => {
-            events.push({ time: Date.now(), window: window.id, event });
-            if (events.length > 100) events.shift();
-          });
-      });
+      BrowserWindow.getAllWindows().forEach((window) => observer.observe(window));
     });
     return app;
   }

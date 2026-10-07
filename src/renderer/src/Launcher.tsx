@@ -175,6 +175,7 @@ function LauncherEntry({
   const input = useRef<HTMLInputElement>(null);
   const launchPending = useRef(false);
   const shortcutPending = useRef(false);
+  const refreshPending = useRef(false);
   const clipboardRequest = useRef(0);
   // Keep an undated conversion anchored while the user reviews and copies it.
   const calculationNow = useMemo(() => new Date(), [query, entry.revision]);
@@ -309,6 +310,17 @@ function LauncherEntry({
     }
   }
   const hide = () => void api('launcher.hide').catch((error) => setError(errorMessage(error)));
+  const refreshing = loading || macLoading || catalog.shortcuts.loading;
+  const refreshLists = async () => {
+    if (refreshPending.current || refreshing) return;
+    refreshPending.current = true;
+    setError('');
+    try {
+      await Promise.all([refresh(), refreshMac(), catalog.shortcuts.refresh()]);
+    } finally {
+      refreshPending.current = false;
+    }
+  };
   return (
     <section
       className="launcher"
@@ -323,6 +335,19 @@ function LauncherEntry({
       }}
       onKeyDown={(event) => {
         if (consumedKey(event)) return;
+        if (
+          !builtin &&
+          !settings &&
+          event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.shiftKey &&
+          (event.code === 'KeyR' || event.key.toLowerCase() === 'r')
+        ) {
+          event.preventDefault();
+          if (!event.repeat) void refreshLists();
+          return;
+        }
         if (event.key === 'Enter' && event.repeat) {
           event.preventDefault();
           return;
@@ -484,8 +509,14 @@ function LauncherEntry({
             {catalog.shortcuts.state.error && (
               <Alert mx="sm" mt="sm" title="Команды macOS">
                 {catalog.shortcuts.state.error}
-                <Button variant="subtle" onClick={() => void catalog.shortcuts.refresh()}>
-                  Обновить команды
+                <Button
+                  variant="subtle"
+                  disabled={refreshing}
+                  aria-label="Обновить команды"
+                  aria-keyshortcuts="Meta+R"
+                  onClick={() => void refreshLists()}
+                >
+                  Обновить команды · ⌘R
                 </Button>
                 <Button
                   variant="subtle"
@@ -500,13 +531,12 @@ function LauncherEntry({
                 {error || catalog.error || macError}
                 <Button
                   variant="subtle"
-                  onClick={() => {
-                    setError('');
-                    void refresh();
-                    void refreshMac();
-                  }}
+                  disabled={refreshing}
+                  aria-label="Обновить список"
+                  aria-keyshortcuts="Meta+R"
+                  onClick={() => void refreshLists()}
                 >
-                  Обновить список
+                  Обновить список · ⌘R
                 </Button>
               </Alert>
             )}

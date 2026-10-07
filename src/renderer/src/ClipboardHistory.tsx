@@ -145,6 +145,15 @@ export default function ClipboardHistory({
   const request = useRef(0);
   const pending = useRef(false);
   const alive = useRef(true);
+  const restoreActionFocus = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (busy) return;
+    const target = restoreActionFocus.current;
+    restoreActionFocus.current = null;
+    // Disabled controls cannot receive focus. Restore after React has committed
+    // the enabled button, without taking focus from another user-selected control.
+    if (target?.isConnected && document.activeElement === document.body) target.focus();
+  }, [busy]);
   const root = useRef<HTMLElement>(null);
   const contextMounted = useRef(false);
   const list = useRef<HTMLDivElement>(null);
@@ -316,17 +325,9 @@ export default function ClipboardHistory({
       );
     } finally {
       pending.current = false;
+      if (method === 'saveImage' && alive.current && focusedBefore instanceof HTMLElement)
+        restoreActionFocus.current = focusedBefore;
       setBusy(false);
-      if (method === 'saveImage' && alive.current)
-        requestAnimationFrame(() => {
-          if (
-            alive.current &&
-            focusedBefore instanceof HTMLElement &&
-            focusedBefore.isConnected &&
-            document.activeElement === document.body
-          )
-            focusedBefore.focus();
-        });
     }
   }
   return (
