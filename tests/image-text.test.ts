@@ -235,6 +235,34 @@ test(
           output: diagnostic.stdout,
           diagnostic: diagnostic.stderr,
         });
+        const folder = await mkdtemp(join(tmpdir(), 'polka-vision-diagnostic-'));
+        try {
+          const binary = join(folder, 'diagnostic');
+          const compile = spawnSync(
+            'swiftc',
+            ['-O', 'scripts/image-text-diagnostics.swift', '-o', binary],
+            {
+              encoding: 'utf8',
+              timeout: 10000,
+              maxBuffer: 65536,
+            },
+          );
+          if (compile.status === 0) {
+            const matrix = spawnSync(binary, [`tests/fixtures/image-text/${name}.png`], {
+              encoding: 'utf8',
+              timeout: 20000,
+              maxBuffer: 262144,
+            });
+            console.error('Synthetic Vision pipeline matrix', {
+              status: matrix.status,
+              error: matrix.error?.message,
+              output: matrix.stdout,
+              diagnostic: matrix.stderr,
+            });
+          } else console.error('Vision matrix compilation failed', compile.stderr);
+        } finally {
+          await rm(folder, { recursive: true, force: true });
+        }
         throw error;
       }
       assert(result.languages.includes('ru-RU'));
