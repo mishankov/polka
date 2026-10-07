@@ -45,7 +45,13 @@ export default function Shelf() {
           .catch(report);
     };
     const unsubscribe = window.platform.onEvent((event) => {
-      if (event.type === 'shelf.presentation') apply(event.presentation);
+      if (event.type === 'shelf.presentation') {
+        // Commit dismissal before a subsequent shown event can prepare a new
+        // entry from the saved context. The departing UI samples its scroll in
+        // layout effects, even when the browser has not emitted a scroll event.
+        if (!event.presentation.visible) flushSync(() => apply(event.presentation));
+        else apply(event.presentation);
+      }
       if (event.type === 'shelf.shown') show(event.presentation);
     });
     // The first shown event can precede subscription on a cold startup. Commit

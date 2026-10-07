@@ -5,25 +5,17 @@ import { shelfSearch } from '../src/shared/shelf-search';
 import { shelfMethodAllowed } from '../src/shared/features';
 const id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const second = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
-function fixture(saved: unknown = null) {
-  let stored = saved;
+function fixture() {
   let catalog = [
     { id, name: 'Подготовить встречу' },
     { id: second, name: 'Resize Images' },
   ];
   let listError = false;
-  let saveError = false;
   let runs = 0;
   let finish: (() => void) | undefined;
   let hold = false;
   let outcome: 'completed' | 'cancelled' | 'failed' = 'completed';
-  const events: unknown[] = [];
   const service = new MacShortcuts({
-    read: async () => stored,
-    save: async (value) => {
-      if (saveError) throw Error('Disk full');
-      stored = structuredClone(value);
-    },
     list: async () => {
       if (listError) throw Error('Unavailable');
       return catalog;
@@ -36,14 +28,10 @@ function fixture(saved: unknown = null) {
         });
       return { status: outcome, message: outcome === 'failed' ? 'Permission denied' : undefined };
     },
-    changed: (state) => events.push(state),
+    changed: () => {},
   });
   return {
     service,
-    events,
-    get stored() {
-      return stored;
-    },
     get runs() {
       return runs;
     },
@@ -56,8 +44,8 @@ function fixture(saved: unknown = null) {
     failList: () => {
       listError = true;
     },
-    failSave: () => {
-      saveError = true;
+    recover: () => {
+      listError = false;
     },
     hold: () => {
       hold = true;
@@ -81,47 +69,39 @@ test('parse identifiers separately from names, including duplicate names and pun
   assert.deepEqual(parseShortcutList(''), []);
   assert.throws(() => parseShortcutList('Unsupported listing'));
 });
-test('choose locally, persist by identifier, refresh renamed and missing selections', async () => {
+test('discover all shortcuts automatically, refresh renamed names, remove stale results', async () => {
   const f = fixture();
-  await f.service.state(true, true);
-  await f.service.select(id, true);
-  assert.deepEqual(f.stored, [{ id, name: 'Подготовить встречу' }]);
+  assert.equal((await f.service.state()).shortcuts.length, 2);
+  assert.equal(f.runs, 0);
   f.rename();
   const renamed = await f.service.state(true);
   assert.equal(renamed.shortcuts[0].name, 'Meeting Preparation');
-  assert(renamed.shortcuts[0].selected);
-  const restarted = fixture(f.stored);
-  assert.equal((await restarted.service.state()).shortcuts[0].name, 'Meeting Preparation');
+  assert.equal(renamed.shortcuts[0].id, id);
   f.remove();
-  const missing = await f.service.state(true);
-  assert.equal(missing.shortcuts[0].availability, 'missing');
-  assert.equal((await f.service.run(id)).run?.status, 'failed');
+  assert.deepEqual((await f.service.state(true)).shortcuts, []);
+  const removed = await f.service.run(id);
+  assert.equal(removed.run?.status, 'failed');
+  assert.match(removed.run?.message || '', /удалена/);
   assert.equal(f.runs, 0);
-  await f.service.select(id, false);
-  assert.deepEqual(f.stored, []);
 });
-test('catalog failure preserves choice, prevents stale execution, and permits deselection', async () => {
-  const f = fixture([{ id, name: 'Saved' }]);
-  await f.service.state(true);
+test('catalog failure retains last-known results, prevents stale execution, and recovers', async () => {
+  const cold = fixture();
+  cold.failList();
+  const failed = await cold.service.run(id);
+  assert.match(failed.run?.message || '', /проверить доступность/);
+  assert.equal(cold.runs, 0);
+  const f = fixture();
+  await f.service.state();
   f.failList();
   assert.equal((await f.service.state(true)).shortcuts[0].availability, 'unknown');
   assert.equal((await f.service.run(id)).run?.status, 'failed');
   assert.equal(f.runs, 0);
-  await f.service.select(id, false);
-  assert.deepEqual(f.stored, []);
+  f.recover();
+  assert.equal((await f.service.state(true)).shortcuts[0].availability, 'available');
+  assert.equal((await f.service.run(id)).run?.status, 'completed');
 });
-test('save failures and malformed settings do not silently discard selections', async () => {
-  const f = fixture([{ id, name: 'Saved' }]);
-  await f.service.state(true);
-  f.failSave();
-  await assert.rejects(f.service.select(id, false), /Disk full/);
-  assert((await f.service.state()).shortcuts.find((s) => s.id === id)?.selected);
-  const broken = fixture({ old: 'unexpected' });
-  await assert.rejects(broken.service.state(), /прочитать/);
-  assert.deepEqual(broken.stored, { old: 'unexpected' });
-});
-test('reserve before discovery, reject duplicate runs and unselected IDs, report outcomes', async () => {
-  const f = fixture([{ id, name: 'Saved' }]);
+test('reserve before discovery, reject duplicate runs and absent IDs, report outcomes', async () => {
+  const f = fixture();
   f.hold();
   const running = f.service.run(id);
   await assert.rejects(f.service.run(id), /завершения/);
@@ -130,9 +110,9 @@ test('reserve before discovery, reject duplicate runs and unselected IDs, report
   f.finish();
   assert.equal((await running).run?.status, 'completed');
   assert.equal(f.runs, 1);
-  assert.equal((await f.service.run(second)).run?.status, 'failed');
+  assert.equal((await f.service.run('cccccccc-cccc-cccc-cccc-cccccccccccc')).run?.status, 'failed');
   assert.equal(f.runs, 1);
-  const cancelled = fixture([{ id, name: 'Saved' }]);
+  const cancelled = fixture();
   cancelled.outcome('cancelled');
   assert.equal((await cancelled.service.run(id)).run?.status, 'cancelled');
   cancelled.outcome('failed');
@@ -140,15 +120,28 @@ test('reserve before discovery, reject duplicate runs and unselected IDs, report
   cancelled.service.stop();
   await assert.rejects(cancelled.service.run(id), /завершает/);
 });
-test('search chosen names with existing matching and preserve other result types', () => {
+test('all shortcut names use app matching and share relevance ranking with apps', () => {
   const commands = [
-    { id, name: 'Resize Images', selected: true, availability: 'available' as const },
-    { id: second, name: 'Ignored', selected: false, availability: 'available' as const },
+    { id, name: 'Resize Images', availability: 'available' as const },
+    { id: second, name: 'Another Shortcut', availability: 'available' as const },
   ];
-  assert.equal(shelfSearch([], [], 'resize', {}, {}, commands).results[0]?.kind, 'shortcut');
-  assert.equal(shelfSearch([], [], 'ignored', {}, {}, commands).results.length, 0);
+  assert.equal(shelfSearch([], [], '', {}, {}, commands).results.length, 2);
+  assert.equal(shelfSearch([], [], 'another', {}, {}, commands).results[0]?.kind, 'shortcut');
+  const apps = [
+    {
+      kind: 'mac' as const,
+      id: 'mac:viewer',
+      name: 'Resize Images Viewer',
+      icon: '',
+      description: '',
+    },
+  ];
+  const matches = shelfSearch(apps, [], 'Resize Images', {}, {}, commands).results;
+  assert.equal(matches[0]?.kind, 'shortcut');
+  assert.equal(matches[1]?.kind, 'app');
   assert.equal(shelfSearch([], [], '2+2', {}, {}, commands).results[0]?.kind, 'calculation');
   assert(shelfMethodAllowed('macShortcuts.run'));
+  assert(!shelfMethodAllowed('macShortcuts.select'));
   assert(!shelfMethodAllowed('macShortcuts.exec'));
 });
 

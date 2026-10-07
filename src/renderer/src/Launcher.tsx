@@ -28,6 +28,9 @@ import type { ShelfEntry } from '../../shared/shelf';
 import type { BuiltinContext } from './shelf-context';
 import { consumedKey, numberShortcut } from './shelf-keyboard';
 
+const resultGroup = (result?: ShelfSearchResult) =>
+  result?.kind === 'shortcut' ? 'app' : result?.kind;
+
 // Catalog data outlives a presentation; navigation only resets browsing state.
 function useLauncherCatalog() {
   const shortcuts = useMacShortcuts();
@@ -484,6 +487,12 @@ function LauncherEntry({
                 <Button variant="subtle" onClick={() => void catalog.shortcuts.refresh()}>
                   Обновить команды
                 </Button>
+                <Button
+                  variant="subtle"
+                  onClick={() => void api('macShortcuts.openApp').catch(report)}
+                >
+                  Открыть «Команды»
+                </Button>
               </Alert>
             )}
             {(error || catalog.error || macError) && (
@@ -506,9 +515,12 @@ function LauncherEntry({
               id="launcher-results"
               role="listbox"
               aria-label="Результаты поиска"
-              aria-busy={loading || macLoading || clipboardLoading || opening}
+              aria-busy={
+                loading || macLoading || catalog.shortcuts.loading || clipboardLoading || opening
+              }
             >
-              {(loading || macLoading || clipboardLoading) && !results.length ? (
+              {(loading || macLoading || catalog.shortcuts.loading || clipboardLoading) &&
+              !results.length ? (
                 <div className="launcher-message">
                   <Loader size="sm" aria-label="Загрузка результатов" />
                 </div>
@@ -516,14 +528,14 @@ function LauncherEntry({
                 results.map((result, position) => (
                   <Fragment key={result.id}>
                     {result.kind !== 'more-clips' &&
-                      result.kind !== results[position - 1]?.kind && (
+                      resultGroup(result) !== resultGroup(results[position - 1]) && (
                         <div className="launcher-result-group" role="presentation">
                           {result.kind === 'calculation'
                             ? 'Калькулятор'
-                            : result.kind === 'shortcut'
-                              ? 'Команды macOS'
-                              : result.kind === 'clip'
-                                ? 'Буфер обмена'
+                            : result.kind === 'clip'
+                              ? 'Буфер обмена'
+                              : catalog.shortcuts.state.shortcuts.length
+                                ? 'Приложения и команды'
                                 : 'Приложения'}
                         </div>
                       )}
@@ -557,7 +569,7 @@ function LauncherEntry({
           </div>
           <footer className="launcher-footer clipboard-footer">
             <span>
-              {macLoading || clipboardLoading
+              {macLoading || catalog.shortcuts.loading || clipboardLoading
                 ? 'Ищем…'
                 : `Результаты · ${results.filter((result) => result.kind !== 'more-clips').length}`}
             </span>

@@ -100,8 +100,6 @@ const launcherUsage = new LauncherUsage({
 });
 const macShortcuts = new MacShortcuts({
   ...macShortcutsBackend,
-  read: () => call('settings.get', { key: 'macShortcutsSelection' }),
-  save: (value) => call('settings.set', { key: 'macShortcutsSelection', value }),
   changed: (state) => broadcast({ type: 'macShortcuts.changed', state }),
 });
 const shelf = createShelf(
@@ -263,15 +261,7 @@ async function rendererCall(event: Electron.IpcMainInvokeEvent, method: string, 
   )
     throw Error('Вставка доступна только из истории на полке');
   if (method === 'macShortcuts.state')
-    return macShortcuts.state(
-      z.boolean().optional().parse(params.refresh),
-      z.boolean().optional().parse(params.discover),
-    );
-  if (method === 'macShortcuts.select')
-    return macShortcuts.select(
-      z.string().regex(SHORTCUT_ID).parse(params.id).toLowerCase(),
-      z.boolean().parse(params.enabled),
-    );
+    return macShortcuts.state(z.boolean().optional().parse(params.refresh));
   if (method === 'macShortcuts.run') {
     if (sender.mode !== 'shelf') throw Error('Запуск команды доступен только с полки.');
     return macShortcuts.run(z.string().regex(SHORTCUT_ID).parse(params.id).toLowerCase());

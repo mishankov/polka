@@ -26,28 +26,21 @@ export function shelfSearch(
       kind: 'calculation',
       calculation,
     });
-  results.push(
-    ...launcherApps(apps, query, usage).map((app) => ({
-      id: `app:${app.id}`,
-      kind: 'app' as const,
-      app,
-    })),
-  );
-  const chosen = shortcuts.filter((s) => s.selected);
-  const shortcutApps: LauncherApp[] = chosen.map((s) => ({
+  const shortcutApps: LauncherApp[] = shortcuts.map((s) => ({
     kind: 'mac',
-    id: s.id,
+    id: `shortcut:${s.id}`,
     name: s.name,
-    description: '',
+    description: 'Команда macOS',
     icon: '',
   }));
-  const byId = new Map(chosen.map((s) => [s.id, s]));
+  const byId = new Map(shortcuts.map((s) => [`shortcut:${s.id}`, s]));
   results.push(
-    ...launcherApps(shortcutApps, query).map((app) => ({
-      id: `shortcut:${app.id}`,
-      kind: 'shortcut' as const,
-      shortcut: byId.get(app.id)!,
-    })),
+    ...launcherApps([...apps, ...shortcutApps], query, usage).map((app) => {
+      const shortcut = byId.get(app.id);
+      return shortcut
+        ? { id: app.id, kind: 'shortcut' as const, shortcut }
+        : { id: `app:${app.id}`, kind: 'app' as const, app };
+    }),
   );
   const matches = query.trim() ? clipboardResults(clips, query) : [];
   results.push(

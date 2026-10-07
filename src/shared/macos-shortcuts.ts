@@ -2,8 +2,7 @@ export const SHORTCUT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 export interface MacShortcut {
   id: string;
   name: string;
-  selected: boolean;
-  availability: 'available' | 'missing' | 'unknown';
+  availability: 'available' | 'unknown';
 }
 export interface ShortcutRun {
   id: string;

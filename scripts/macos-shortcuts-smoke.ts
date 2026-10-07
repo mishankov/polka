@@ -39,15 +39,14 @@ async function main(test: DesktopTest) {
     ${fixtureSource}
     const fixture = createShelfSearchFixture();
     const store = new SettingsStore(${JSON.stringify(test.profile)});
+    store.handle('settings.set', {key: 'macShortcutsSelection', value: [{id: '${id}', name: 'Old choice'}]});
     let catalog = [
       { id: '${id}', name: 'Подготовить встречу' },
       { id: '${imageId}', name: 'Изменить размер изображений' },
-      { id: 'cccccccc-cccc-cccc-cccc-cccccccccccc', name: 'Длинное название команды для подготовки всех материалов к еженедельной встрече команды продукта' },
+      { id: 'cccccccc-cccc-cccc-cccc-cccccccccccc', name: 'Длинное название команды для проверки формата всех материалов большого проекта перед публикацией и отправкой заказчику' },
     ];
     let runs = 0, finish, outcome = 'completed', listError = false;
     const service = new MacShortcuts({
-      read: () => store.handle('settings.get', {key: 'macShortcutsSelection'}),
-      save: value => store.handle('settings.set', {key: 'macShortcutsSelection', value}),
       list: async () => { if (listError) throw Error('Unavailable'); return catalog; },
       run: async () => { runs++; await new Promise(done => {finish = done}); return {status: outcome, message: outcome === 'failed' ? 'Нет разрешения на доступ к файлам. Проверьте команду в приложении «Команды».' : undefined}; },
       changed: state => BrowserWindow.getAllWindows().forEach(w => w.webContents.send('platform:event', {type: 'macShortcuts.changed', state})),
@@ -58,12 +57,13 @@ async function main(test: DesktopTest) {
       finish: status => { outcome = status; finish(); },
       rename: () => { catalog[0] = {...catalog[0], name: 'Подготовить совещание'}; },
       remove: () => { catalog = catalog.filter(s => s.id !== '${imageId}'); },
+      add: () => { catalog.push({id: 'dddddddd-dddd-dddd-dddd-dddddddddddd', name: 'Подготовить отчёт'}); },
+      empty: () => { catalog = []; },
       failList: enabled => { listError = enabled; },
       saved: () => store.handle('settings.get', {key: 'macShortcutsSelection'}),
     };
     ipcMain.handle('platform:call', (event, method, params = {}) => {
-      if (method === 'macShortcuts.state') return service.state(params.refresh, params.discover);
-      if (method === 'macShortcuts.select') return service.select(params.id, params.enabled);
+      if (method === 'macShortcuts.state') return service.state(params.refresh);
       if (method === 'macShortcuts.run') return service.run(params.id);
       return fixture.call(method, params);
     });
@@ -86,22 +86,14 @@ async function main(test: DesktopTest) {
   const runs = () => app.evaluate(() => (globalThis as any).shortcutTest.runs);
   await expect(input()).toBeFocused();
   assert.equal(await runs(), 0);
-  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
-  await page.getByRole('tab', { name: 'Команды macOS' }).click();
-  await expect(
-    page.getByRole('checkbox', { name: 'Подготовить встречу', exact: true }),
-  ).toBeVisible();
-  await page.getByRole('checkbox', { name: 'Подготовить встречу', exact: true }).check();
-  await page.getByRole('checkbox', { name: 'Изменить размер изображений', exact: true }).check();
+  await expect(rows()).toHaveCount(3);
+  await screenshot('catalog.png');
+  // Legacy opt-in settings cannot hide installed shortcuts or require setup.
   await expect
     .poll(() => app.evaluate(() => (globalThis as any).shortcutTest.saved()))
-    .toHaveLength(2);
-  assert.equal(await runs(), 0);
-  await expect(
-    page.getByRole('checkbox', { name: 'Подготовить встречу', exact: true }),
-  ).toBeEnabled();
-  await expect(page.getByText('На полке: 2', { exact: true })).toBeVisible();
-  await screenshot('settings.png');
+    .toHaveLength(1);
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'Команды macOS' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Открыть полку' }).click();
   await input().fill('встречу');
   await expect(rows()).toHaveCount(1);
@@ -138,47 +130,54 @@ async function main(test: DesktopTest) {
   await app.evaluate(() => (globalThis as any).shortcutTest.finish('failed'));
   await expect(page.locator('.shortcut-run-status')).toContainText('Нет разрешения');
   await screenshot('error.png');
+  // A command removed after discovery is explained at activation, then removed
+  // from results just like an uninstalled app.
+  await input().fill('изображений');
+  await expect(rows()).toHaveCount(1);
+  await app.evaluate(() => (globalThis as any).shortcutTest.remove());
+  await rows().click();
+  await expect(page.locator('.shortcut-run-status')).toContainText('Команда удалена');
+  await expect(rows()).toHaveCount(0);
+  assert.equal(await runs(), 3);
+  await screenshot('removed.png');
   await app.evaluate(() => {
     (globalThis as any).shortcutTest.rename();
-    (globalThis as any).shortcutTest.remove();
+    (globalThis as any).shortcutTest.add();
   });
   await app.evaluate(() => (globalThis as any).fixture.navigate('apps'));
   await input().fill('совещание');
   await expect(rows()).toContainText('Подготовить совещание');
-  await input().fill('изображений');
-  await expect(rows()).toContainText('Нет на этом Mac');
-  await expect(rows()).toBeDisabled();
-  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
-  await page.getByRole('tab', { name: 'Команды macOS' }).click();
-  await expect(
-    page.getByRole('checkbox', { name: 'Изменить размер изображений', exact: true }),
-  ).toBeChecked();
-  await screenshot('missing.png');
-  await page.getByRole('checkbox', { name: 'Изменить размер изображений', exact: true }).uncheck();
-  await expect
-    .poll(() => app.evaluate(() => (globalThis as any).shortcutTest.saved()))
-    .toHaveLength(1);
-  // Failed discovery retains the selected name and offers an explicit retry.
+  await input().fill('отчёт');
+  await expect(rows()).toContainText('Подготовить отчёт');
+  // Failed discovery retains names, marks results unavailable and offers retry.
   await app.evaluate(() => (globalThis as any).shortcutTest.failList(true));
-  await page.getByRole('button', { name: 'Обновить список', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('Выбранные команды сохранены');
-  await expect(
-    page.getByRole('checkbox', { name: 'Подготовить совещание', exact: true }),
-  ).toBeChecked();
+  await app.evaluate(() => (globalThis as any).fixture.navigate('apps'));
+  await input().fill('совещание');
+  await expect(page.getByRole('alert')).toContainText('Последний список сохранён');
+  await expect(rows()).toBeDisabled();
   await app.evaluate(() => (globalThis as any).shortcutTest.failList(false));
-  await page.getByRole('button', { name: 'Обновить список', exact: true }).click();
+  await page.getByRole('button', { name: 'Обновить команды', exact: true }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(rows()).toBeEnabled();
+  await app.evaluate(() => (globalThis as any).shortcutTest.empty());
+  await app.evaluate(() => (globalThis as any).fixture.navigate('apps'));
+  await input().fill('совещание');
+  await expect(rows()).toHaveCount(0);
+  await expect(
+    page.getByText('Ничего не найдено. Попробуйте другое слово.', { exact: true }),
+  ).toBeVisible();
   test.assertNoRendererErrors();
   await test.close(app, true);
   app = await test.launch({ args: [entry] });
   page = await app.firstWindow();
+  await expect(rows()).toHaveCount(3);
   await input().fill('встречу');
   await expect(rows()).toHaveCount(1);
   assert.equal(await runs(), 0);
   // No fixture action touches the user's clipboard or launches their apps.
   test.assertNoRendererErrors();
   console.log(
-    'macOS Shortcuts UI: selection, persistence, keyboard/mouse run, duplicate guard, responsive calculation, reopen, completion, cancellation, errors, rename, removal and retry passed.',
+    'macOS Shortcuts UI: automatic discovery, shared app ranking, keyboard/mouse run, duplicate guard, responsive calculation, reopen, completion, cancellation, errors, rename, addition, removal, empty catalog and retry passed.',
   );
 }
 void runDesktopTest('macos-shortcuts', main).catch((error) => {

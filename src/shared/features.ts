@@ -3,7 +3,6 @@ export function shelfMethodAllowed(method: string) {
     /^(clipboardHistory|shelf|updates)\./.test(method) ||
     [
       'macShortcuts.state',
-      'macShortcuts.select',
       'macShortcuts.run',
       'macShortcuts.openApp',
       'launcher.show',

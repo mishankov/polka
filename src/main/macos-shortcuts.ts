@@ -3,9 +3,9 @@ import { promisify } from 'node:util';
 import { SHORTCUT_ID, type MacShortcut, type ShortcutsState } from '../shared/macos-shortcuts';
 
 const execute = promisify(execFile);
-type SavedShortcut = { id: string; name: string };
-export function parseShortcutList(output: string): SavedShortcut[] {
-  const entries = new Map<string, SavedShortcut>();
+type InstalledShortcut = { id: string; name: string };
+export function parseShortcutList(output: string): InstalledShortcut[] {
+  const entries = new Map<string, InstalledShortcut>();
   let offset = 0;
   for (const match of output.matchAll(/ \(([0-9a-f-]{36})\)\r?(?:\n|$)/gi)) {
     const name = output.slice(offset, match.index);
@@ -16,7 +16,7 @@ export function parseShortcutList(output: string): SavedShortcut[] {
     offset = match.index + match[0].length;
   }
   // Preserve names with line breaks, but reject unsupported output rather than
-  // marking the user's entire selection removed.
+  // discarding the last known catalog.
   if (output.slice(offset).trim())
     throw Error('Не удалось прочитать список команд macOS. Откройте «Команды» и повторите.');
   return [...entries.values()];
@@ -67,9 +67,7 @@ export const macShortcutsBackend = {
 };
 
 export class MacShortcuts {
-  private selected: SavedShortcut[] = [];
-  private catalog: SavedShortcut[] = [];
-  private loaded = false;
+  private catalog: InstalledShortcut[] = [];
   private discovered = false;
   private error?: string;
   private runState?: ShortcutsState['run'];
@@ -78,8 +76,6 @@ export class MacShortcuts {
   private controller?: AbortController;
   constructor(
     private readonly deps: {
-      read: () => Promise<unknown>;
-      save: (value: SavedShortcut[]) => Promise<unknown>;
       list: typeof macShortcutsBackend.list;
       run: typeof macShortcutsBackend.run;
       changed: (state: ShortcutsState) => void;
@@ -90,90 +86,33 @@ export class MacShortcuts {
     this.queue = next.catch(() => {});
     return next;
   }
-  private async load() {
-    if (this.loaded) return;
-    const saved = await this.deps.read();
-    if (
-      saved !== null &&
-      saved !== undefined &&
-      (!Array.isArray(saved) ||
-        saved.some(
-          (s) =>
-            !s || typeof s.id !== 'string' || !SHORTCUT_ID.test(s.id) || typeof s.name !== 'string',
-        ))
-    )
-      throw Error(
-        'Не удалось прочитать выбранные команды. Настройки сохранены; перезапустите Полку.',
-      );
-    this.selected = ((saved as SavedShortcut[]) || []).map((s) => ({
-      id: s.id.toLowerCase(),
-      name: s.name,
-    }));
-    this.loaded = true;
-  }
   snapshot(): ShortcutsState {
-    const names = new Map(this.catalog.map((s) => [s.id, s]));
-    const chosen = new Set(this.selected.map((s) => s.id));
-    const shortcuts: MacShortcut[] = [
-      ...this.catalog.map((s) => ({
-        ...s,
-        selected: chosen.has(s.id),
-        availability: this.error ? ('unknown' as const) : ('available' as const),
-      })),
-      ...this.selected
-        .filter((s) => !names.has(s.id))
-        .map((s) => ({
-          ...s,
-          selected: true,
-          availability:
-            this.error || !this.discovered ? ('unknown' as const) : ('missing' as const),
-        })),
-    ];
+    const shortcuts: MacShortcut[] = this.catalog.map((s) => ({
+      ...s,
+      availability: this.error ? 'unknown' : 'available',
+    }));
     shortcuts.sort((a, b) => a.name.localeCompare(b.name, 'ru') || a.id.localeCompare(b.id));
     return { shortcuts, error: this.error, run: this.runState && { ...this.runState } };
   }
   private notify() {
     this.deps.changed(this.snapshot());
   }
-  state(refresh = false, discover = false) {
+  state(refresh = false) {
     return this.serial(async () => {
-      await this.load();
-      if (refresh && (discover || this.selected.length)) await this.refresh();
+      if (refresh || !this.discovered) await this.refresh();
       return this.snapshot();
     });
   }
   private async refresh() {
     try {
-      const catalog = await this.deps.list();
-      const names = new Map(catalog.map((s) => [s.id, s.name]));
-      const selected = this.selected.map((s) => ({ ...s, name: names.get(s.id) || s.name }));
-      if (JSON.stringify(selected) !== JSON.stringify(this.selected))
-        await this.deps.save(selected);
-      this.selected = selected;
-      this.catalog = catalog;
+      this.catalog = await this.deps.list();
       this.discovered = true;
       this.error = undefined;
     } catch {
       this.error =
-        'Не удалось обновить команды macOS. Откройте «Команды», затем обновите список. Выбранные команды сохранены.';
+        'Не удалось обновить команды macOS. Откройте «Команды», затем обновите список. Последний список сохранён до следующего обновления.';
     }
     this.notify();
-  }
-  select(id: string, enabled: boolean) {
-    return this.serial(async () => {
-      await this.load();
-      const existing = this.selected.find((s) => s.id === id);
-      const shortcut = this.catalog.find((s) => s.id === id);
-      if (enabled && (!shortcut || this.error))
-        throw Error('Обновите список перед выбором команды.');
-      const selected = this.selected.filter((s) => s.id !== id);
-      if (enabled) selected.push(shortcut!);
-      if (!existing && !enabled) return this.snapshot();
-      await this.deps.save(selected);
-      this.selected = selected;
-      this.notify();
-      return this.snapshot();
-    });
   }
   async run(id: string) {
     if (this.stopped) throw Error('Полка завершает работу.');
@@ -181,20 +120,18 @@ export class MacShortcuts {
     // Reserve before async discovery so concurrent IPC calls cannot start duplicates.
     this.runState = {
       id,
-      name: this.selected.find((s) => s.id === id)?.name || 'Команда',
+      name: this.catalog.find((s) => s.id === id)?.name || 'Команда',
       status: 'running',
     };
     this.notify();
     try {
       const state = await this.state(true);
-      const shortcut = state.shortcuts.find((s) => s.id === id && s.selected);
-      if (!shortcut) throw Error('Команда не выбрана. Добавьте её в настройках.');
+      if (state.error)
+        throw Error('Не удалось проверить доступность команды. Обновите список на полке.');
+      const shortcut = state.shortcuts.find((s) => s.id === id);
+      if (!shortcut) throw Error('Команда удалена или недоступна на этом Mac. Список обновлён.');
       if (shortcut.availability !== 'available')
-        throw Error(
-          shortcut.availability === 'missing'
-            ? 'Команда удалена или недоступна на этом Mac. Обновите выбор в настройках.'
-            : 'Не удалось проверить доступность команды. Обновите список в настройках.',
-        );
+        throw Error('Не удалось проверить доступность команды. Обновите список на полке.');
       this.runState.name = shortcut.name;
       if (this.stopped) throw Error('Полка завершает работу.');
       this.controller = new AbortController();

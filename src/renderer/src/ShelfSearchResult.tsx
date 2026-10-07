@@ -44,11 +44,9 @@ export default function SearchResult({
           ? calculation.displayValue || calculation.value
           : 'Показать все записи';
   const description = command
-    ? command.availability === 'missing'
-      ? 'Нет на этом Mac · Измените выбор в настройках'
-      : command.availability === 'unknown'
-        ? 'Доступность не проверена · Обновите список'
-        : 'Команда macOS'
+    ? command.availability === 'unknown'
+      ? 'Доступность не проверена · Обновите список'
+      : 'Команда macOS'
     : app
       ? app.description || 'Полка'
       : clip
