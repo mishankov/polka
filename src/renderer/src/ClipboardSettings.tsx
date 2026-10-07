@@ -4,6 +4,7 @@ import type { ClipboardState } from '../../shared/clipboard';
 import { shortcutLabel } from '../../shared/launcher';
 import ClipboardSyncSettings from './ClipboardSyncSettings';
 import ClipboardStorageFailure from './ClipboardStorageFailure';
+import ClipboardHelperStatus from './ClipboardHelperStatus';
 import { api, errorMessage } from './api';
 
 export default function ClipboardSettings() {
@@ -62,6 +63,7 @@ export default function ClipboardSettings() {
         readable={state?.preferencesAvailable}
       />
       {state?.helper?.status === 'failed' && <Alert color="red">{state.helper.error}</Alert>}
+      <ClipboardHelperStatus state={state} />
       <Switch
         label="Сохранять скопированный текст и изображения"
         checked={writable && !state.preferences.paused}
@@ -76,7 +78,7 @@ export default function ClipboardSettings() {
           void save('preferences', { pasteOnSelect: event.currentTarget.checked })
         }
       />
-      {state?.preferences.pasteOnSelect && (
+      {state?.preferences.pasteOnSelect && state.helper?.status !== 'starting' && (
         <Text size="xs" c="dimmed">
           {state.pasteAccess === 'granted'
             ? 'Доступ разрешён. Для копирования без вставки используйте ⇧ Enter в истории.'

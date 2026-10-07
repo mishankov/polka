@@ -8,6 +8,7 @@ import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { stopUpdateFixtureProcesses } from './update-fixture-cleanup';
+import type { ClipboardState } from '../src/shared/clipboard';
 // @ts-expect-error Build-time JavaScript.
 import { releaseConfig, releaseArtifactNames } from './release-config.mjs';
 // @ts-expect-error Build-time JavaScript.
@@ -144,13 +145,16 @@ app.on('browser-window-created', (_event, window) => {
         (async () => {
           const deadline = Date.now() + 45000;
           let status;
+          let clipboard;
           do {
             status = await window.platform.call('updates.status');
-            if (status.status === 'current') break;
+            clipboard = await window.platform.call('clipboardHistory.state');
+            if (status.status === 'current' && clipboard.helper.status !== 'starting') break;
             await new Promise(done => setTimeout(done, 100));
           } while (Date.now() < deadline);
           return {
             status,
+            clipboard: { helper: clipboard.helper, storage: clipboard.storage.status },
             marker: await window.platform.call('settings.get', { key: 'updateSmokeMarker' }),
           };
         })()
@@ -355,6 +359,7 @@ require('./index.js');
           version: string;
           profile: string;
           status: { status: string; currentVersion: string };
+          clipboard: { helper: ClipboardState['helper']; storage: string };
           marker: string;
           error?: string;
         }
@@ -381,6 +386,12 @@ require('./index.js');
     assert.equal(receipt.status.status, 'current');
     assert.equal(receipt.status.currentVersion, newPkg.version);
     assert.equal(receipt.marker, 'preserved');
+    assert.equal(
+      receipt.clipboard.helper.status,
+      'running',
+      receipt.clipboard.helper.error ?? 'Clipboard helper must be ready after Sparkle relaunch',
+    );
+    assert.equal(receipt.clipboard.storage, 'ready');
     if (selfSigned) {
       assert.deepEqual(verifySignedBundle(bundle, appId, fingerprint), originalRequirements);
       console.log(
@@ -390,7 +401,7 @@ require('./index.js');
       );
     }
     console.log(
-      'Packaged update passed: signature rejection, automatic download, ordinary quit cancellation, explicit install, relaunch and preserved data.',
+      'Packaged update passed: signature rejection, automatic download, ordinary quit cancellation, explicit install, relaunch, clipboard readiness and preserved data.',
     );
   }
 }

@@ -41,7 +41,7 @@
     "test:clipboard:paste": "tsx scripts/clipboard-paste-smoke.ts",
     "test:clipboard:images": "tsx scripts/clipboard-screenshot-smoke.ts",
     "test:clipboard:animation": "tsx scripts/clipboard-animation-smoke.ts",
-    "test:shelf": "tsx scripts/shelf-smoke.ts && tsx scripts/shelf-search-shortcuts-smoke.ts",
+    "test:shelf": "tsx scripts/shelf-smoke.ts && tsx scripts/shelf-search-shortcuts-smoke.ts && tsx scripts/clipboard-startup-smoke.ts",
     "test:media": "tsx scripts/media-indicator-smoke.ts",
     "sparkle:build": "node scripts/build-sparkle.mjs",
     "test:updates": "tsx scripts/updates-smoke.ts",

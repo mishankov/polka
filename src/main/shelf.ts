@@ -67,6 +67,7 @@ export function createShelf(
   let openedBy: 'hover' | 'keyboard' = 'keyboard';
   let displayId: number | undefined;
   let probe: ChildProcess | undefined;
+  let stopProbe: (() => void) | undefined;
   const paste = new ClipboardPaste((message) => {
     if (helper.status !== 'running' || !probe?.stdin?.writable) return false;
     probe.stdin.write(message);
@@ -519,105 +520,174 @@ export function createShelf(
     changed();
   }
   async function startProbe() {
-    try {
-      const probePath = app.isPackaged
-        ? join(process.resourcesPath, 'clipboard-probe')
-        : join(app.getAppPath(), 'build/clipboard-probe');
-      await new Promise<void>((resolve, reject) => {
-        probe = spawn(probePath, [String(process.pid)], { stdio: ['pipe', 'pipe', 'ignore'] });
-        probe.stdin?.on('error', helperFailed);
-        const timeout = setTimeout(() => {
-          const reason = Error(
-            'Не удалось запустить наблюдение за буфером обмена: помощник не ответил за 5 секунд',
-          );
+    // The first launch after bundle replacement can be slow. Retry just the
+    // native helper, keeping history and the rest of the app independent.
+    const timeouts = [5000, 15000, 30000];
+    for (const [attempt, timeout] of timeouts.entries()) {
+      if (disposed) return;
+      try {
+        await startProbeAttempt(timeout);
+        return;
+      } catch (reason) {
+        if (disposed) return;
+        const code = (reason as NodeJS.ErrnoException)?.code;
+        if (attempt === timeouts.length - 1 || code === 'ENOENT' || code === 'EACCES') {
           helperFailed(reason);
-          probe?.kill();
-          reject(reason);
-        }, 5000);
-        const lines = createInterface({ input: probe.stdout! });
-        probe.on('error', (reason) => {
-          clearTimeout(timeout);
-          reject(reason);
-          helperFailed(reason);
+          return;
+        }
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(() => {
+            stopProbe = undefined;
+            resolve();
+          }, 1000);
+          stopProbe = () => {
+            clearTimeout(timer);
+            stopProbe = undefined;
+            resolve();
+          };
         });
-        probe.on('exit', (code, signal) => {
-          paste.stop();
-          clearTimeout(timeout);
-          lines.close();
-          if (!disposed) {
-            const reason = Error(
-              `Наблюдение за буфером остановлено (${signal ?? code ?? 'неизвестная причина'}). Перезапустите приложение.`,
-            );
-            helperFailed(reason);
-            reject(reason);
-          }
-        });
-        lines.on('line', (line) => {
-          try {
-            const message = JSON.parse(line);
-            if (
-              message.type === 'paste.reply' &&
-              process.env.EVERYTHING_PASTE_DEBUG === '1' &&
-              (message.result?.token ||
-                message.result?.sent !== undefined ||
-                message.result?.reason)
-            )
-              console.log('Clipboard paste reply', {
-                trusted: message.result?.trusted,
-                captured: !!message.result?.token,
-                sent: message.result?.sent,
-                reason: message.result?.reason,
-              });
-            if (message.type === 'ready' && helper.status === 'starting' && !disposed) {
-              clearTimeout(timeout);
-              helper = { status: 'running' };
-              changed();
-              resolve();
-            }
-            if (message.type === 'paste.reply')
-              paste.receive(
-                z
-                  .object({
-                    id: z.string(),
-                    result: z.object({
-                      trusted: z.boolean().optional(),
-                      token: z.string().uuid().optional(),
-                      sent: z.boolean().optional(),
-                      reason: z.string().optional(),
-                    }),
-                  })
-                  .parse(message),
-              );
-            if (message.type === 'clipboard') void capture();
-            if (message.type === 'screens') {
-              const initialGeometry = !receivedScreenGeometry;
-              notches = z
-                .array(
-                  z.object({
-                    id: z.number(),
-                    x: z.number(),
-                    width: z.number(),
-                    height: z.number(),
-                  }),
-                )
-                .parse(message.displays);
-              receivedScreenGeometry = true;
-              screensChanged(notches);
-              if (lifecycle.requested) {
-                // The first snapshot may arrive after the user opens the shelf.
-                // Apply its geometry without treating startup as a monitor change.
-                if (initialGeometry) updateGeometry();
-                else hide();
-              }
-            }
-          } catch (reason) {
-            failed(reason);
-          }
-        });
-      });
-    } catch (reason) {
-      helperFailed(reason);
+      }
     }
+  }
+  async function startProbeAttempt(timeoutMs: number) {
+    const probePath = app.isPackaged
+      ? join(process.resourcesPath, 'clipboard-probe')
+      : join(app.getAppPath(), 'build/clipboard-probe');
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(probePath, [String(process.pid)], {
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      probe = child;
+      let active = true;
+      let ready = false;
+      let exited = false;
+      let didExit: () => void;
+      const exit = new Promise<void>((resolve) => {
+        didExit = resolve;
+      });
+      const lines = createInterface({ input: child.stdout! });
+      function cleanup() {
+        active = false;
+        clearTimeout(timeout);
+        lines.close();
+        if (probe === child) probe = undefined;
+      }
+      function release() {
+        if (stopProbe === cancel) stopProbe = undefined;
+      }
+      function attemptFailed(reason: unknown) {
+        if (!active || disposed) return;
+        cleanup();
+        paste.stop();
+        // Wait for the old process to exit before starting its replacement.
+        // Its late stdout, stdin errors and exit can no longer change state.
+        if (!exited) child.kill('SIGKILL');
+        if (ready) {
+          release();
+          helperFailed(reason);
+        } else
+          void exit.then(() => {
+            release();
+            reject(reason);
+          });
+      }
+      const timeout = setTimeout(() => {
+        const reason = Error(
+          `Не удалось запустить наблюдение за буфером обмена: помощник не ответил за ${timeoutMs / 1000} секунд`,
+        );
+        attemptFailed(reason);
+      }, timeoutMs);
+      function cancel() {
+        const wasActive = active;
+        cleanup();
+        release();
+        if (wasActive && !exited) child.kill();
+        resolve();
+      }
+      stopProbe = cancel;
+      child.stdin?.on('error', attemptFailed);
+      child.on('error', (reason) => {
+        if (!child.pid) {
+          exited = true;
+          didExit();
+        }
+        attemptFailed(reason);
+      });
+      child.on('exit', (code, signal) => {
+        exited = true;
+        didExit();
+        const reason = Error(
+          `Наблюдение за буфером остановлено (${signal ?? code ?? 'неизвестная причина'}). Перезапустите приложение.`,
+        );
+        attemptFailed(reason);
+      });
+      lines.on('line', (line) => {
+        if (!active || disposed) return;
+        try {
+          const message = JSON.parse(line);
+          if (
+            message.type === 'paste.reply' &&
+            process.env.EVERYTHING_PASTE_DEBUG === '1' &&
+            (message.result?.token || message.result?.sent !== undefined || message.result?.reason)
+          )
+            console.log('Clipboard paste reply', {
+              trusted: message.result?.trusted,
+              captured: !!message.result?.token,
+              sent: message.result?.sent,
+              reason: message.result?.reason,
+            });
+          if (message.type === 'ready' && helper.status === 'starting' && !disposed) {
+            clearTimeout(timeout);
+            ready = true;
+            helper = { status: 'running' };
+            changed();
+            resolve();
+          }
+          if (message.type === 'paste.reply')
+            paste.receive(
+              z
+                .object({
+                  id: z.string(),
+                  result: z.object({
+                    trusted: z.boolean().optional(),
+                    token: z.string().uuid().optional(),
+                    sent: z.boolean().optional(),
+                    reason: z.string().optional(),
+                  }),
+                })
+                .parse(message),
+            );
+          if (message.type === 'clipboard') void capture();
+          if (message.type === 'screens') {
+            const initialGeometry = !receivedScreenGeometry;
+            const nextNotches = z
+              .array(
+                z.object({
+                  id: z.number(),
+                  x: z.number(),
+                  width: z.number(),
+                  height: z.number(),
+                }),
+              )
+              .parse(message.displays);
+            // Each replacement helper sends a fresh snapshot. An unchanged
+            // snapshot must not dismiss a shelf opened during startup retries.
+            if (!initialGeometry && JSON.stringify(nextNotches) === JSON.stringify(notches)) return;
+            notches = nextNotches;
+            receivedScreenGeometry = true;
+            screensChanged(notches);
+            if (lifecycle.requested) {
+              // The first snapshot may arrive after the user opens the shelf.
+              // Apply its geometry without treating startup as a monitor change.
+              if (initialGeometry) updateGeometry();
+              else hide();
+            }
+          }
+        } catch (reason) {
+          failed(reason);
+        }
+      });
+    });
   }
   async function startHistory() {
     try {
@@ -968,7 +1038,7 @@ export function createShelf(
     clearInterval(expiryTimer);
     paste.stop();
     if (helper.status !== 'failed') helper = { status: 'stopped' };
-    probe?.kill();
+    stopProbe?.();
     screen.removeListener('display-removed', displayChanged);
     screen.removeListener('display-metrics-changed', displayMetricsChanged);
     await sync.stop();

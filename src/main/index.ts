@@ -528,13 +528,18 @@ app
         ? settings.launcherShortcut
         : DEFAULT_LAUNCHER_SHORTCUT,
     );
-    await shelf.start();
+    // The shelf remains usable while native startup is retried. Its renderer
+    // observes helper/history readiness through clipboardHistory.changed.
+    await Promise.all([
+      shelf.start(),
+      !process.argv.includes('--hidden') && !app.getLoginItemSettings().wasOpenedAtLogin
+        ? openWindow()
+        : Promise.resolve(),
+    ]);
     if (officialRelease) {
       // Update failures must not prevent the shelf or clipboard from starting.
       void updates.handle('updates.check');
     }
-    if (!process.argv.includes('--hidden') && !app.getLoginItemSettings().wasOpenedAtLogin)
-      await openWindow();
     mediaIndicator.start(mediaTrackingFromSettings(settings));
   })
   .catch((e) => {
