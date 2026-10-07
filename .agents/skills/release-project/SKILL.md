@@ -34,13 +34,15 @@ Create `release-notes/VERSION.json` in the release source commit, without the ta
 
 Both fields must contain nonempty text, at most 20,000 characters each. Describe the same changes in both languages. Ground notes in the actual diff and behavior; do not claim untested fixes. Notes are shown as plain text in the app, so use readable lines and bullets rather than relying on HTML or Markdown rendering.
 
+Follow `docs/release-notes.md`: lead with the most useful user changes, give each bullet one concrete outcome, describe the trigger for fixes, and put developer tooling last. Use plain-text section headings with blank lines when grouping a longer list. Keep installation instructions out of the versioned JSON: the GitHub description generator adds all three installation methods in both languages automatically. Audit them against `docs/installation.md` when installation behavior changes.
+
 Validate and preview the GitHub description from the repository root:
 
 ```bash
 node scripts/release-notes.mjs vX.Y.Z /tmp/polka-release-notes.md
 ```
 
-The same validated text goes into the appcast and the GitHub Release description. Editing a GitHub Release body alone does not change the app's notes. The preparation job reads notes from the selected release commit before creating a new draft/tag or starting macOS jobs. New releases require bilingual notes; the legacy exception exists only to retry existing releases whose source predates note support.
+The validated change text goes into the appcast unchanged. The GitHub Release description formats its bullets as Markdown and adds requirements, updating guidance, and all three installation methods in Russian and English, with DMG links pinned to the release tag. Its installer command always downloads the latest stable release. Editing a GitHub Release body alone does not change the app's notes. The preparation job reads notes from the selected release commit before creating a new draft/tag or starting macOS jobs. New releases require bilingual notes; the legacy exception exists only to retry existing releases whose source predates note support.
 
 ## Review, validate, and merge preparation
 
