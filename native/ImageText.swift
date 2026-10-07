@@ -1,6 +1,7 @@
 import Foundation
 import Vision
 import ImageIO
+import CoreImage
 
 // A single request per process. PNG bytes travel over stdin and never touch disk.
 // Revision and options are mirrored in IMAGE_TEXT_VERSION in the host.
@@ -38,7 +39,10 @@ do {
         throw NSError(domain: "ImageText", code: 2)
     }
     stage = "recognize"
-    try VNImageRequestHandler(cgImage: image).perform([request])
+    // Request compute settings do not configure Core Image preprocessing.
+    // Supply a software context so decoding/cropping does not require Metal.
+    let context = CIContext(options: [.useSoftwareRenderer: true])
+    try VNImageRequestHandler(cgImage: image, options: [.ciContext: context]).perform([request])
     stage = "encode"
     let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
         .joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
