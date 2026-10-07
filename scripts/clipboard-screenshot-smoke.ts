@@ -1,14 +1,14 @@
-import { _electron as electron, expect } from '@playwright/test';
+import { runDesktopTest, type DesktopTest } from './desktop-test';
+import { clipboardContentType } from '../src/main/clipboard-history';
+import { expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-async function main() {
-  const profile = await mkdtemp(join(tmpdir(), 'everything-screenshot-'));
-  const app = await electron.launch({
+async function main(test: DesktopTest) {
+  const profile = test.profile;
+  const app = await test.launch({
     ...(process.env.EVERYTHING_EXECUTABLE
       ? { executablePath: resolve(process.env.EVERYTHING_EXECUTABLE), args: [], cwd: profile }
       : { args: [resolve('.')] }),
@@ -18,23 +18,8 @@ async function main() {
     const shell = await app.firstWindow();
     await shell.locator('.launcher').waitFor();
     // Materialize the backup before changing the clipboard: read() items can be lazy.
-    await app.evaluate(async ({ clipboard, ClipboardItem }) => {
-      (globalThis as any).__clipboardBackup = await Promise.all(
-        (await clipboard.read())
-          .filter((item) => item.types.length > 0)
-          .map(
-            async (item) =>
-              new ClipboardItem(
-                Object.fromEntries(
-                  await Promise.all(
-                    item.types.map(async (type) => [type, await item.getType(type)]),
-                  ),
-                ),
-              ),
-          ),
-      );
-    });
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await test.backupClipboard(app);
+    await test.clipboardReady(shell);
     const state = () => shell.evaluate(() => window.platform.call('clipboardHistory.state'));
     await shell.evaluate(() =>
       window.platform.call('clipboardHistory.preferences', {
@@ -42,7 +27,7 @@ async function main() {
         pasteOnSelect: false,
       }),
     );
-    const fixtureBytes = await app.evaluate(async ({ clipboard, ClipboardItem, nativeImage }) => {
+    const fixture = await app.evaluate(async ({ clipboard, ClipboardItem, nativeImage }) => {
       const bytes = Buffer.alloc(1800 * 1200 * 4);
       let random = 123456789;
       for (let i = 0; i < bytes.length; i++) {
@@ -57,8 +42,28 @@ async function main() {
       ]);
       return png.length;
     });
-    assert(fixtureBytes > 8 * 1024 * 1024 * 0.74, 'Fixture exceeds the old silent image cutoff');
-    await expect.poll(async () => (await state()).clips.length).toBe(1);
+    assert(fixture > 8 * 1024 * 1024 * 0.74, 'Fixture exceeds the old silent image cutoff');
+    const types = await app.evaluate(async ({ clipboard }) =>
+      (await clipboard.read()).map((item) => item.types),
+    );
+    const type = types.map(clipboardContentType).find((type) => type && type !== 'text/plain');
+    assert(type && type !== 'text/plain', 'OS clipboard exposes the image fixture');
+    const fixtureId = await app.evaluate(async ({ clipboard, nativeImage }, type) => {
+      // macOS can expose TIFF or native PNG aliases after writing image/png.
+      // Match the OS representation, including its canonical PNG encoding.
+      const item = (await clipboard.read()).find((item) => item.types.includes(type));
+      if (!item) throw Error('Image fixture disappeared from the OS clipboard');
+      const blob = await item.getType(type);
+      const bytes = Buffer.from(await (blob as Blob).arrayBuffer());
+      const png = type === 'image/png' ? bytes : nativeImage.createFromBuffer(bytes).toPNG();
+      const { createHash } = process.getBuiltinModule('crypto') as typeof import('node:crypto');
+      return createHash('sha256')
+        .update('image')
+        .update('\0')
+        .update(png.toString('base64'))
+        .digest('hex');
+    }, type);
+    await test.keepClipboardFixture(shell, fixtureId);
     const large = (await state()).clips[0];
     assert.equal(large.kind, 'image');
     const preview = await shell.evaluate(
@@ -151,21 +156,14 @@ async function main() {
     );
   } finally {
     await app
-      .evaluate(async ({ clipboard }) => {
+      .evaluate(({ clipboard }) => {
         if ((globalThis as any).__clipboardRead)
           clipboard.read = (globalThis as any).__clipboardRead;
-        const items = (globalThis as any).__clipboardBackup;
-        if (items) {
-          if (items.length) await clipboard.write(items);
-          else clipboard.clear();
-        }
       })
       .catch(() => {});
-    await app.close();
-    await rm(profile, { recursive: true, force: true });
   }
 }
-main().catch((error) => {
+runDesktopTest('clipboard-screenshot', main).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

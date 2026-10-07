@@ -1,19 +1,18 @@
-import { _electron as electron, expect } from '@playwright/test';
+import { runDesktopTest, type DesktopTest } from './desktop-test';
+import { expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { SettingsStore } from '../src/main/settings-store';
 import { pressSettingsShortcut, pressAssistantShortcut } from './native-shortcuts';
 
-async function main() {
-  const profile = await mkdtemp(join(tmpdir(), 'everything-shelf-'));
+async function main(test: DesktopTest) {
+  const profile = test.profile;
   const settings = new SettingsStore(profile);
   // This workflow tests the shelf in isolation; media transitions have their own smoke test.
   await settings.handle('settings.set', { key: 'mediaIndicatorEnabled', value: false });
   settings.close();
   const launch = (hidden = false) =>
-    electron.launch({
+    test.launch({
       ...(process.env.EVERYTHING_EXECUTABLE
         ? {
             executablePath: resolve(process.env.EVERYTHING_EXECUTABLE),
@@ -81,42 +80,41 @@ async function main() {
       ['shelf.showEmoji', 'Найти эмодзи'],
     ]) {
       await page.evaluate((method) => window.platform.call(method), method);
-      await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+      await test.shelfReady(app, page, searchName);
       await page.keyboard.press('Escape');
-      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+      await test.shelfHidden(app, page);
       await app.evaluate(({ app }) => app.emit('activate'));
       await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
-      await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+      await test.shelfReady(app, page, searchName);
       // Invoke the registered callback to exercise the shelf shortcut's toggle.
       await app.evaluate(() => (globalThis as any).__shelfToggle());
-      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+      await test.shelfHidden(app, page);
       await app.evaluate(() => (globalThis as any).__shelfToggle());
       await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
-      await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+      await test.shelfReady(app, page, searchName);
       await page.keyboard.press('Escape');
-      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+      await test.shelfHidden(app, page);
       await page.evaluate(() => window.platform.call('launcher.show'));
-      await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+      await test.shelfReady(app, page, searchName);
       await app.evaluate(() => {
         (globalThis as any).__shelfClock = { read: Date.now, now: Date.now() };
         Date.now = () => (globalThis as any).__shelfClock.now;
       });
       try {
         await page.keyboard.press('Escape');
-        await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+        await test.shelfHidden(app, page);
         await app.evaluate(({ app }) => {
           (globalThis as any).__shelfClock.now += 59_999;
           app.emit('activate');
         });
-        // The hidden renderer retains input focus while native reopening is pending.
         await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
-        await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+        await test.shelfReady(app, page, searchName);
         // A minute spent in the open app must not reset its destination.
         await app.evaluate(() => ((globalThis as any).__shelfClock.now += 60_000));
         await page.evaluate(() => window.platform.call('launcher.show'));
-        await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+        await test.shelfReady(app, page, searchName);
         await page.keyboard.press('Escape');
-        await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+        await test.shelfHidden(app, page);
         await app.evaluate(() => ((globalThis as any).__shelfClock.now += 59_999));
         // Repeated hide requests must not restart the closed shelf's timeout.
         await page.evaluate(() => window.platform.call('launcher.hide'));
@@ -124,15 +122,13 @@ async function main() {
           (globalThis as any).__shelfClock.now += 1;
           (globalThis as any).__shelfToggle();
         });
-        await expect(
-          page.getByRole('combobox', { name: 'Поиск по полке', exact: true }),
-        ).toBeFocused();
+        await test.shelfReady(app, page, 'Поиск по полке');
         // An explicit built-in app opening still wins over the idle timeout.
         await page.keyboard.press('Escape');
-        await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+        await test.shelfHidden(app, page);
         await app.evaluate(() => ((globalThis as any).__shelfClock.now += 60_000));
         await page.evaluate((method) => window.platform.call(method), method);
-        await expect(page.getByRole('combobox', { name: searchName, exact: true })).toBeFocused();
+        await test.shelfReady(app, page, searchName);
       } finally {
         await app.evaluate(() => {
           Date.now = (globalThis as any).__shelfClock.read;
@@ -144,7 +140,7 @@ async function main() {
         page.getByRole('combobox', { name: 'Поиск по полке', exact: true }),
       ).toBeFocused();
       await page.keyboard.press('Escape');
-      await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-closed/);
+      await test.shelfHidden(app, page);
       await app.evaluate(({ app }) => app.emit('activate'));
       await expect(page.locator('.clipboard-shelf')).toHaveClass(/is-open/);
       await expect(
@@ -322,7 +318,7 @@ async function main() {
     await expect(page.locator('[class*="mantine-"]')).toHaveCount(0);
     assert.equal(await app.evaluate(({ app }) => app.dock?.isVisible()), false);
     assert.deepEqual(errors, []);
-    await app.close();
+    await test.close(app);
     const after = new SettingsStore(profile);
     assert.equal(await after.handle('settings.get', { key: 'mediaIndicatorEnabled' }), false);
     assert.deepEqual(await after.handle('settings.get', { key: 'mediaIndicatorTracking' }), {
@@ -372,12 +368,9 @@ async function main() {
     );
     await failedPage?.screenshot({ path: '/tmp/everything-shelf-failure.png' }).catch(() => {});
     throw error;
-  } finally {
-    await app.close();
-    await rm(profile, { recursive: true, force: true });
   }
 }
-void main().catch((error) => {
+void runDesktopTest('shelf', main).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

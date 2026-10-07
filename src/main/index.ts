@@ -36,16 +36,21 @@ import polkaTrayPath from './assets/polkaTemplate.png?asset';
 import polkaTray2xPath from './assets/polkaTemplate@2x.png?asset';
 import polkaTray3xPath from './assets/polkaTemplate@3x.png?asset';
 import { shelfMethodAllowed } from '../shared/features';
+import { profilePathFor } from './profile';
 protectTerminalOutput();
 // Keep native materials dark alongside the shelf and settings.
 nativeTheme.themeSource = 'dark';
 const execFileAsync = promisify(execFile);
-// Keep the pre-rebrand profile so existing settings and clipboard history remain available.
-const profilePath =
-  process.env.EVERYTHING_PROFILE ||
-  join(app.getPath('appData'), app.isPackaged ? 'Everything App' : 'everything-app');
+const profilePath = profilePathFor({
+  appData: app.getPath('appData'),
+  packaged: app.isPackaged,
+  checkout: app.getAppPath(),
+  override: process.env.EVERYTHING_PROFILE,
+});
 mkdirSync(profilePath, { recursive: true });
 app.setPath('userData', profilePath);
+if (!app.isPackaged)
+  console.log(`Polka development checkout: ${app.getAppPath()}\nProfile: ${profilePath}`);
 const windows = new Map<number, { window: BrowserWindow; mode: string }>(),
   pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
 let updates: UpdateService;

@@ -1,25 +1,17 @@
-import {
-  _electron as electron,
-  expect,
-  type ElectronApplication,
-  type Page,
-} from '@playwright/test';
+import { runDesktopTest, type DesktopTest } from './desktop-test';
+import { expect, type Page } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { clipId } from '../src/main/clipboard-history';
 import { DEFAULT_CLIPBOARD_PREFERENCES, type ClipboardState } from '../src/shared/clipboard';
 
-async function main() {
-  const root = await mkdtemp(join(tmpdir(), 'everything-sync-smoke-'));
-  const apps: ElectronApplication[] = [];
+async function main(test: DesktopTest) {
+  const root = test.profile;
   const errors: string[] = [];
   const launch = async (name: string) => {
-    const env: Record<string, string> = { ...process.env, EVERYTHING_PROFILE: join(root, name) };
-    delete env.ELECTRON_RUN_AS_NODE;
-    const app = await electron.launch({ args: [resolve('.')], env });
-    apps.push(app);
+    const env = { EVERYTHING_PROFILE: join(root, name) };
+    const app = await test.launch({ args: [resolve('.')], env });
     app
       .context()
       .on('page', (page) => page.on('pageerror', (reason) => errors.push(reason.message)));
@@ -38,7 +30,7 @@ async function main() {
   };
   const state = (page: Page) =>
     page.evaluate(() => window.platform.call<ClipboardState>('clipboardHistory.state'));
-  try {
+  {
     const seed = await launch('seed');
     const contentA = 'History originally on Mac A';
     const contentB = 'History originally on Mac B';
@@ -90,7 +82,7 @@ async function main() {
         Buffer.from(encrypted, 'base64'),
       );
     }
-    await seed.app.close();
+    await test.close(seed.app);
     const a = await launch('a'),
       b = await launch('b');
     // Compare the active clipboard without writing test content to it.
@@ -101,11 +93,18 @@ async function main() {
     await b.page.evaluate(() =>
       window.platform.call('clipboardHistory.syncEnabled', { enabled: true }),
     );
-    await expect
-      .poll(async () => (await state(b.page)).sync?.nearby.length, { timeout: 20000 })
-      .toBeGreaterThan(0);
     await a.page.evaluate(() => window.platform.call('clipboardHistory.syncInvite'));
     const code = (await state(a.page)).sync!.invitation!.code;
+    const invitedDevice = JSON.parse(Buffer.from(code, 'base64url').toString('utf8')).id;
+    // Other Polka instances may be advertised on this Mac or the local network.
+    // Pair only after Bonjour has resolved this fixture's invitation owner.
+    await expect
+      .poll(
+        async () =>
+          (await state(b.page)).sync?.nearby.some((device) => device.id === invitedDevice),
+        { timeout: 20000 },
+      )
+      .toBe(true);
     // Exercise the real pairing form through the app, with actual backend calls.
     const settingsOpening = b.app.waitForEvent('window');
     await b.page.evaluate(() => window.platform.call('shelf.settings'));
@@ -130,7 +129,7 @@ async function main() {
     );
     await a.page.evaluate((id) => window.platform.call('clipboardHistory.remove', { id }), idA);
     assert((await state(b.page)).clips.some((clip) => clip.id === idA));
-    await b.app.close();
+    await test.close(b.app);
     const bRestarted = await launch('b');
     await bRestarted.page.evaluate(() =>
       window.platform.call('clipboardHistory.syncEnabled', { enabled: true }),
@@ -147,9 +146,9 @@ async function main() {
     console.log(
       'Clipboard sync smoke passed: Bonjour discovery, real pairing form, encrypted text/image history merge, pins, offline deletion, restart, shared clear and unchanged clipboard.',
     );
-  } finally {
-    for (const app of apps.reverse()) await app.close().catch(() => {});
-    await rm(root, { recursive: true, force: true });
   }
 }
-void main();
+void runDesktopTest('clipboard-sync', main).catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
