@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import { releasePackage, releaseConfig, releaseArtifactNames } from '../scripts/release-config.mjs';
 // @ts-expect-error Pure build-time JavaScript.
 import * as releaseMetadata from '../scripts/release-metadata.mjs';
+// @ts-expect-error Dependency-free GitHub release description generator.
+import { releaseNotesMarkdown } from '../scripts/release-notes.mjs';
 const { appcastXml, verifyReleaseMetadata, readReleaseNotes } = releaseMetadata;
 import { parseReleaseNotes } from '../src/shared/updates';
 
@@ -37,6 +39,51 @@ const env = {
   POLKA_SIGNING_P12: 'private-certificate',
   POLKA_SIGNING_PASSWORD: 'private-password',
 };
+
+test('GitHub notes include all installation methods in both languages with release-pinned downloads', () => {
+  const notes = {
+    ru: '• Изменение.\n\nДля разработчиков\n• Инструмент.',
+    en: '• Change.\n\nFor developers\n• Tool.',
+  };
+  for (const tag of ['v1.4.0', '1.4.0', 'v1.4.0-beta.1']) {
+    const version = tag.replace(/^v/, '');
+    const body = releaseNotesMarkdown(notes, { tag, repository: 'owner/app' });
+    assert.ok(body.startsWith(`# Polka ${version}\n`));
+    assert.ok(body.includes('**macOS 27+ · Apple silicon**'));
+    assert.ok(body.indexOf('## English') < body.indexOf('## Русский'));
+    const en = body.slice(body.indexOf('## English'), body.indexOf('## Русский'));
+    const ru = body.slice(body.indexOf('## Русский'));
+    for (const language of [ru, en]) {
+      assert.equal((language.match(/^<details>$/gm) || []).length, 1);
+      assert.equal((language.match(/^<\/details>$/gm) || []).length, 1);
+      assert.equal((language.match(/^#### [123]\./gm) || []).length, 3);
+      assert.ok(
+        language.includes(
+          'curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/install.sh | /bin/bash',
+        ),
+      );
+      assert.ok(language.includes('xattr -dr com.apple.quarantine "/Applications/Polka.app"'));
+      assert.ok(
+        language.includes(
+          `https://github.com/owner/app/releases/download/${tag}/polka-${version}-arm64.dmg`,
+        ),
+      );
+    }
+    assert.ok(ru.includes('Всё равно открыть'));
+    assert.ok(en.includes('Open Anyway'));
+    assert.ok(ru.includes('последний стабильный выпуск'));
+    assert.ok(en.includes('latest stable release'));
+    assert.ok(ru.includes('- Изменение.\n\nДля разработчиков\n- Инструмент.'));
+    assert.ok(en.includes('- Change.\n\nFor developers\n- Tool.'));
+    assert.equal(notes.ru.startsWith('•'), true);
+    assert.equal(notes.en.startsWith('•'), true);
+  }
+  assert.throws(() => releaseNotesMarkdown(notes, { tag: 'latest' }), /RELEASE_TAG/);
+  assert.throws(
+    () => releaseNotesMarkdown(notes, { tag: 'v1.4.0', repository: 'bad/repository/path' }),
+    /repository/,
+  );
+});
 
 test('release config requires a persistent certificate and embeds only public update trust', () => {
   assert.throws(() => releaseConfig(pkg, {}), /RELEASE_REPOSITORY/);

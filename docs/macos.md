@@ -52,6 +52,32 @@ Swift CLI `native/MediaProbe.swift` с Foundation/CoreAudio/CoreMediaIO/AVFounda
 
 ## Подпись и обновления
 
+[Установка для пользователей: скрипт, скачивание + Терминал, скачивание + настройки macOS](installation.md).
+
+### Установка через Терминал
+
+На Mac с Apple silicon и macOS 27+:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/install.sh | /bin/bash
+```
+
+`scripts/install.sh` использует только Bash 3.2 и системные утилиты macOS: Node.js, Homebrew и Xcode не нужны. Команда выполняет скрипт из ветки `master`. Установщик разрешает `/releases/latest` в конкретный тег, затем скачивает ZIP и `checksums.txt` именно этого выпуска. До установки проверяет SHA-256, пути внутри ZIP, идентификатор и версию приложения, а также целостность code signature. SHA-256 из того же GitHub Release проверяет целостность загрузки, но не заменяет независимую проверку издателя или Apple notarization.
+
+Установка идёт в `/Applications/Polka.app`; если каталог недоступен для записи, `sudo` запросит пароль macOS. Работающая Полка должна быть закрыта через «Выйти из Полки». Новая копия сначала готовится во временном каталоге рядом с приложением: quarantine снимается только с неё, подпись проверяется повторно, затем заменяется установленная версия. При ошибке замены предыдущая копия восстанавливается. История, настройки и privacy permissions не изменяются установщиком. После установки приложение открывается, а необходимые разрешения macOS пользователь выдаёт отдельно.
+
+Чтобы сначала просмотреть скрипт или выбрать другой существующий каталог, сохраните его в файл:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/install.sh -o install-polka.sh
+less install-polka.sh
+/bin/bash install-polka.sh --install-dir "$HOME/Applications" --no-launch
+```
+
+`--no-launch` оставляет приложение установленным без запуска. При повторной установке штатные обновления внутри Полки остаются доступными.
+
+### Подпись приложения
+
 Локальные и PR-сборки используют ad-hoc подпись (`identity: "-"`). Production-выпуски используют один постоянный self-signed сертификат, без Apple Developer account и notarization. `scripts/sign-macos.mjs` подписывает Electron bundle, вложенный код и Swift helpers до создания DMG/ZIP. Для `clipboard-probe`, `media-probe` и `sync-discovery` заданы постоянные identifiers `app.everything.desktop.<имя помощника>`; UUID Mach-O больше не участвует в их идентичности. `hardenedRuntime` отключён, entitlement разрешает JIT.
 
 macOS хранит разрешения по designated requirement (DR). У ad-hoc сборок он привязан к хешу конкретной версии; у self-signed выпусков — к постоянному сертификату и identifier, поэтому новая версия может удовлетворять прежнему DR. [Apple: идентичность кода и privacy permissions](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements), [self-signed сертификаты](https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/Procedures/Procedures.html). Сборка проверяет сертификат по закреплённому SHA-1 fingerprint и отказывается от отсутствующего, неправильного или истёкшего сертификата. SHA-1 здесь — идентификатор для `codesign`, не алгоритм подписи: сертификат использует RSA 3072 и SHA-256.
@@ -121,7 +147,7 @@ Secrets содержат защищённый PKCS#12 и его пароль. Va
    node scripts/release-notes.mjs vVERSION /tmp/polka-release-notes.md
    ```
 
-   Текст передаётся в `description` соответствующего appcast item как JSON `{ru,en}` и показывается как обычный текст, без HTML. Для старых выпусков без этого поля приложение показывает сообщение об отсутствии примечаний. Workflow и локальная команда `--publish` используют эти же тексты в описании GitHub Release.
+   Текст передаётся в `description` соответствующего appcast item как JSON `{ru,en}` и показывается как обычный текст, без HTML. Для старых выпусков без этого поля приложение показывает сообщение об отсутствии примечаний. Workflow и локальная команда `--publish` используют эти же изменения в описании GitHub Release: генератор преобразует `•` в Markdown-списки и добавляет требования, путь обновления и все три способа установки на русском и английском. DMG-ссылки закреплены за тегом выпуска; команда скрипта устанавливает последний стабильный выпуск. [Правила написания примечаний](release-notes.md).
 2. Запустить `.github/workflows/release.yml` вручную с тегом `vVERSION` или `npm run release -- --publish` локально.
 3. Команда собирает приложение, Swift helpers и Sparkle bridge, упаковывает DMG/ZIP, подписывает готовый ZIP, создаёт `appcast.xml`, проверяет signature/размер/URL/версию, codesign, целостность DMG и packaged shelf smoke.
 4. Workflow загружает ZIP, DMG и checksums, затем appcast, обновляет описание GitHub Release из проверенных русских и английских примечаний. При ручном запуске выпуск остаётся черновиком до завершения загрузки, затем workflow публикует его. `npm run release -- --publish` локально только создаёт черновик: его следует опубликовать вручную после проверки. Предпочитайте ручной запуск workflow с черновиком; при событии `release: published` feed временно недоступен, пока сборка и загрузка не завершены. Пререлизы и черновики не попадают в stable latest. Уже публичные assets не перезаписываются; повторная загрузка staging assets разрешена только для черновиков.

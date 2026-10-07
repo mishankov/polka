@@ -173,7 +173,17 @@ test('new releases preflight immutable notes and pin the draft and tag to the va
     assert.equal(create[create.indexOf('--target') + 1], f.commit);
     assert(!create.includes('--generate-notes'));
     const description = await readFile(join(f.root, 'github-description.md'), 'utf8');
-    assert.equal(description, `## Русский\n\n${notes.ru}\n\n## English\n\n${notes.en}\n`);
+    assert.ok(description.startsWith('# Polka 0.2.0\n'));
+    assert.ok(description.includes('- Из проверенного коммита.'));
+    assert.ok(description.includes('- From the verified commit.'));
+    assert.ok(!description.includes('Wrong checkout notes'));
+    assert.ok(description.includes('### Установка'));
+    assert.ok(description.includes('### Installation'));
+    assert.ok(
+      description.includes(
+        'https://github.com/fixture/polka/releases/download/v0.2.0/polka-0.2.0-arm64.dmg',
+      ),
+    );
     assert.equal(
       f.git('--git-dir', join(f.root, 'origin.git'), 'rev-parse', `refs/tags/${tag}`),
       f.commit,

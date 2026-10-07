@@ -81,7 +81,18 @@
 
 ## Установка и разработка
 
-Готовый выпуск для macOS 27+ на Apple silicon доступен в [GitHub Releases](https://github.com/mishankov/polka/releases/latest). Скачайте DMG и перенесите Polka в «Программы». Выпуски используют постоянную self-signed подпись и не проходят Apple notarization; [установка и разрешения](docs/macos.md#подпись-и-обновления).
+Нужны **macOS 27+** и **Mac с Apple silicon**. Выберите способ установки:
+
+1. **[Скрипт](docs/installation.md#1-установить-скриптом)** — скачивает последний стабильный выпуск, проверяет загрузку, устанавливает и открывает Полку. Вставьте в Терминал:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/install.sh | /bin/bash
+```
+
+2. **[Скачать + Терминал](docs/installation.md#2-скачать-и-выполнить-команду-в-терминале)** — скачайте DMG из [GitHub Releases](https://github.com/mishankov/polka/releases/latest), перенесите Polka в «Программы» и выполните `xattr -dr com.apple.quarantine "/Applications/Polka.app"`.
+3. **[Скачать + настройки macOS](docs/installation.md#3-скачать-и-разрешить-запуск-в-настройках-macos)** — установите приложение из DMG, попробуйте открыть его и разрешите запуск через «Конфиденциальность и безопасность → Всё равно открыть».
+
+Выпуски используют self-signed подпись и не проходят Apple notarization. [Подробные инструкции для всех трёх способов и первого запуска](docs/installation.md). При переустановке сначала выберите «Выйти из Полки» в меню. История и настройки сохраняются; разрешение «Универсальный доступ» для автовставки выдаётся отдельно. Последующие обновления доступны в «О приложении → Обновления».
 
 При переходе со старой ad-hoc версии macOS может потребовать повторно выдать «Универсальный доступ» для автовставки. Чтобы увидеть новую карточку обновлений, сначала установите версию 0.3.0 или новее через «О приложении → Обновления» или DMG; карточка появится для последующих обновлений.
 
@@ -115,7 +126,7 @@ GitHub Actions (`.github/workflows/build.yml`) запускает две гру�
 
 Workflow `release.yml` собирает и загружает ARM64 DMG, ZIP, `checksums.txt` и подписанный update-архив с `appcast.xml` при публикации GitHub Release. Ручной запуск с `tag` (например, `v0.1.15`) создаёт или повторно использует выпуск и публикует черновик после успешных проверок и загрузки. Версия приложения, имена архивов и appcast берутся из тега GitHub Release (без префикса `v`); менять версию в `package.json` не требуется. macOS jobs используют hosted Apple silicon runner `xcode-27`; подготовка и публикация выполняются на Ubuntu; сертификаты Apple не нужны, выпуски используют постоянный self-signed сертификат и не проходят notarization. Сертификат сохраняет идентичность приложения и clipboard helper между обновлениями; переход с ad-hoc версии может потребовать однократной повторной выдачи Accessibility-разрешения. Для автоматических обновлений задайте публичный Ed25519 ключ как variable `SPARKLE_PUBLIC_KEY` и приватный ключ как secret `SPARKLE_PRIVATE_KEY` в среде `release`. Для подписи приложения нужны secrets `POLKA_SIGNING_P12`, `POLKA_SIGNING_PASSWORD` и variable `POLKA_SIGNING_CERT_SHA1`. [Настройка выпуска и обновлений](docs/macos.md).
 
-Перед выпуском добавьте `release-notes/VERSION.json` с полями `ru` и `en` в выпускаемый commit. Проверка `node scripts/release-notes.mjs vVERSION /tmp/polka-release-notes.md` работает без ключей подписи. Workflow проверяет переводы до запуска macOS jobs и использует их в приложении и описании GitHub Release. Для подготовки и публикации релиза есть проектный skill [$release-project](.agents/skills/release-project/SKILL.md).
+Перед выпуском добавьте `release-notes/VERSION.json` с полями `ru` и `en` в выпускаемый commit. [Как писать примечания](docs/release-notes.md). Проверка `node scripts/release-notes.mjs vVERSION /tmp/polka-release-notes.md` работает без ключей подписи. Workflow проверяет переводы до запуска macOS jobs; GitHub-описание автоматически включает требования, обновление и все три способа установки, а приложение показывает только изменения. Для подготовки и публикации релиза есть проектный skill [$release-project](.agents/skills/release-project/SKILL.md).
 
 Для испытаний используйте отдельный профиль: `EVERYTHING_PROFILE=/absolute/test/profile`.
 

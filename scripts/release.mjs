@@ -21,7 +21,13 @@ if (process.argv.includes('--publish') && !process.env.GH_TOKEN)
 await withSigningKeychain(process.env, async (publicEnv) => {
   await mkdir('artifacts', { recursive: true });
   await writeFile('artifacts/release-config.json', JSON.stringify(config, null, 2));
-  await writeFile('artifacts/release-notes.md', releaseNotesMarkdown(pkg.releaseNotes));
+  await writeFile(
+    'artifacts/release-notes.md',
+    releaseNotesMarkdown(pkg.releaseNotes, {
+      tag: pkg.releaseTag,
+      repository: config.extraMetadata.release.repository,
+    }),
+  );
   function run(command, args) {
     const result = spawnSync(command, args, { stdio: 'inherit', env: publicEnv });
     if (result.status !== 0)
