@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, readFile, writeFile, readdir, rm } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setTimeout as delay, setImmediate as turn } from 'node:timers/promises';
 import { buildSync } from 'esbuild';
 import { ClipboardHistory } from '../src/main/clipboard-history';
 import type { createShelf } from '../src/main/shelf';
@@ -38,7 +38,8 @@ async function fixture(
   t: TestContext,
   options: {
     failure?: 'read' | 'decrypt' | 'parse' | 'sync' | 'prune-write';
-    probe?: 'error' | 'timeout';
+    probe?: 'error' | 'timeout' | ('ready' | 'error' | 'timeout' | 'exit')[];
+    holdProbeExit?: boolean;
     holdHistory?: boolean;
   } = {},
 ) {
@@ -72,35 +73,57 @@ async function fixture(
   const alerts: unknown[] = [];
   const shortcuts = new Set<string>();
   const commands: string[] = [];
-  const stdout = new PassThrough();
-  const probe = new EventEmitter() as EventEmitter & {
-    stdin: Writable;
-    stdout: PassThrough;
-    kill(): void;
-  };
-  probe.stdout = stdout;
-  probe.stdin = new Writable({
-    write(chunk, _encoding, done) {
-      const command = JSON.parse(String(chunk));
-      commands.push(command.method);
-      if (command.method !== 'cancel') {
-        queueMicrotask(() =>
-          stdout.write(
-            JSON.stringify({
-              type: 'paste.reply',
-              id: command.id,
-              result: { trusted },
-            }) + '\n',
-          ),
+  const probes: {
+    child: EventEmitter & { stdin: Writable; stdout: PassThrough; kill(): void };
+    kills: number;
+  }[] = [];
+  function spawnProbe() {
+    const stdout = new PassThrough();
+    const probe = new EventEmitter() as (typeof probes)[number]['child'];
+    const attempt = { child: probe, kills: 0 };
+    probes.push(attempt);
+    probe.stdout = stdout;
+    probe.stdin = new Writable({
+      write(chunk, _encoding, done) {
+        const command = JSON.parse(String(chunk));
+        commands.push(command.method);
+        if (command.method !== 'cancel') {
+          queueMicrotask(() =>
+            stdout.write(
+              JSON.stringify({
+                type: 'paste.reply',
+                id: command.id,
+                result: { trusted },
+              }) + '\n',
+            ),
+          );
+        }
+        done();
+      },
+    });
+    probe.kill = () => {
+      attempt.kills++;
+      if (!options.holdProbeExit) probe.emit('exit', null, 'SIGTERM');
+    };
+    const outcome = Array.isArray(options.probe)
+      ? (options.probe[probes.length - 1] ?? 'ready')
+      : (options.probe ?? 'ready');
+    queueMicrotask(() => {
+      if (outcome === 'error')
+        probe.emit('error', Object.assign(new Error('probe missing'), { code: 'ENOENT' }));
+      else if (outcome === 'exit') probe.emit('exit', 7, null);
+      else if (outcome === 'ready') {
+        stdout.write(
+          JSON.stringify({
+            type: 'screens',
+            displays: [{ id: 1, x: 660, width: 192, height: 32 }],
+          }) + '\n',
         );
+        stdout.write('{"type":"ready"}\n');
       }
-      done();
-    },
-  });
-  probe.kill = () => {
-    probe.emit('exit', null, 'SIGTERM');
-    probe.stdout.end();
-  };
+    });
+    return probe;
+  }
   let spawns = 0;
   let shelf: ReturnType<typeof createShelf>;
   class Window extends EventEmitter {
@@ -215,23 +238,7 @@ async function fixture(
           ? {
               spawn() {
                 spawns++;
-                queueMicrotask(() => {
-                  if (options.probe === 'error')
-                    probe.emit(
-                      'error',
-                      Object.assign(new Error('probe missing'), { code: 'ENOENT' }),
-                    );
-                  else if (!options.probe) {
-                    stdout.write(
-                      JSON.stringify({
-                        type: 'screens',
-                        displays: [{ id: 1, x: 660, width: 192, height: 32 }],
-                      }) + '\n',
-                    );
-                    stdout.write('{"type":"ready"}\n');
-                  }
-                });
-                return probe;
+                return spawnProbe();
               },
             }
           : require(name);
@@ -278,8 +285,11 @@ async function fixture(
       encryptFailure = true;
     },
     releaseHistory,
-    line: (line: string) => stdout.write(line + '\n'),
-    exit: () => probe.emit('exit', 7, null),
+    line: (line: string, index = probes.length - 1) =>
+      probes[index].child.stdout.write(line + '\n'),
+    exit: (index = probes.length - 1) => probes[index].child.emit('exit', 7, null),
+    stdinError: (index: number) => probes[index].child.stdin.emit('error', Error('stale stdin')),
+    kills: (index: number) => probes[index].kills,
   };
 }
 
@@ -395,20 +405,114 @@ test('helper spawn failure retains healthy history and is distinct from permissi
   assert.equal(env.alerts.length, 0);
 });
 
-test('helper timeout retains its first failure and does not report permission denial', async (t) => {
+test('helper retries slow startup with a longer deadline and ignores stale process events', async (t) => {
+  const env = await fixture(t, { probe: ['timeout', 'timeout'], holdProbeExit: true });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const starting = env.start();
+  const screens = JSON.stringify({
+    type: 'screens',
+    displays: [{ id: 1, x: 660, width: 192, height: 32 }],
+  });
+  env.line(screens);
+  await env.shelf.show('keyboard', 'clipboard');
+  const presentation = (await env.shelf.handle('shelf.presentation', {})) as ShelfPresentation;
+  assert.equal(presentation.visible, true);
+  t.mock.timers.tick(5000);
+  await turn();
+  assert.equal(env.kills(0), 1);
+  // A replacement must wait for the timed-out process to actually exit.
+  t.mock.timers.tick(1000);
+  assert.equal(env.spawns(), 1);
+  env.exit(0);
+  await turn();
+  t.mock.timers.tick(1000);
+  await turn();
+  assert.equal(env.spawns(), 2);
+  assert.equal((await env.state()).helper.status, 'starting');
+  // The second attempt can take longer than the original five-second limit.
+  t.mock.timers.tick(10000);
+  env.line(screens);
+  env.line('{"type":"ready"}');
+  await starting;
+  assert.equal(env.geometry(), 1);
+  assert.deepEqual(await env.shelf.handle('shelf.presentation', {}), presentation);
+  env.line('{"type":"ready"}', 0);
+  env.line('{"type":"clipboard"}', 0);
+  env.stdinError(0);
+  env.exit(0);
+  t.mock.timers.tick(60000);
+  t.mock.timers.reset();
+  const state = await env.state();
+  assert.equal(state.helper.status, 'running');
+  assert.equal(state.helper.error, undefined);
+  assert.equal(state.pasteAccess, 'granted');
+  assert.equal(env.spawns(), 2);
+  assert.equal(env.kills(1), 0);
+  assert.equal(env.reads(), 0);
+  env.line('{"type":"clipboard"}');
+  await until(async () => (await env.state()).clips.length === 2);
+});
+
+test('helper exit before readiness is retried, but runtime exit stays a failure', async (t) => {
+  const env = await fixture(t, { probe: ['exit', 'ready'] });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const starting = env.start();
+  await turn();
+  t.mock.timers.tick(1000);
+  await starting;
+  assert.equal((await env.state()).helper.status, 'running');
+  env.exit();
+  t.mock.timers.tick(60000);
+  t.mock.timers.reset();
+  const state = await env.state();
+  assert.equal(state.helper.status, 'failed');
+  assert.equal(state.pasteAccess, 'unavailable');
+  assert.equal(env.spawns(), 2);
+});
+
+test('persistent helper timeout exhausts bounded retries without reporting permission denial', async (t) => {
   const env = await fixture(t, { probe: 'timeout' });
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const starting = env.start();
-  t.mock.timers.tick(5000);
+  for (const timeout of [5000, 15000, 30000]) {
+    t.mock.timers.tick(timeout);
+    await turn();
+    if (timeout !== 30000) {
+      t.mock.timers.tick(1000);
+      await turn();
+    }
+  }
   await starting;
   t.mock.timers.reset();
   const state = await env.state();
   assert.equal(state.storage.status, 'ready');
   assert.equal(state.helper.status, 'failed');
-  assert.match(state.helper.error!, /5 секунд/);
+  assert.match(state.helper.error!, /30 секунд/);
   assert.equal(state.pasteAccess, 'unavailable');
-  assert.equal(env.spawns(), 1);
+  assert.equal(env.spawns(), 3);
+  assert.equal(env.kills(0), 1);
+  assert.equal(env.kills(1), 1);
+  assert.equal(env.kills(2), 1);
 });
+
+for (const phase of ['startup', 'probe-exit', 'retry-delay'] as const) {
+  test(`quitting during helper ${phase} cancels startup and prevents further retries`, async (t) => {
+    const env = await fixture(t, { probe: 'timeout', holdProbeExit: phase === 'probe-exit' });
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const starting = env.start();
+    if (phase !== 'startup') {
+      t.mock.timers.tick(5000);
+      await turn();
+    }
+    await env.shelf.stop();
+    await starting;
+    t.mock.timers.tick(60000);
+    t.mock.timers.reset();
+    assert.equal(env.spawns(), 1);
+    assert.equal(env.kills(0), 1);
+    assert.equal((await env.state()).helper.status, 'stopped');
+  });
+}
 
 test('valid helper permission denial is separate from helper and storage health', async (t) => {
   const env = await fixture(t);

@@ -29,6 +29,7 @@ export function createShelfSearchFixture() {
   let pasteOnSelect = true;
   let pasteAccess: ClipboardState['pasteAccess'] = 'granted';
   let pasteReady = true;
+  let helper: ClipboardState['helper'] = { status: 'running' };
   let accessError = '';
   let updateState: UpdateState = { status: 'unavailable', currentVersion: '0.4.0' };
   let acknowledgeShows = true;
@@ -114,6 +115,10 @@ export function createShelfSearchFixture() {
     },
     setPasteOnSelect: (enabled: boolean) => {
       pasteOnSelect = enabled;
+      changed();
+    },
+    setHelper: (value: ClipboardState['helper']) => {
+      helper = value;
       changed();
     },
     setPasteAccess: (access: ClipboardState['pasteAccess'], ready = false) => {
@@ -202,6 +207,7 @@ export function createShelfSearchFixture() {
             registered: true,
             pasteAccess,
             pasteReady,
+            helper,
           };
         case 'launcher.getPreferences':
           return { accelerator: 'CommandOrControl+Shift+Space', registered: true };

@@ -1,6 +1,7 @@
 import { IconLock } from '@tabler/icons-react';
 import type { ClipboardState } from '../../shared/clipboard';
 import { Button } from './NativeControls';
+import ClipboardHelperStatus from './ClipboardHelperStatus';
 
 export default function ClipboardPasteHint({
   state,
@@ -13,6 +14,8 @@ export default function ClipboardPasteHint({
   onRequestAccess: () => void;
   item?: 'Запись' | 'Эмодзи';
 }) {
+  if (state?.helper?.status === 'starting')
+    return <ClipboardHelperStatus state={state} item={item} />;
   if (!state?.preferences.pasteOnSelect || state.pasteAccess === 'granted') return null;
   const required = state.pasteAccess === 'required';
   return (
