@@ -2,7 +2,7 @@ Polka app icon — generated with the built-in image_gen tool.
 Production icon: build/Everything.icon (Apple Icon Composer package).
 Foreground: build/Everything.icon/Assets/shelf.png (1254 × 1254, alpha preserved).
 Original reference: build/icon.png (1024 × 1024, alpha preserved).
-Electron Builder compiles the .icon into Assets.car and a fallback ICNS.
+Xcode's asset compiler builds the .icon into Assets.car and a fallback ICNS.
 The ivory background and rounded enclosure come from the native renderer;
 the foreground contains only the two blocks and shelf, avoiding the extra
 macOS frame around the previous legacy icon. Open Everything.icon in Icon

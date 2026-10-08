@@ -1,0 +1,31 @@
+{
+  "revision": "a0a5428f5af74f312665bd1f1530d92ddf3ef72a",
+  "metric": "c8/V8 source-mapped TypeScript/TSX line coverage, --all includes unexecuted sources",
+  "groups": {
+    "business": {
+      "covered": 4767,
+      "total": 6161,
+      "percent": 77.3738029540659,
+      "files": 41
+    },
+    "overall": {
+      "covered": 4767,
+      "total": 10870,
+      "percent": 43.854645814167434,
+      "files": 74
+    }
+  },
+  "testResult": {
+    "passed": 216,
+    "skipped": 1,
+    "failed": 0
+  },
+  "skipped": "Private-keychain signing integration test excluded; unrelated to app business sources. No GUI coverage merged.",
+  "instrumentation": "Archived HEAD only: worker bundle inline maps, shelf-services anonymous esbuild bundle assigned filename and inline maps in vm.runInThisContext; identical 23 shelf-service tests pass. Generated bundle patterns included before source-map remapping; JSON resources excluded from source totals.",
+  "commands": [
+    "npx c8 --all --include src/**/*.ts --include src/**/*.tsx --reporter=json --reporter=json-summary node --import tsx --test --test-skip-pattern=self-signed\\ updates\\ retain\\ app/helper\\ requirements tests/unit/*.test.ts tests/integration/*.test.ts",
+    "npx c8 --clean=false --all --include src/**/*.ts --include src/**/*.tsx node --enable-source-maps --import tsx --test tests/integration/shelf-services.test.ts",
+    "npx c8 report --all --include src/**/*.ts --include src/**/*.tsx --include coverage-shelf-bundle.cjs --include out/main/worker.js --reporter=json-summary"
+  ],
+  "comparisonNote": "V8 and LLVM executable-line denominators differ across languages. Broad product scopes are reported separately; Core coverage is never presented as whole-app coverage."
+}

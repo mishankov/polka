@@ -1,0 +1,2 @@
+# Preserve third-party license text exactly as distributed.
+native-app/Licenses/*.txt -whitespace

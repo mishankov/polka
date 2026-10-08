@@ -27,123 +27,91 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify macOS source
-    # Source suites share one desktop; packaging and updater modes stay isolated.
-    # This app requires macOS 27; xcode-27 is the hosted Apple silicon image.
+    name: Verify native macOS source
     runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
-      - name: Verify formatting, types, Node tests and desktop workflows
+      - name: Verify Swift services, UI models, regression fixtures and Swift tooling
         timeout-minutes: 25
-        env:
-          # Hosted Vision model compilation fails; retain synthetic OCR logic/UI checks.
-          POLKA_SKIP_NATIVE_OCR: '1'
-        run: npm run verify -- --prebuilt
-
-      - name: Upload desktop screenshots
+        run: ./polka verify --no-desktop
+      - name: Upload native coverage reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: macos-arm64-source-smoke-screenshots
-          path: |
-            artifacts/desktop/**/*.png
-            artifacts/desktop/**/*.zip
-            artifacts/desktop/**/failure.json
-          if-no-files-found: ignore
+          name: macos-arm64-source-coverage
+          path: artifacts/coverage/
+          if-no-files-found: error
           retention-days: 7
-          compression-level: 0
 
   package:
-    name: Package and test macOS arm64
+    name: Package and test native macOS arm64
     runs-on: xcode-27
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
-      - name: Package arm64 DMG and ZIP
-        env:
-          # electron-builder skips even ad-hoc signing for pull requests by default.
-          # Force the certificate-free identity below; no release secrets are used.
-          CSC_FOR_PULL_REQUEST: 'true'
-        run: npm run package -- --prebuilt --publish never -c.mac.identity=-
-
-      - name: Verify packaged app signature and disk image
+      - name: Build optimized native app
+        run: ./polka build
+      - name: Package ZIP and DMG and smoke-test the relocated optimized app
+        timeout-minutes: 15
+        run: ./polka package --prebuilt --desktop
+      - name: Report desktop coverage
         run: |
-          codesign --verify --deep --strict --verbose=2 "release/mac-arm64/Polka.app"
-          for image in release/*.dmg; do
-            hdiutil verify "$image"
-          done
-
-      - name: Test packaged app
-        timeout-minutes: 5
-        run: npm run test:desktop -- shelf --packaged
-
-      - uses: actions/upload-artifact@v7
+          echo 'Hosted CI verifies native window, keyboard, scroll, startup, shutdown and relocated-bundle workflows.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'CGEvent sessionTap file drags require pre-existing Accessibility approval and are not covered by this hosted job.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload native packages
+        uses: actions/upload-artifact@v7
         with:
           name: Polka-macos-arm64
           path: |
-            release/*.dmg
-            release/*.zip
+            release/native-dev/*.zip
+            release/native-dev/*.dmg
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
-
-      - name: Upload desktop screenshots
+      - name: Upload native desktop diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: macos-arm64-smoke-screenshots
-          path: |
-            artifacts/desktop/**/*.png
-            artifacts/desktop/**/*.zip
-            artifacts/desktop/**/failure.json
+          name: macos-arm64-smoke-diagnostics
+          path: artifacts/desktop/
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 0
 
   updates:
-    name: Test macOS update and relaunch (${{ matrix.mode }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - mode: ad-hoc
-            flags: ''
-          - mode: self-signed
-            flags: --self-signed
-          - mode: signing-migration
-            flags: --migrate-self-signed
-    # GUI workflows use separate runners: clipboard, focus and shortcuts are shared.
+    name: Test native macOS update and relaunch
     runs-on: xcode-27
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
-      - name: Test update and relaunch (${{ matrix.mode }})
-        timeout-minutes: 8
-        run: npm run test:desktop -- updates --prebuilt ${{ matrix.flags }}
-
-      - name: Upload updater diagnostics
+      - name: Build optimized native app
+        run: ./polka build
+      - name: Verify authenticated native update, held installation and relaunch
+        timeout-minutes: 15
+        run: ./polka desktop updates --prebuilt --release
+      - name: Upload native updater diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: macos-arm64-update-${{ matrix.mode }}-diagnostics
+          name: macos-arm64-update-diagnostics
           path: artifacts/desktop/
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 0
 
   macos-arm64:
-    # Retain the existing check name for branch protection and require every job.
+    # Preserve the existing branch-protection check name.
     name: Verify and package macOS arm64
     needs: [verify, package, updates]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require all macOS checks to pass
+      - name: Require all hosted macOS checks to pass
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: jq -e 'all(.[]; .result == "success")' <<< "$RESULTS"

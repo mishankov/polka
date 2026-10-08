@@ -1,0 +1,16 @@
+{
+  "name": "polka",
+  "version": "0.1.15",
+  "description": "Приложения и история буфера обмена на полке macOS",
+  "author": "Polka contributors",
+  "license": "MIT",
+  "build": {
+    "appId": "app.everything.desktop",
+    "productName": "Polka",
+    "mac": {
+      "minimumSystemVersion": "27.0",
+      "category": "public.app-category.productivity",
+      "icon": "build/Everything.icon"
+    }
+  }
+}
