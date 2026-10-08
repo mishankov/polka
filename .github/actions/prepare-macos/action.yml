@@ -3,7 +3,7 @@ description: Validate the Apple toolchain, restore optional Swift build caches a
 
 inputs:
   build-cache:
-    description: Build profile to cache (source or optimized); empty caches dependency downloads only.
+    description: Build profile to cache (source, tooling or optimized); empty caches dependency downloads only.
     required: false
     default: ''
   tools-only:
@@ -19,22 +19,35 @@ runs:
       shell: bash
       run: |
         test "$(uname -m)" = arm64
-        test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
-        xcodebuild -version
-        xcrun swift --version
-        toolchain=$( { sw_vers -productVersion; xcodebuild -version; xcrun swiftc --version; xcrun --show-sdk-version; } | shasum -a 256 | cut -d' ' -f1)
-        build_toolchain=$( { echo "$toolchain"; xcode-select -p; xcrun --show-sdk-path; pwd -P; } | shasum -a 256 | cut -d' ' -f1)
+        os_version=$(sw_vers -productVersion)
+        test "${os_version%%.*}" -ge 27
+        xcode_version=$(xcodebuild -version)
+        swift_version=$(xcrun swiftc --version)
+        sdk_version=$(xcrun --show-sdk-version)
+        sdk_build=$(xcrun --show-sdk-build-version)
+        developer_path=$(xcode-select -p)
+        sdk_path=$(xcrun --show-sdk-path)
+        checkout_path=$(pwd -P)
+        printf '%s\n' "$xcode_version" "$swift_version"
+        toolchain=$(printf '%s\n' "$os_version" "$xcode_version" "$swift_version" "$sdk_version" | shasum -a 256 | cut -d' ' -f1)
+        legacy_build_toolchain=$(printf '%s\n' "$toolchain" "$developer_path" "$sdk_path" "$checkout_path" | shasum -a 256 | cut -d' ' -f1)
+        # Host OS patches can share intermediates only with identical compilers,
+        # SDK builds and paths. SwiftPM still validates every build invocation.
+        os_family=$(cut -d. -f1,2 <<< "$os_version")
+        build_toolchain=$(printf '%s\n' "$os_family" "$xcode_version" "$swift_version" "$sdk_version" "$sdk_build" "$developer_path" "$sdk_path" "$checkout_path" | shasum -a 256 | cut -d' ' -f1)
         echo "key=$toolchain" >> "$GITHUB_OUTPUT"
         echo "build_key=$build_toolchain" >> "$GITHUB_OUTPUT"
+        echo "legacy_build_key=$legacy_build_toolchain" >> "$GITHUB_OUTPUT"
 
     - name: Cache Swift tooling intermediates
       if: inputs.build-cache != ''
       uses: actions/cache@v6
       with:
         path: tools/.build
-        key: swift-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift') }}-${{ hashFiles('tools/Sources/**', 'tools/Tests/**') }}
+        key: swift-tools-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('tools/Sources/**', 'tools/Tests/**') }}
         restore-keys: |
-          swift-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift') }}-
+          swift-tools-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-
+          swift-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.legacy_build_key }}-${{ hashFiles('tools/Package.swift') }}-
 
     - name: Cache Swift app intermediates
       if: inputs.build-cache != '' && inputs.tools-only != 'true'
@@ -43,10 +56,12 @@ runs:
         path: |
           native-app/.build
         # SwiftPM validates inputs on every invocation. Reuse unchanged dependencies
-        # across source revisions, but never cross toolchains, paths or build profiles.
-        key: swift-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved') }}-${{ hashFiles('native-app/Sources/**', 'native-app/Tests/**') }}
+        # across source revisions and host OS patches, but never cross compilers,
+        # SDK builds, paths or build profiles.
+        key: swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('native-app/Sources/**', 'native-app/Tests/**') }}
         restore-keys: |
-          swift-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved') }}-
+          swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-
+          swift-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.legacy_build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved') }}-
 
     - name: Cache Swift dependency downloads
       if: inputs.build-cache == '' && inputs.tools-only != 'true'
@@ -58,6 +73,16 @@ runs:
           native-app/.build/artifacts
         # Callers without build caching restore dependency downloads only.
         key: swift-packages-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('native-app/Package.resolved') }}
+
+    - name: Prepare unchanged Swift build inputs
+      if: inputs.build-cache != ''
+      shell: bash
+      env:
+        TOOLS_ONLY: ${{ inputs.tools-only }}
+      run: |
+        packages=(tools)
+        if [[ "$TOOLS_ONLY" != 'true' ]]; then packages+=(native-app); fi
+        swift scripts/prepare-swift-cache.swift "${packages[@]}"
 
     - name: Resolve native Swift dependencies
       if: inputs.tools-only != 'true'

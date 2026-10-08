@@ -74,9 +74,9 @@ jobs:
       - uses: ./.github/actions/prepare-macos
         with:
           build-cache: source
-      - name: Verify Swift services, UI models, regression fixtures and Swift tooling
+      - name: Verify Swift services, UI models, coverage and regression fixtures
         timeout-minutes: 25
-        run: ./polka verify --no-desktop
+        run: ./polka verify --no-desktop --no-tools
       - name: Upload native coverage reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -85,6 +85,24 @@ jobs:
           path: artifacts/coverage/
           if-no-files-found: error
           retention-days: 7
+
+  tooling:
+    name: Verify Swift release tooling
+    needs: prepare
+    runs-on: xcode-27
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: tooling
+          tools-only: 'true'
+      - name: Verify automation, signing, release gates and cancellation
+        run: swift test --package-path tools
 
   updates:
     name: Test native macOS release update and relaunch
@@ -164,7 +182,7 @@ jobs:
 
   publish:
     name: Upload release assets
-    needs: [prepare, verify, updates, build]
+    needs: [prepare, verify, tooling, updates, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

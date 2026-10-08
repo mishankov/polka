@@ -14,7 +14,7 @@ public struct ToolRequest {
       "build": ["debug", "release", "official", "prebuilt", "development-signing"],
       "build-helpers": [], "test": [], "coverage": [], "search-test": [],
       "desktop": ["prebuilt", "release", "external"],
-      "verify": ["prebuilt", "release", "no-desktop", "no-updates", "external-drops"],
+      "verify": ["prebuilt", "release", "no-desktop", "no-updates", "no-tools", "external-drops"],
       "package": ["prebuilt", "desktop", "official", "debug", "dir"],
       "release": ["prebuilt", "desktop", "publish"], "release-verify": [],
       "release-notes": ["version"], "release-prepare": [], "signing-certificate": [],
@@ -70,7 +70,7 @@ public enum Automation {
       coverage                      Run app tests and enforce LLVM coverage gates
       search-test                   Verify the native search regression corpus
       desktop [core|all|updates|files] [--release --prebuilt --external]
-      verify [--no-desktop --no-updates --prebuilt --release --external-drops]
+      verify [--no-desktop --no-updates --no-tools --prebuilt --release --external-drops]
       package [--prebuilt --desktop --official --debug --dir]
       release [--prebuilt --desktop --publish]
       release-verify                Authenticate release artifacts
@@ -186,8 +186,10 @@ public enum Automation {
     case "verify":
       try format(check: true, context: context)
       try Coverage.run(context: context)
-      try tests("tools", context: context)
-      try Regression.run(context: context)
+      if !flags.contains("no-tools") { try tests("tools", context: context) }
+      // Preserve coverage build settings across the probe build so the next
+      // verification can reuse instrumented intermediates. Export happens first.
+      try Regression.run(context: context, codeCoverage: true)
       if !flags.contains("no-desktop") {
         var app: URL?
         if !prebuilt {

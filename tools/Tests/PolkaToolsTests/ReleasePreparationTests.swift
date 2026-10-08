@@ -230,13 +230,13 @@ final class ReleasePreparationTests: XCTestCase {
     let build = try source(".github/workflows/build.yml")
     let aggregate = try job("macos-arm64", in: build)
     XCTAssertTrue(aggregate.contains("name: Verify and package macOS arm64"))
-    XCTAssertTrue(aggregate.contains("needs: [verify, package, updates]"))
+    XCTAssertTrue(aggregate.contains("needs: [verify, tooling, package, updates]"))
     XCTAssertTrue(aggregate.contains("if: always()"))
     XCTAssertTrue(aggregate.contains("all(.[]; .result == \"success\")"))
-    for name in ["verify", "package", "updates"] {
+    for name in ["verify", "tooling", "package", "updates"] {
       XCTAssertTrue(try job(name, in: build).contains("runs-on: xcode-27"))
     }
-    XCTAssertTrue(try job("verify", in: build).contains("./polka verify --no-desktop"))
+    XCTAssertTrue(try job("verify", in: build).contains("./polka verify --no-desktop --no-tools"))
   }
   func testPackageAndUpdateChecksUseOptimizedSwiftProducts() throws {
     let build = try source(".github/workflows/build.yml")
@@ -270,7 +270,10 @@ final class ReleasePreparationTests: XCTestCase {
     XCTAssertTrue(action.contains("swift-tools-v1-"))
     XCTAssertTrue(action.contains("swift-native-v1-"))
     XCTAssertTrue(action.contains("inputs.build-cache"))
-    XCTAssertTrue(action.contains("xcrun --show-sdk-path; pwd -P"))
+    XCTAssertTrue(action.contains("xcrun --show-sdk-path"))
+    XCTAssertTrue(action.contains("xcrun --show-sdk-build-version"))
+    XCTAssertTrue(action.contains("checkout_path=$(pwd -P)"))
+    XCTAssertTrue(action.contains("os_family=$(cut -d. -f1,2"))
     XCTAssertTrue(try job("verify", in: build).contains("build-cache: source"))
     for name in ["package", "updates"] {
       XCTAssertTrue(try job(name, in: build).contains("build-cache: optimized"))
@@ -289,7 +292,7 @@ final class ReleasePreparationTests: XCTestCase {
   }
   func testReleaseJobsUseOneImmutableSourceAndProtectedSigning() throws {
     let release = try source(".github/workflows/release.yml")
-    for name in ["verify", "updates", "build"] {
+    for name in ["verify", "tooling", "updates", "build"] {
       let section = try job(name, in: release)
       XCTAssertTrue(section.contains("ref: ${{ needs.prepare.outputs.commit }}"))
       XCTAssertTrue(section.contains("uses: ./.github/actions/prepare-macos"))
@@ -303,7 +306,7 @@ final class ReleasePreparationTests: XCTestCase {
     XCTAssertTrue(build.contains("${{ secrets.POLKA_SIGNING_P12 }}"))
     XCTAssertTrue(build.contains("${{ secrets.SPARKLE_PRIVATE_KEY }}"))
     let publish = try job("publish", in: release)
-    XCTAssertTrue(publish.contains("needs: [prepare, verify, updates, build]"))
+    XCTAssertTrue(publish.contains("needs: [prepare, verify, tooling, updates, build]"))
     XCTAssertFalse(publish.contains("if: always()"))
     XCTAssertTrue(publish.contains("COMMIT: ${{ needs.prepare.outputs.commit }}"))
     let currentTag = try XCTUnwrap(
@@ -327,6 +330,18 @@ final class ReleasePreparationTests: XCTestCase {
     XCTAssertTrue(updates.contains("release-macos-arm64-update-diagnostics"))
     XCTAssertFalse(updates.contains("environment: release"))
     XCTAssertFalse(updates.contains("secrets."))
+  }
+  func testToolingRunsInParallelAndRemainsARequiredGate() throws {
+    for path in [".github/workflows/build.yml", ".github/workflows/release.yml"] {
+      let workflow = try source(path)
+      let verify = try job("verify", in: workflow)
+      XCTAssertTrue(verify.contains("./polka verify --no-desktop --no-tools"))
+      let tooling = try job("tooling", in: workflow)
+      XCTAssertTrue(tooling.contains("swift test --package-path tools"))
+      XCTAssertTrue(tooling.contains("tools-only: 'true'"))
+      XCTAssertTrue(tooling.contains("build-cache: tooling"))
+      XCTAssertFalse(tooling.contains("needs: verify"))
+    }
   }
   func testWorkflowsHaveNoNonSwiftApplicationOrToolchainFallbacks() throws {
     for path in [
