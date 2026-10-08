@@ -14,7 +14,7 @@ Paths and commands below are relative to the repository root.
 - Read repository instructions and inspect the working tree. Confirm the repository and default branch using the remote and authenticated GitHub access. They are currently `mishankov/polka` and `master`; verify them on each release.
 - Fetch the remote default branch and tags before auditing or choosing a version. Use a clean branch from the remote default branch with a semantic name, preferably `chore/release-VERSION`. If switching would disturb existing work or include unpublished local commits, use an isolated worktree. Preserve unrelated work; never reset or automatically stash it.
 - Use the explicit version or `minor`/`patch` bump requested by the user. If neither is specified, ask which while continuing the documentation audit. Inspect published, non-draft, non-prerelease releases and use the highest stable semantic version as the baseline. Ask for an initial version if there is no stable baseline. `package.json` is not the release baseline.
-- Read `.github/workflows/release.yml`, `.github/workflows/build.yml`, `scripts/release-config.mjs`, `scripts/release-version.mjs`, `scripts/release-notes.mjs`, `scripts/release.mjs`, and `docs/macos.md`. The release tag drives the bundle version and artifact names; do not add an unrelated `package.json` version bump.
+- Read `.github/workflows/release.yml`, `.github/workflows/build.yml`, `scripts/release/release-config.mjs`, `scripts/release/release-version.mjs`, `scripts/release/release-notes.mjs`, `scripts/release/release.mjs`, and `docs/macos.md`. The release tag drives the bundle version and artifact names; do not add an unrelated `package.json` version bump.
 - Inspect any existing tag, draft, published release, or active release run for the chosen version. Resume an identified attempt rather than creating duplicates or overwriting an unrelated release.
 
 ## Audit documentation and write bilingual notes
@@ -39,7 +39,7 @@ Follow `docs/release-notes.md`: lead with the most useful user changes, give eac
 Validate and preview the GitHub description from the repository root:
 
 ```bash
-node scripts/release-notes.mjs vX.Y.Z /tmp/polka-release-notes.md
+node scripts/release/release-notes.mjs vX.Y.Z /tmp/polka-release-notes.md
 ```
 
 The validated change text goes into the appcast unchanged. The GitHub Release description formats its bullets as Markdown and adds requirements, updating guidance, and all three installation methods in Russian and English, with DMG links pinned to the release tag. Its installer command always downloads the latest stable release. Editing a GitHub Release body alone does not change the app's notes. The preparation job reads notes from the selected release commit before creating a new draft/tag or starting macOS jobs. New releases require bilingual notes; the legacy exception exists only to retry existing releases whose source predates note support.
@@ -48,7 +48,7 @@ The validated change text goes into the appcast unchanged. The GitHub Release de
 
 Present the chosen version, source/baseline, documentation corrections, both translations, relevant captures, and validation evidence before pushing. For a preparation-only request, stop with these reviewable changes. For a full release request, continue with the authorized workflow unless a material decision or requested review remains unresolved.
 
-Run `git diff --check` and validate the notes. Documentation, notes, and skill-only edits do not by themselves require rebuilding an unchanged app. For changed app/build inputs, use the appropriate project checks: `npm ci`, `npm run build:prepare`, `npm run verify:desktop`, `npm run verify:workflows`, and updater tests when affected. GUI suites share clipboard, focus, and shortcuts; run them sequentially locally or on separate CI runners. Reuse a freshly prepared build with `--prebuilt`; this option checks outputs exist, not that they match the source.
+Run `git diff --check` and validate the notes. Documentation, notes, and skill-only edits do not by themselves require rebuilding an unchanged app. For changed app/build inputs, use the appropriate project checks: `npm ci`, `npm run build`, `npm run verify -- desktop --prebuilt`, `npm run verify -- workflows --prebuilt`, and updater tests when affected. GUI suites share clipboard, focus, and shortcuts; run them sequentially locally or on separate CI runners. Reuse a freshly prepared build with `--prebuilt`; this option checks outputs exist, not that they match the source.
 
 Commit only release preparation changes, push the branch, and create a PR against the verified default branch. Use a body file for multiline `gh pr create` descriptions. Reuse an existing preparation PR on resumption. In T3 Code, link the PR to the thread; when its PR watcher is available, use it and resume on its wake-up instead of running a polling watcher.
 

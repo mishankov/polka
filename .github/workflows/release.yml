@@ -28,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      node_version: ${{ steps.runtime.outputs.node_version }}
       tag: ${{ steps.release.outputs.tag }}
       commit: ${{ steps.release.outputs.commit }}
       safe_tag: ${{ steps.release.outputs.safe_tag }}
@@ -37,7 +38,11 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: '24.18.0'
+          node-version-file: .node-version
+
+      - name: Read workflow runtime version
+        id: runtime
+        run: echo "node_version=$(cat .node-version)" >> "$GITHUB_OUTPUT"
 
       - name: Resolve release
         id: release
@@ -55,7 +60,7 @@ jobs:
             tag="$REQUESTED_TAG"
           fi
           git check-ref-format "refs/tags/$tag"
-          version=$(node scripts/release-notes.mjs --version "$tag")
+          version=$(node scripts/release/release-notes.mjs --version "$tag")
 
           release_exists=false
           release_is_draft=false
@@ -87,9 +92,10 @@ jobs:
           # Validate notes from that commit, never from the workflow checkout.
           # The preflight is dependency-free and needs no macOS or signing keys.
           has_notes=false
-          if git cat-file -e "$commit:scripts/release-notes.mjs" 2>/dev/null; then
+          if git cat-file -e "$commit:scripts/release/release-notes.mjs" 2>/dev/null || \
+             git cat-file -e "$commit:scripts/release-notes.mjs" 2>/dev/null; then
             git show "$commit:release-notes/$version.json" > "$RUNNER_TEMP/release-notes.json"
-            node scripts/release-notes.mjs "$tag" "$RUNNER_TEMP/release-notes.md" "$RUNNER_TEMP/release-notes.json"
+            node scripts/release/release-notes.mjs "$tag" "$RUNNER_TEMP/release-notes.md" "$RUNNER_TEMP/release-notes.json"
             has_notes=true
           elif [[ "$release_exists" != "true" ]]; then
             echo "New releases require bilingual release-notes/$version.json and the release-notes preflight."
@@ -159,7 +165,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.commit }}
       - uses: actions/setup-node@v7
         with:
-          node-version: '24.18.0'
+          node-version: ${{ needs.prepare.outputs.node_version }}
           cache: npm
       - name: Validate runner
         run: |
@@ -170,24 +176,37 @@ jobs:
       - name: Prepare Electron binary
         run: node -e 'console.log(require("electron"))'
       - name: Build app and native helpers once
-        # Use longstanding commands so retries of older tags remain supported.
-        run: npm run build && npm run native:build
+        # Older source commits still have a separate native:build command.
+        run: |
+          npm run build
+          if [[ ! -f scripts/build.mjs ]]; then npm run native:build; fi
       - name: Verify types, unit tests and desktop workflows
         if: matrix.suite == 'desktop'
         timeout-minutes: 10
         env:
           # Native OCR fixtures run locally; retain synthetic OCR logic/UI checks.
           POLKA_SKIP_NATIVE_OCR: '1'
-        run: npm run typecheck && npm test && npm run test:desktop
+        run: |
+          if [[ -f scripts/verify.mjs ]]; then
+            npm run verify -- desktop --prebuilt
+          else
+            npm run typecheck && npm test && npm run test:desktop
+          fi
       - name: Verify clipboard workflows and media indicator
         if: matrix.suite == 'workflows'
         timeout-minutes: 10
-        run: npm run test:workflows && npm run test:media
+        run: |
+          if [[ -f scripts/verify.mjs ]]; then
+            npm run verify -- workflows --prebuilt
+          else
+            npm run test:workflows && npm run test:media
+          fi
       - name: Upload desktop screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: release-macos-arm64-${{ matrix.suite }}-smoke-screenshots
+          # Older release sources still use these legacy screenshot locations.
           path: |
             /tmp/everything-*.png
             artifacts/**/*.png
@@ -214,7 +233,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.commit }}
       - uses: actions/setup-node@v7
         with:
-          node-version: '24.18.0'
+          node-version: ${{ needs.prepare.outputs.node_version }}
           cache: npm
 
       - name: Validate runner
@@ -227,7 +246,9 @@ jobs:
       - name: Prepare Electron binary
         run: node -e 'console.log(require("electron"))'
       - name: Build app and native helpers once
-        run: npm run build && npm run native:build
+        run: |
+          npm run build
+          if [[ ! -f scripts/build.mjs ]]; then npm run native:build; fi
       - name: Build and authenticate update archive, verify packaged app
         env:
           POLKA_SIGNING_P12: ${{ secrets.POLKA_SIGNING_P12 }}
@@ -250,6 +271,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-macos-arm64-smoke-screenshots
+          # Older release sources still use these legacy screenshot locations.
           path: |
             /tmp/everything-*.png
             artifacts/**/*.png

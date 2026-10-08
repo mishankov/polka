@@ -27,54 +27,33 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify macOS source (${{ matrix.suite }})
-    strategy:
-      fail-fast: false
-      matrix:
-        suite: [desktop, workflows]
+    name: Verify macOS source
+    # Source suites share one desktop; packaging and updater modes stay isolated.
     # This app requires macOS 27; xcode-27 is the hosted Apple silicon image.
     runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24.18.0'
-          cache: npm
-
-      - name: Check Apple silicon and macOS version
-        run: |
-          test "$(uname -m)" = arm64
-          test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
-          node -e 'if (process.platform !== "darwin" || process.arch !== "arm64") process.exit(1)'
-          xcodebuild -version
-
-      - run: npm ci
-      - name: Prepare Electron binary
-        # Electron downloads lazily; finish before Playwright resolves its executable.
-        run: node -e 'console.log(require("electron"))'
-      - name: Build app and native helpers once
-        run: npm run build:prepare
-      - name: Verify types, unit tests and desktop workflows
-        timeout-minutes: 10
+      - uses: ./.github/actions/prepare-macos
+      - name: Verify formatting, types, Node tests and desktop workflows
+        timeout-minutes: 25
         env:
-          # Hosted Vision accurate-model compilation fails; keep native OCR local.
-          # OCR unit logic and desktop UI still run with synthetic recognition.
+          # Hosted Vision model compilation fails; retain synthetic OCR logic/UI checks.
           POLKA_SKIP_NATIVE_OCR: '1'
-        run: npm run verify:${{ matrix.suite }}
+        run: npm run verify -- --prebuilt
 
       - name: Upload desktop screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: macos-arm64-${{ matrix.suite }}-smoke-screenshots
+          name: macos-arm64-source-smoke-screenshots
           path: |
-            /tmp/everything-*.png
-            artifacts/**/*.png
+            artifacts/desktop/**/*.png
             artifacts/desktop/**/*.zip
             artifacts/desktop/**/failure.json
           if-no-files-found: ignore
           retention-days: 7
+          compression-level: 0
 
   package:
     name: Package and test macOS arm64
@@ -82,24 +61,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24.18.0'
-          cache: npm
-      - name: Check Apple silicon and macOS version
-        run: |
-          test "$(uname -m)" = arm64
-          test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
-          xcodebuild -version
-      - run: npm ci
-      - name: Build app and native helpers once
-        run: npm run build:prepare
+      - uses: ./.github/actions/prepare-macos
       - name: Package arm64 DMG and ZIP
         env:
           # electron-builder skips even ad-hoc signing for pull requests by default.
           # Force the certificate-free identity below; no release secrets are used.
           CSC_FOR_PULL_REQUEST: 'true'
-        run: npm run package:prepared -- --publish never -c.mac.identity=-
+        run: npm run package -- --prebuilt --publish never -c.mac.identity=-
 
       - name: Verify packaged app signature and disk image
         run: |
@@ -110,7 +78,7 @@ jobs:
 
       - name: Test packaged app
         timeout-minutes: 5
-        run: npm run test:packaged
+        run: npm run test:desktop -- shelf --packaged
 
       - uses: actions/upload-artifact@v7
         with:
@@ -128,12 +96,12 @@ jobs:
         with:
           name: macos-arm64-smoke-screenshots
           path: |
-            /tmp/everything-*.png
-            artifacts/**/*.png
+            artifacts/desktop/**/*.png
             artifacts/desktop/**/*.zip
             artifacts/desktop/**/failure.json
           if-no-files-found: ignore
           retention-days: 7
+          compression-level: 0
 
   updates:
     name: Test macOS update and relaunch (${{ matrix.mode }})
@@ -142,33 +110,20 @@ jobs:
       matrix:
         include:
           - mode: ad-hoc
-            script: test:updates
+            flags: ''
           - mode: self-signed
-            script: test:updates:self-signed
+            flags: --self-signed
           - mode: signing-migration
-            script: test:updates:signing-migration
+            flags: --migrate-self-signed
     # GUI workflows use separate runners: clipboard, focus and shortcuts are shared.
     runs-on: xcode-27
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24.18.0'
-          cache: npm
-      - name: Check Apple silicon and macOS version
-        run: |
-          test "$(uname -m)" = arm64
-          test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
-          xcodebuild -version
-      - run: npm ci
-      - name: Prepare Electron binary
-        run: node -e 'console.log(require("electron"))'
-      - name: Build app and native helpers once
-        run: npm run build:prepare
+      - uses: ./.github/actions/prepare-macos
       - name: Test update and relaunch (${{ matrix.mode }})
         timeout-minutes: 8
-        run: npm run ${{ matrix.script }} -- --prebuilt
+        run: npm run test:desktop -- updates --prebuilt ${{ matrix.flags }}
 
       - name: Upload updater diagnostics
         if: always()
@@ -178,6 +133,7 @@ jobs:
           path: artifacts/desktop/
           if-no-files-found: ignore
           retention-days: 7
+          compression-level: 0
 
   macos-arm64:
     # Retain the existing check name for branch protection and require every job.
