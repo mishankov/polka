@@ -48,13 +48,34 @@ final class NativeSmokeReadinessTests: XCTestCase {
     XCTAssertNil(missing)
   }
 
+  @MainActor func testWaitsForQueuedResponderChangeAfterControlCreation() async {
+    let window = makeWindow()
+    let control = DeferredFocusableView(frame: NSRect(x: 0, y: 0, width: 600, height: 44))
+    window.contentView!.addSubview(control)
+    XCTAssertFalse(window.firstResponder === control)
+    let focus = Task { @MainActor in
+      await Task.yield()
+      XCTAssertTrue(window.makeFirstResponder(control))
+    }
+    let focused = await nativeSmokeWaitForView(
+      in: window, ofType: DeferredFocusableView.self,
+      ready: { window.firstResponder === $0 })
+    await focus.value
+    XCTAssertTrue(focused === control)
+  }
+
   @MainActor private func makeWindow() -> NSWindow {
+    _ = NSApplication.shared
     let window = NSWindow(
       contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
       backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     return window
   }
+}
+
+@MainActor private final class DeferredFocusableView: NSView {
+  override var acceptsFirstResponder: Bool { true }
 }
 
 @MainActor private final class DeferredCategoryView: NSView {

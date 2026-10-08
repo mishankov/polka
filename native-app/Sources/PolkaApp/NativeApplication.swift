@@ -272,6 +272,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       contentRect: NSRect(x: 0, y: 0, width: 560, height: 510),
       styleMask: [.borderless], backing: .buffered, defer: false)
     shelf.identifier = NSUserInterfaceItemIdentifier("polka-shelf")
+    // Destinations create their native controls after the panel is already
+    // open. Keep Tab navigation current as SwiftUI changes the view tree.
+    shelf.autorecalculatesKeyViewLoop = true
     shelf.title = "Полка"
     shelf.delegate = self
     shelf.isReleasedWhenClosed = false

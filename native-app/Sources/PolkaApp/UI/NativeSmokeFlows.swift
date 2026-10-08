@@ -69,7 +69,7 @@ import SwiftUI
     let window = owner ?? shelf
     let text = window.firstResponder as? NSTextView
     return
-      "destination=\(model.destination), query=\(model.query), visible=\(model.visible)/\(window.isVisible), busy=\(model.busy), key=\(window.isKeyWindow), keyWindow=\(String(describing: NSApp.keyWindow)), active=\(NSApp.isActive), hidden=\(NSApp.isHidden), firstResponder=\(String(describing: window.firstResponder)), delegate=\(String(describing: text?.delegate)), marked=\(text?.hasMarkedText() ?? false), sheet=\(window.attachedSheet != nil), modal=\(NSApp.modalWindow != nil), menuTracking=\(NSMenuTrackingState.shared.active); lifecycle trace:\n\(application.smokeLifecycleTrace.suffix(20).joined(separator: "\n"))"
+      "destination=\(model.destination), query=\(model.query), visible=\(model.visible)/\(window.isVisible), busy=\(model.busy), key=\(window.isKeyWindow), keyWindow=\(String(describing: NSApp.keyWindow)), active=\(NSApp.isActive), hidden=\(NSApp.isHidden), fullKeyboardAccess=\(NSApp.isFullKeyboardAccessEnabled), firstResponder=\(String(describing: window.firstResponder)), delegate=\(String(describing: text?.delegate)), marked=\(text?.hasMarkedText() ?? false), sheet=\(window.attachedSheet != nil), modal=\(NSApp.modalWindow != nil), menuTracking=\(NSMenuTrackingState.shared.active); lifecycle trace:\n\(application.smokeLifecycleTrace.suffix(20).joined(separator: "\n"))"
   }
   func screenshot(_ name: String, window: NSWindow? = nil, includeTitlebar: Bool = false) async {
     guard let screenshotDirectory else { return }
@@ -412,9 +412,25 @@ import SwiftUI
     {
       failures.append("emoji category tabs are cramped")
     }
-    post(48, [], "\t")
-    if !(await wait({ shelf.firstResponder === bar.buttons[0] })) {
-      failures.append("Tab from emoji search did not focus the selected category")
+    // Creating the representables queues a separate search-focus request.
+    // Sending Tab before it completes can target the departing snippet editor
+    // or have the category focus overwritten by that queued request.
+    if await nativeSmokeWaitForView(
+      in: shelf, ofType: NSSearchField.self,
+      ready: {
+        guard let editor = $0.currentEditor() as? NSTextView else { return false }
+        return $0.identifier?.rawValue == "polka-search" && shelf.isKeyWindow
+          && shelf.firstResponder === editor && (editor.delegate as? NSTextField) === $0
+      }) != nil
+    {
+      post(48, [], "\t")
+      if !(await wait({ shelf.firstResponder === bar.buttons[0] })) {
+        failures.append(
+          "Tab from emoji search did not focus the selected category: \(keyboardState()); selected=\(bar.buttons[0].state.rawValue), enabled=\(bar.buttons[0].isEnabled), canBecomeKeyView=\(bar.buttons[0].canBecomeKeyView)"
+        )
+      }
+    } else {
+      failures.append("emoji search did not receive focus before Tab: \(keyboardState())")
     }
     bar.buttons[1].performClick(nil)
     if !(await wait({ model.emojiCategory == "Smileys & Emotion" })) {

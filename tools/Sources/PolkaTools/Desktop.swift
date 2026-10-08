@@ -264,7 +264,10 @@ public enum Desktop {
       env["POLKA_NATIVE_SMOKE_SCREENSHOT"] = artifacts.appendingPathComponent("clipboard.png").path
       env["POLKA_NATIVE_SMOKE_SCREENSHOT_DIR"] = artifacts.path
       let running = try DesktopChild(
-        executable: app.appendingPathComponent("Contents/MacOS/PolkaNative"), arguments: [flag],
+        executable: app.appendingPathComponent("Contents/MacOS/PolkaNative"),
+        // Pin the default macOS tab-navigation mode in this child only. Tests
+        // must not inherit a developer's global keyboard-navigation setting.
+        arguments: [flag, "-AppleKeyboardUIMode", "0"],
         environment: env, directory: context.root)
       child = running
       let result = try await report(
