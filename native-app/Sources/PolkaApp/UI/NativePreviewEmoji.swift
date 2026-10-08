@@ -401,6 +401,11 @@ final class NativeEmojiCategoryButton: NSButton {
   private var hovering = false
   private var hoverTrackingArea: NSTrackingArea?
   override var acceptsFirstResponder: Bool { isEnabled && state == .on }
+  override var canBecomeKeyView: Bool {
+    // NSButton otherwise excludes buttons when Full Keyboard Access is off.
+    // This category picker has one explicit Tab stop, like a native tab group.
+    acceptsFirstResponder && !isHiddenOrHasHiddenAncestor && window?.canBecomeKey == true
+  }
   override func updateTrackingAreas() {
     if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
     let area = NSTrackingArea(
