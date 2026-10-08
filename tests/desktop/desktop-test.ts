@@ -210,6 +210,7 @@ export class DesktopTest {
   readonly artifacts: string;
   private apps = new Set<ElectronApplication>();
   private processes = new WeakMap<ElectronApplication, ChildProcess>();
+  private processOutput = new WeakMap<ElectronApplication, { stdout: string; stderr: string }>();
   private errors: string[] = [];
   private details: Record<string, unknown> = {};
   private clipboard?: ClipboardBackup;
@@ -252,7 +253,15 @@ export class DesktopTest {
     });
     this.apps.add(app);
     // Playwright drops its process mapping when Sparkle quits the original app.
-    this.processes.set(app, app.process());
+    const child = app.process();
+    this.processes.set(app, child);
+    const output = { stdout: '', stderr: '' };
+    this.processOutput.set(app, output);
+    // Retain bounded startup diagnostics even when the first renderer disappears.
+    for (const stream of ['stdout', 'stderr'] as const)
+      child[stream]?.on('data', (chunk) => {
+        output[stream] = (output[stream] + String(chunk)).slice(-65536);
+      });
     const context = app.context();
     context.setDefaultTimeout(10000);
     context.setDefaultNavigationTimeout(30000);
@@ -405,6 +414,7 @@ export class DesktopTest {
         pid: this.process(app).pid,
         exit: this.process(app).exitCode,
         signal: this.process(app).signalCode,
+        output: this.processOutput.get(app),
       });
       state.push(
         await within(
