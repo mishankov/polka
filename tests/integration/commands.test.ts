@@ -104,6 +104,7 @@ test('default desktop coverage retains the harness, shelf fixtures and emoji fau
     'tests/desktop/shelf-smoke.ts',
     'tests/desktop/shelf-search-shortcuts-smoke.ts',
     'tests/desktop/clipboard-startup-smoke.ts',
+    'tests/desktop/shelf-startup-smoke.ts',
     'tests/desktop/emoji-smoke.ts',
     'tests/desktop/image-text-smoke.ts',
     'tests/desktop/file-shelf-smoke.ts',

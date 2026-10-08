@@ -41,6 +41,7 @@ async function fixture(
     probe?: 'error' | 'timeout' | ('ready' | 'error' | 'timeout' | 'exit')[];
     holdProbeExit?: boolean;
     holdHistory?: boolean;
+    holdRenderer?: boolean;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'polka-services-'));
@@ -135,7 +136,7 @@ async function fixture(
     webContents = Object.assign(new EventEmitter(), {
       setWindowOpenHandler() {},
       send(_channel: string, event: { type: string; presentation: { revision: number } }) {
-        if (event.type === 'shelf.shown')
+        if (event.type === 'shelf.shown' && !options.holdRenderer)
           queueMicrotask(() => {
             void shelf.handle('shelf.didShow', { revision: event.presentation.revision });
           });
@@ -670,3 +671,62 @@ test(
     assert.equal(env.visible(), true);
   },
 );
+
+test('cold renderer can acknowledge after two seconds without cancelling the first opening', async (t) => {
+  const env = await fixture(t, { holdRenderer: true });
+  await env.shelf.start();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const opening = env.shelf.show('keyboard', 'apps');
+  let settled = false;
+  void opening.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  await turn();
+  const presentation = (await env.shelf.handle('shelf.presentation', {})) as ShelfPresentation;
+  assert.equal(presentation.visible, true);
+  t.mock.timers.tick(2500);
+  await turn();
+  assert.equal(settled, false, 'A cold renderer must still be allowed to finish mounting.');
+  assert.equal(await env.shelf.handle('shelf.didShow', { revision: presentation.revision }), true);
+  await opening;
+  assert.equal(env.visible(), true);
+  t.mock.timers.reset();
+});
+
+test('an unresponsive cold renderer remains bounded and cannot acknowledge a timed-out opening', async (t) => {
+  const env = await fixture(t, { holdRenderer: true });
+  await env.shelf.start();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const opening = env.shelf.show('keyboard', 'apps');
+  const failed = assert.rejects(opening, /Не удалось открыть полку/);
+  await turn();
+  const presentation = (await env.shelf.handle('shelf.presentation', {})) as ShelfPresentation;
+  t.mock.timers.tick(10000);
+  await failed;
+  assert.equal(env.visible(), false);
+  assert.equal(await env.shelf.handle('shelf.didShow', { revision: presentation.revision }), false);
+  t.mock.timers.reset();
+});
+
+test('an already mounted renderer retains the shorter timeout for later openings', async (t) => {
+  const env = await fixture(t, { holdRenderer: true });
+  await env.shelf.start();
+  const first = env.shelf.show('keyboard', 'apps');
+  await turn();
+  const presentation = (await env.shelf.handle('shelf.presentation', {})) as ShelfPresentation;
+  await env.shelf.handle('shelf.didShow', { revision: presentation.revision });
+  await first;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const opening = env.shelf.show('keyboard', 'clipboard');
+  const failed = assert.rejects(opening, /Не удалось открыть полку/);
+  await turn();
+  t.mock.timers.tick(2000);
+  await failed;
+  assert.equal(env.visible(), false);
+  t.mock.timers.reset();
+});

@@ -51,6 +51,7 @@ export function createShelf(
 ) {
   let window: BrowserWindow | undefined;
   let loading: Promise<void> | undefined;
+  let rendererReady = false;
   let savingImage = false;
   let fileProbe: ChildProcess | undefined;
   let fileDrag = false;
@@ -380,6 +381,7 @@ export function createShelf(
         },
       });
       window = win;
+      rendererReady = false;
       register(win);
       // Keep the background app activation policy when the panel joins Spaces.
       // Transforming the process here can disturb the current Space.
@@ -451,7 +453,9 @@ export function createShelf(
     window.setBounds(geometry.panel);
     const shownRevision = presentation.revision;
     const ready = new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => finish(false), 2000);
+      // The first React mount and module compilation can exceed two seconds on
+      // a cold Mac. Keep later openings bounded by the usual short timeout.
+      const timer = setTimeout(() => finish(false), rendererReady ? 2000 : 10000);
       const finish = (ready: boolean) => {
         clearTimeout(timer);
         if (pendingShow?.revision === shownRevision) pendingShow = undefined;
@@ -886,6 +890,7 @@ export function createShelf(
     if (method === 'shelf.didShow') {
       const revision = z.number().int().parse(params.revision);
       if (pendingShow?.revision === revision) {
+        rendererReady = true;
         pendingShow.finish(true);
         return true;
       }

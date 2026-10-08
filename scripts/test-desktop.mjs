@@ -7,6 +7,7 @@ const suites = {
     'shelf-smoke',
     'shelf-search-shortcuts-smoke',
     'clipboard-startup-smoke',
+    'shelf-startup-smoke',
     'emoji-smoke',
     'image-text-smoke',
     'file-shelf-smoke',
@@ -14,6 +15,7 @@ const suites = {
   shelf: ['shelf-smoke', 'shelf-search-shortcuts-smoke', 'clipboard-startup-smoke'],
   'shelf-search': ['shelf-search-shortcuts-smoke'],
   'clipboard-startup': ['clipboard-startup-smoke'],
+  'shelf-startup': ['shelf-startup-smoke'],
   harness: ['desktop-harness-smoke'],
   emoji: ['emoji-smoke'],
   workflows: [
