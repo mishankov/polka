@@ -1,5 +1,3 @@
-node_modules/
-out/
 /release/
 artifacts/
 build/media-probe
@@ -12,3 +10,7 @@ build/sync-discovery
 !.env.example
 build/image-text
 build/file-shelf-probe
+native-app/.build/
+native-app/.swiftpm/
+tools/.build/
+tools/.swiftpm/

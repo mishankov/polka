@@ -61,7 +61,7 @@ func finishIncoming() {
   }
 }
 func rebuild() {
-  panels.forEach { $0.close() }
+  for panel in panels { panel.close() }
   panels = NSScreen.screens.map { screen in
     let frame = screen.frame
     // The strip begins below the physical camera area, including on notchless displays.
@@ -76,7 +76,7 @@ func rebuild() {
     panel.backgroundColor = .clear
     panel.isOpaque = false
     panel.hasShadow = false
-    // Keep the native strip above the revealed Electron shelf so a Finder drag
+    // Keep the native strip above the revealed shelf so a Finder drag
     // retains an AppKit destination throughout opening.
     panel.level = NSWindow.Level(rawValue: NSWindow.Level.popUpMenu.rawValue + 1)
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]

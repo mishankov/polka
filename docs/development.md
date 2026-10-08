@@ -1,62 +1,65 @@
-# Разработка и desktop-тесты
+# Разработка
 
-В новом checkout выполните `npm run setup`, затем `npm run dev`. Версия Node закреплена в `.node-version`; CI и локальный менеджер версий используют этот файл. `package.json` задаёт поддерживаемые Node 24 и npm 11. Для автоматической подготовки worktree в T3 используется установка зависимостей, подготовка Electron и `npm run build -- --native`.
-
-Desktop-проверки и их fixtures находятся в `tests/desktop/`, unit-тесты — в `tests/unit/`, проверки файлов, процессов, базы данных и macOS-инструментов — в `tests/integration/`. В `scripts/release/` собраны упаковка выпуска, подпись, проверка артефактов и подготовка примечаний. В корне `scripts/` остаются запуск и подготовка разработки, генераторы ресурсов и установщик. Все команды запускаются из корня репозитория; список npm-команд содержит основные точки входа, а отдельные suites выбираются аргументом.
-
-`npm test` выполняет обе Node-группы. `npm test -- unit` запускает быстрые проверки без сборки и macOS-инструментов; `npm test -- integration` запускается после сборки. Параметры Node передаются после группы, например `npm test -- unit --test-name-pattern="search"`. Полный набор Node-проверок остаётся в CI.
-
-`npm run build` собирает приложение и Swift-помощники; подготовка разработки пересобирает только отсутствующие или устаревшие Swift-помощники; `--native` собирает только помощники, `--javascript` — только JavaScript (для CI после восстановления точного кэша helpers). `npm run verify` проверяет форматирование, собирает один раз и выполняет обе группы проверок. Для отдельной группы используйте `npm run verify -- desktop` или `npm run verify -- workflows`; `--prebuilt` пропускает сборку и проверяет наличие выходных файлов.
-
-`npm run test:desktop` запускает основную группу: harness, полку, поиск, готовность буфера, эмодзи, OCR и файловую полку. Отдельные проверки выбираются именем suite:
+Нужны Apple silicon, macOS 27+, полный Xcode 27 и Swift 6. Выберите установленный Xcode через `xcode-select`; при необходимости выполните `xcodebuild -runFirstLaunch`. Swift-зависимости закреплены в `native-app/Package.resolved`; инструментарий — отдельный пакет `tools/Package.swift`.
 
 ```sh
-npm run build
-npm run test:desktop -- clipboard
-npm run test:desktop -- clipboard-actions --native
-npm run test:desktop -- clipboard-images --native
-npm run test:desktop -- clipboard-paste --dev
-npm run test:desktop -- clipboard-sync
-npm run test:desktop -- clipboard-storage
-npm run test:desktop -- updates --self-signed --prebuilt
+./polka setup
+./polka dev
 ```
 
-`shelf-search` содержит восемь именованных сценариев в `tests/desktop/shelf-search-cases.ts`, каждый с новым скрытым renderer и новым состоянием fixture. Для отдельного сценария: `npm run test:desktop -- shelf-search --case emoji`. Имена: `catalog`, `calculations`, `search-actions`, `ranking`, `clipboard`, `emoji`, `restoration`, `updates`. Harness печатает начало, результат и время каждого сценария; при отказе имя сохраняется в `failure.json` вместе с исходной ошибкой.
+`./polka` собирает Swift CLI при первом вызове. `setup` разрешает зависимости обоих пакетов и собирает помощники. `dev` собирает `release/native-dev/Polka Native.app` и запускает его. Оптимизированный `build` использует отдельный каталог `release/native-build/`, поэтому упаковка не заменяет работающую development-сборку. Приложение и инструментарий написаны на Swift и используют системные утилиты macOS.
 
-Проверка восстановления хранилища `clipboard-storage` использует общий harness и входит в `npm run verify -- workflows`, поэтому выполняется в PR и release CI. Её snapshots находятся в `artifacts/desktop/clipboard-storage/`.
+## Команды
 
-Полный список suites и допустимых параметров: `npm run test:desktop -- --help`. Кроме обновлений, desktop-проверки требуют предварительной сборки. `npm run test:desktop -- shelf --packaged` проверяет полку готового `.app`, `npm run test:desktop -- workflows --packaged` — его clipboard-сценарии. Проверки выполняются последовательно; независимые проверки продолжаются после отказа, а итоговая команда завершается с ошибкой. Ошибка подготовки останавливает запуск проверок.
+| Команда | Действие |
+| --- | --- |
+| `./polka setup` | Зависимости Swift-пакетов и сборка помощников |
+| `./polka dev` | Debug-сборка и запуск с постоянной development-подписью |
+| `./polka build` | Оптимизированный Swift bundle и помощники |
+| `./polka build --debug` | Debug-сборка |
+| `./polka test` | XCTest приложения и Swift-инструментария |
+| `./polka test tools` | XCTest Swift-инструментария |
+| `./polka coverage` | LLVM-покрытие Swift и проверка порогов |
+| `./polka search-test` | 2 164 эталонных случая поиска и вычислений |
+| `./polka verify` | Форматирование, покрытие, тесты, эталоны, desktop и updater |
+| `./polka verify --no-desktop` | Проверка без окон и настоящего updater |
+| `./polka package` | Оптимизированный локальный `.app`, ZIP и DMG |
+| `./polka release` | Официальный пакет и подписанный appcast |
+| `./polka format --check` | Проверка форматирования Swift |
 
-`npm run package` собирает и упаковывает DMG/ZIP. `--dir` создаёт только `.app`, `--prebuilt` использует готовую сборку; остальные аргументы передаются electron-builder. Например: `npm run package -- --prebuilt --publish never`. Справка доступна также у `build`, `verify` и `package` через `-- --help`.
+`./polka test app` запускает XCTest приложения, `./polka test tools` — XCTest инструментария; `all` выбран по умолчанию. Для передачи Swift-фильтров используйте `swift test --package-path native-app --filter ...`. `./polka coverage` измеряет покрытие Swift; сравнивайте долю покрытого кода по отчётам, а не число тестов.
 
-Редкие операции запускаются напрямую: `node scripts/generate-emoji-data.mjs` обновляет каталог эмодзи, `node scripts/release/create-signing-certificate.mjs /absolute/secure/backup/directory` создаёт постоянный сертификат, `node scripts/release/verify-release.mjs` проверяет готовый production-выпуск. [Данные эмодзи](emoji-data.md), [подпись и выпуск](macos.md).
+`--prebuilt` у verify/package/desktop пропускает подготовку готовых Swift-продуктов; используйте его только после свежей сборки соответствующей конфигурации. `--release` выбирает оптимизированные продукты. `verify --no-updates` пропускает настоящий Sparkle smoke, сохраняя Swift-тесты обновлений. `package --desktop` проверяет приложение после извлечения ZIP; `--dir` создаёт только `.app`. Справка команд доступна через `--help`.
 
-Профиль разработки находится в `~/Library/Application Support/polka-development/ИМЯ-CHECKOUT-ХЕШ`. Одинаковый checkout использует один профиль при последующих запусках; разные checkout, в том числе с одинаковым именем папки, получают разные профили. Приложение печатает пути checkout и профиля в терминал. `EVERYTHING_PROFILE=/absolute/path` переопределяет профиль. Ранее использовавшийся профиль разработки `~/Library/Application Support/everything-app` сохраняется на диске; его можно выбрать явно. Профиль установленного приложения остаётся прежним.
+```sh
+./polka build --release
+./polka verify --prebuilt --release
+./polka package --prebuilt --desktop
+```
 
-Все desktop-проверки используют `tests/desktop/desktop-test.ts`. Он создаёт временный профиль, убирает `ELECTRON_RUN_AS_NODE` из окружения запуска и сериализует GUI-проверки на одном Mac: буфер, фокус и системные сочетания общие для процессов. Одна проверка может запускать несколько собственных приложений, например для синхронизации или вставки. Блокировка освобождается после очистки; блокировка завершившегося процесса восстанавливается автоматически.
+Ресурсы и иконка находятся в `native-app/Resources/`, emoji JSON — в `native-app/Sources/PolkaCore/Resources/`. Помощники из `native/` собирает `BuildTool.buildHelpers` в `tools/Sources/PolkaTools/Build.swift`. Swift XCTest можно запустить напрямую: `swift test --package-path native-app`. Набор эталонных запросов содержит 2 164 случая в `tests/fixtures/search-cases.json.gz` и выполняется `./polka search-test`.
 
-Блокировка охватывает suites с этим harness. Для проверок нативного фокуса и вставки используйте свободный рабочий стол без другой работающей копии Polka и без действий мышью/клавиатурой: другая программа может забрать фокус между проверками, а hover-полка и глобальные сочетания Polka могут конкурировать с fixture. Эти сценарии проверяются на отдельном macOS runner, а renderer-проверки поиска используют скрытое окно. Paste-тест записывает владельца меню в диагностику, чтобы отличать такое вмешательство от ошибки приложения.
+## Профиль и development-подпись
 
-Проверки, меняющие буфер, сохраняют все читаемые форматы в памяти до первой записи и восстанавливают их через оставшееся приложение после проверки, включая перезапуск основного fixture. Если fixture завершился аварийно, harness запускает отдельный процесс восстановления. Резервная копия буфера хранится только в памяти. В macOS восстановление HTML учитывает транспортный charset-заголовок Electron; harness проверяет точное совпадение исходных байтов после восстановления. Закрытие ограничено по времени; удаление временного профиля начинается после выхода процессов и помощников.
+Профиль checkout: `~/Library/Application Support/polka-development/native-ИМЯ-CHECKOUT-ХЕШ`. Разные checkout имеют разные профили; один checkout сохраняет профиль между запусками. `EVERYTHING_PROFILE=/absolute/path` выбирает явный каталог. Установленная программа использует `~/Library/Application Support/Everything App/`. [Что хранится](data.md).
 
-Ожидайте наблюдаемое завершение операции. DOM-фокус может сохраниться в скрытой полке: для открытия и закрытия используйте `shelfReady` и `shelfHidden`, которые также проверяют нативное окно. Для готовности clipboard helper используйте `clipboardReady` вместо фиксированного ожидания. Изолированный renderer fixture поиска работает в скрытом окне; настоящие сценарии фокуса и вставки проверяются отдельно.
+`dev` создаёт один сертификат **Polka Native Development Signing** в `~/Library/Application Support/polka-development/signing`. Каталог закрыт правами 0700, файлы — 0600. Сертификат используется через временный signing keychain, не импортируется в login Keychain и не меняет системное доверие. Повреждённый или неполный cache вызывает ошибку и не заменяется автоматически.
 
-Первый образец буфера проверяйте по его идентификатору, а не по числу записей: helper может ещё сохранять исходный буфер. `keepClipboardFixture` ждёт нужную запись и убирает стартовые записи только из временной истории. Идентификатор изображения должен учитывать представление macOS после записи в буфер, которое может отличаться от исходных PNG-байтов. В paste-fixture клавиатура активирует преобразования и вставку; клики мышью проверяются в suite действий.
+Помощник доступа к Keychain хранится в `~/Library/Application Support/polka-development/keychain-broker`. Его готовый подписанный бинарник повторно используется без изменения `cdhash` при обычной пересборке приложения. Он проверяет идентификатор и сертификат клиента и возвращает ключ через анонимный pipe. Первое обращение может потребовать «Разрешать всегда» и пароль связки «Вход». Изменение самого помощника или сертификата требует нового системного разрешения. Не удаляйте signing/broker cache между обычными запусками.
 
-Перед запуском suite harness очищает только её каталог артефактов. Все screenshots, включая успешные проверки и системный захват, сохраняются в `artifacts/desktop/ИМЯ-ПРОВЕРКИ/`. При ошибке harness сохраняет снимки окон, Playwright traces, события нативного фокуса/видимости и состояние процесса/полки в `artifacts/desktop/ИМЯ-ПРОВЕРКИ/`. CI загружает эти файлы вместе с остальными снимками. Для просмотра trace: `npx playwright show-trace artifacts/desktop/ИМЯ-ПРОВЕРКИ/0-trace.zip`. Исправляйте причину ошибки; успешный повтор неизменённого теста сам по себе не доказывает исправление.
+## Desktop-проверки
 
-Для проверки повторяемости выполняйте соответствующие suites несколько раз последовательно. `npm run verify` проверяет приложение и desktop-сценарии; тесты реальной вставки и синхронизации доступны отдельно как `npm run test:desktop -- clipboard-paste` и `npm run test:desktop -- clipboard-sync`. [Пределы автоматической проверки](validation.md).
+```sh
+./polka desktop core --prebuilt
+./polka desktop updates --prebuilt --release
+./polka desktop files --prebuilt
+./polka verify --prebuilt --external-drops
+```
 
-`npm run test:desktop -- media` сравнивает системные снимки защищённого и незащищённого индикатора, если доступно разрешение на запись экрана. Без него остальные сценарии выполняются, но системный захват остаётся непроверенным. macOS может относить запрос дочернего Electron к запускающей программе: при запуске этих проверок из T3 Code (Nightly) журнал TCC указывает T3 как ответственное приложение. В таком случае разрешение нужно включить для T3 в «Системные настройки → Конфиденциальность и безопасность → Запись экрана и системного аудио», затем перезапустить программу, если macOS этого требует. Снимки сравнения сохраняются в `artifacts/desktop/media-indicator/media-capture-protected.png` и `artifacts/desktop/media-indicator/media-capture-unprotected.png`; проверьте, что индикатор виден только на незащищённом снимке.
+`desktop` принимает `all`, `core`, `updates` или `files`. Основные AppKit-сценарии и updater работают с отдельными временными профилями и синтетическими данными. Файловые сценарии отправляют настоящие CGEvent мыши и требуют уже выданного Accessibility; отсутствие разрешения — ошибка проверки, а не успешный пропуск. `verify --external-drops` явно включает эти локальные сценарии. Hosted CI не выдаёт такие разрешения и не запускает их. Для независимого внешнего AppKit drag-source используйте `./polka desktop files --prebuilt --external`.
 
-`npm run test:desktop -- file-shelf` проверяет drop настоящих File через preload, выбор нескольких файлов, drag payload, переходы между файлами, поиском и историей, недоступные ссылки и сохранность оригиналов. Снимки с синтетическими данными: `artifacts/desktop/file-shelf/`. `POLKA_NATIVE_SCREENSHOTS=1 npm run test:desktop -- file-shelf` снимает область собственного окна через macOS compositor и требует Screen Recording; обычный suite снимает renderer без этого разрешения. `npm run test:desktop -- file-shelf-native` отдельно проверяет перенос между AppKit fixture и Полкой; требуется Accessibility у запускающего приложения. Обе проверки используют общую блокировку рабочего стола, отдельный профиль и не меняют системный буфер.
+GUI-драйверы используют общую блокировку из `tools/Sources/PolkaTools/Desktop.swift`. Запускайте их последовательно на свободном рабочем столе. Другая копия Полки или движения мышью могут забрать фокус; не вмешивайтесь в тест. Fixture не читает пользовательскую историю и Keychain, не использует пользовательский буфер или глобальные сочетания. После завершения драйвер ждёт выхода своих процессов и очищает временный профиль.
 
-Нативная проверка не входит в стандартный CI: ей нужен свободный рабочий стол и Accessibility для мышиного драйвера. `npm run test:desktop -- file-shelf-native --finder` использует отдельное окно Finder с двумя синтетическими файлами и AppKit receiver; для управления окном требуется разрешение Automation для Finder, а для снимка этого окна — Screen Recording. Полный сценарий Finder → Полка → AppKit receiver проверен локально с обычным renderer. Helper цели использует только drag pasteboard и не требует Accessibility. Отдельного физического дисплея без выреза для локальной проверки не было; helper создаёт цель на каждом `NSScreen` с учётом `safeAreaInsets.top`.
+Для проверки извлечённого или другого bundle задайте `POLKA_NATIVE_APP=/absolute/Polka.app`. Отчёты, журналы и изображения сохраняются в `artifacts/desktop/native-smoke/`, `native-file-drop/` и каталоге updater. Смотрите первую причину отказа и сохранённый JSON; успешный повтор без исправления не подтверждает устранение проблемы.
 
-`npm run test:desktop -- clipboard-ocr` проверяет настоящий Vision, зашифрованную историю, поиск и действия preview в скрытом окне с изолированным профилем и блокировкой desktop harness. Только clipboard API, регистрация глобальных сочетаний и нативный показ этого fixture подменены: проверка не читает и не меняет общий буфер и не забирает фокус. Снимки синтетического интерфейса сохраняются в `artifacts/desktop/image-text/`. Fixture PNG для английского, русского, смешанного текста и пустого изображения можно пересоздать командой `swift tests/desktop/image-text-fixtures.swift tests/fixtures/image-text`. Unit-тесты проверяют кэш, перезапуск, смену конфигурации, отмену, поздние результаты, очистку/удаление/срок хранения и совместимость sync v1. На других ОС нативная проверка Vision пропускается.
-
-В hosted CI установлена `POLKA_SKIP_NATIVE_OCR=1`: пропускается только unit-проверка реального распознавания Vision, а desktop-проверка подменяет результат распознавания синтетическим для известных fixture PNG. Настоящие очередь индексирования, зашифрованная история, поиск, retry и действия с клавиатуры продолжают проверяться. Это связано с ошибкой компиляции accurate-модели Apple на hosted macOS 27 (`e5rt_e5_compiler_compile`, код 11). Нативный helper по-прежнему собирается и включается в пакет. Локально оставляйте переменную неустановленной: после `npm run build` выполните `npx tsx --test tests/integration/image-text.test.ts` и `npm run test:desktop -- clipboard-ocr` для проверки настоящего Vision и английских, русских, смешанных и пустых изображений. `npm test` также включает реальную нативную проверку по умолчанию на macOS.
-
-В CI source suites выполняются последовательно на одном Mac; упаковка и три режима updater используют отдельные рабочие столы. Всего нужно пять macOS runners. Независимые desktop/workflow-проверки продолжаются после ошибки другой проверки, если подготовка приложения прошла успешно; итоговый обязательный check требует успеха всех jobs. Общая action `.github/actions/prepare-macos` кэширует загрузки Electron и нативные helpers. Helpers переиспользуются только при точном совпадении Swift-исходников, команды сборки, версии macOS, Xcode, Swift и SDK. JavaScript всегда собирается заново, а `assertPreparedApp` проверяет наличие всех outputs. При отсутствии кэша helpers собираются обычным способом.
-
-`clipboard-animation-smoke.ts` останавливает CSS-анимацию закрытия и управляет `setTimeout` в main process через Node mock timers. Это позволяет проверить видимое окно во время закрытия, отмену старого таймера при повторном открытии, настоящее подтверждение `animationend` и границу fallback 240 мс без гонки со скоростью runner. Первое hover-открытие ждёт, пока таймер полки заметит указатель вне выреза; фиксированного ожидания для снятия hover-блокировки нет. Reduced motion проверяется с обычными часами.
+CI запускает source checks, оптимизированный пакет и updater на отдельных macOS runners. Общая action `.github/actions/prepare-macos` кэширует только загрузки Swift-зависимостей; готовые приложения не восстанавливаются из cache. [Пределы проверок](validation.md), [подпись и выпуск](macos.md).

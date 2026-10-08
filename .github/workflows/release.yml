@@ -25,10 +25,9 @@ concurrency:
 jobs:
   prepare:
     name: Prepare release
-    runs-on: ubuntu-latest
+    runs-on: xcode-27
     timeout-minutes: 10
     outputs:
-      node_version: ${{ steps.runtime.outputs.node_version }}
       tag: ${{ steps.release.outputs.tag }}
       commit: ${{ steps.release.outputs.commit }}
       safe_tag: ${{ steps.release.outputs.safe_tag }}
@@ -36,13 +35,7 @@ jobs:
       has_notes: ${{ steps.release.outputs.has_notes }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-
-      - name: Read workflow runtime version
-        id: runtime
-        run: echo "node_version=$(cat .node-version)" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/prepare-macos
 
       - name: Resolve release
         id: release
@@ -53,91 +46,7 @@ jobs:
           REQUESTED_TAG: ${{ inputs.tag }}
           PRERELEASE: ${{ inputs.prerelease }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          if [[ "$EVENT_NAME" == "release" ]]; then
-            tag="$RELEASE_TAG"
-          else
-            tag="$REQUESTED_TAG"
-          fi
-          git check-ref-format "refs/tags/$tag"
-          version=$(node scripts/release/release-notes.mjs --version "$tag")
-
-          release_exists=false
-          release_is_draft=false
-          target="$DEFAULT_BRANCH"
-          if release_metadata=$(gh release view "$tag" --json isDraft,targetCommitish --repo "$GITHUB_REPOSITORY" 2>/dev/null); then
-            release_exists=true
-            release_is_draft=$(jq -r '.isDraft' <<< "$release_metadata")
-            target=$(jq -r '.targetCommitish' <<< "$release_metadata")
-          elif [[ "$EVENT_NAME" == "release" ]]; then
-            echo "Published release $tag could not be read."
-            exit 1
-          fi
-
-          # Resolve the immutable source before creating a draft or tag. --ref
-          # chooses workflow code; a new release still comes from DEFAULT_BRANCH.
-          remote_tag=$(git ls-remote --refs origin "refs/tags/$tag")
-          if [[ -n "$remote_tag" ]]; then
-            git fetch --depth=1 origin "refs/tags/$tag"
-          else
-            if [[ "$release_exists" == "true" && "$release_is_draft" != "true" ]]; then
-              echo "Published release $tag is missing its Git tag. Refusing to recreate it."
-              exit 1
-            fi
-            target_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$target" --jq '.sha')
-            git fetch --depth=1 origin "$target_sha"
-          fi
-          commit=$(git rev-parse 'FETCH_HEAD^{commit}')
-
-          # Validate notes from that commit, never from the workflow checkout.
-          # The preflight is dependency-free and needs no macOS or signing keys.
-          has_notes=false
-          if git cat-file -e "$commit:scripts/release/release-notes.mjs" 2>/dev/null || \
-             git cat-file -e "$commit:scripts/release-notes.mjs" 2>/dev/null; then
-            git show "$commit:release-notes/$version.json" > "$RUNNER_TEMP/release-notes.json"
-            node scripts/release/release-notes.mjs "$tag" "$RUNNER_TEMP/release-notes.md" "$RUNNER_TEMP/release-notes.json"
-            has_notes=true
-          elif [[ "$release_exists" != "true" ]]; then
-            echo "New releases require bilingual release-notes/$version.json and the release-notes preflight."
-            exit 1
-          else
-            echo "Retrying a legacy release without bilingual note support."
-          fi
-
-          if [[ "$release_exists" != "true" ]]; then
-            create_args=("$tag" --target "$commit" --draft --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/release-notes.md")
-            if [[ "$PRERELEASE" == "true" ]]; then
-              create_args+=(--prerelease)
-            fi
-            gh release create "${create_args[@]}"
-            release_is_draft=true
-          else
-            echo "Reusing the existing release for $tag."
-          fi
-
-          # Drafts can exist before their Git tag. Pin it to the preflighted SHA.
-          current_tag=$(git ls-remote --refs origin "refs/tags/$tag")
-          if [[ -z "$current_tag" ]]; then
-            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-              -f "ref=refs/tags/$tag" -f "sha=$commit"
-          fi
-
-          # Every parallel macOS job must verify/package the same immutable commit.
-          git fetch --depth=1 origin "refs/tags/$tag"
-          if [[ "$(git rev-parse 'FETCH_HEAD^{commit}')" != "$commit" ]]; then
-            echo "Release tag changed during preparation. Refusing to build a different source."
-            exit 1
-          fi
-          publish_after_upload=false
-          if [[ "$EVENT_NAME" != "release" && "$release_is_draft" == "true" ]]; then
-            publish_after_upload=true
-          fi
-          safe_tag=$(printf '%s' "$tag" | sed 's/[^A-Za-z0-9._-]/-/g')
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "commit=$commit" >> "$GITHUB_OUTPUT"
-          echo "safe_tag=$safe_tag" >> "$GITHUB_OUTPUT"
-          echo "publish_after_upload=$publish_after_upload" >> "$GITHUB_OUTPUT"
-          echo "has_notes=$has_notes" >> "$GITHUB_OUTPUT"
+        run: ./polka release-prepare
 
       - name: Preserve validated bilingual release description
         if: steps.release.outputs.has_notes == 'true'
@@ -149,69 +58,31 @@ jobs:
           retention-days: 7
 
   verify:
-    name: Verify macOS release source (${{ matrix.suite }})
-    strategy:
-      fail-fast: false
-      matrix:
-        suite: [desktop, workflows]
+    name: Verify native macOS release source
     needs: prepare
     runs-on: xcode-27
-    timeout-minutes: 15
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.commit }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ needs.prepare.outputs.node_version }}
-          cache: npm
-      - name: Validate runner
-        run: |
-          test "$(uname -m)" = arm64
-          test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
-          xcodebuild -version
-      - run: npm ci
-      - name: Prepare Electron binary
-        run: node -e 'console.log(require("electron"))'
-      - name: Build app and native helpers once
-        # Older source commits still have a separate native:build command.
-        run: |
-          npm run build
-          if [[ ! -f scripts/build.mjs ]]; then npm run native:build; fi
-      - name: Verify types, unit tests and desktop workflows
-        if: matrix.suite == 'desktop'
-        timeout-minutes: 10
-        env:
-          # Native OCR fixtures run locally; retain synthetic OCR logic/UI checks.
-          POLKA_SKIP_NATIVE_OCR: '1'
-        run: |
-          if [[ -f scripts/verify.mjs ]]; then
-            npm run verify -- desktop --prebuilt
-          else
-            npm run typecheck && npm test && npm run test:desktop
-          fi
-      - name: Verify clipboard workflows and media indicator
-        if: matrix.suite == 'workflows'
-        timeout-minutes: 10
-        run: |
-          if [[ -f scripts/verify.mjs ]]; then
-            npm run verify -- workflows --prebuilt
-          else
-            npm run test:workflows && npm run test:media
-          fi
-      - name: Upload desktop screenshots
+      - uses: ./.github/actions/prepare-macos
+      - name: Verify Swift services, UI models, regression fixtures and Swift tooling
+        timeout-minutes: 25
+        run: ./polka verify --no-desktop
+      - name: Build optimized native fixture app
+        run: ./polka build
+      - name: Verify native update and relaunch
+        timeout-minutes: 15
+        run: ./polka desktop updates --prebuilt --release
+      - name: Upload native updater diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: release-macos-arm64-${{ matrix.suite }}-smoke-screenshots
-          # Older release sources still use these legacy screenshot locations.
-          path: |
-            /tmp/everything-*.png
-            artifacts/**/*.png
-            artifacts/desktop/**/*.zip
-            artifacts/desktop/**/failure.json
+          name: release-macos-arm64-update-diagnostics
+          path: artifacts/desktop/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -231,31 +102,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.commit }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ needs.prepare.outputs.node_version }}
-          cache: npm
-
-      - name: Validate runner
-        run: |
-          test "$(uname -m)" = arm64
-          test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
-          xcodebuild -version
-
-      - run: npm ci
-      - name: Prepare Electron binary
-        run: node -e 'console.log(require("electron"))'
-      - name: Build app and native helpers once
-        run: |
-          npm run build
-          if [[ ! -f scripts/build.mjs ]]; then npm run native:build; fi
+      - uses: ./.github/actions/prepare-macos
       - name: Build and authenticate update archive, verify packaged app
         env:
           POLKA_SIGNING_P12: ${{ secrets.POLKA_SIGNING_P12 }}
           POLKA_SIGNING_PASSWORD: ${{ secrets.POLKA_SIGNING_PASSWORD }}
           POLKA_SIGNING_CERT_SHA1: ${{ vars.POLKA_SIGNING_CERT_SHA1 }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-        run: npm run release -- --prebuilt
+        run: ./polka release --desktop
       - uses: actions/upload-artifact@v7
         with:
           name: release-asset-macos-arm64
@@ -271,9 +125,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-macos-arm64-smoke-screenshots
-          # Older release sources still use these legacy screenshot locations.
           path: |
-            /tmp/everything-*.png
             artifacts/**/*.png
             artifacts/desktop/**/*.zip
             artifacts/desktop/**/failure.json
@@ -306,7 +158,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
+          COMMIT: ${{ needs.prepare.outputs.commit }}
         run: |
+          current_commit=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq '.sha')
+          if [[ "$current_commit" != "$COMMIT" ]]; then
+            echo 'Release tag changed after preparation. Refusing to upload artifacts.'
+            exit 1
+          fi
           upload_args=()
           # Draft retries may replace staging assets; published archives are immutable.
           if [[ "$(gh release view "$TAG" --json isDraft --jq '.isDraft' --repo "$GITHUB_REPOSITORY")" == "true" ]]; then
