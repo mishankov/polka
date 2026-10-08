@@ -250,8 +250,10 @@ final class ReleasePreparationTests: XCTestCase {
     XCTAssertTrue(package.contains("if-no-files-found: error"))
     XCTAssertTrue(package.contains("Accessibility"))
   }
-  func testPreparationCachesDependenciesNotCompiledApps() throws {
+  func testPreparationSeparatesCachesAndKeepsReleaseSigningFresh() throws {
     let action = try source(".github/actions/prepare-macos/action.yml")
+    let build = try source(".github/workflows/build.yml")
+    let release = try source(".github/workflows/release.yml")
     XCTAssertTrue(action.contains("swift package --package-path native-app resolve"))
     for path in [
       "native-app/.build/checkouts", "native-app/.build/repositories",
@@ -259,25 +261,50 @@ final class ReleasePreparationTests: XCTestCase {
     ] { XCTAssertTrue(action.contains(path)) }
     XCTAssertTrue(action.contains("Package.resolved"))
     XCTAssertTrue(action.contains("toolchain.outputs.key"))
-    XCTAssertFalse(action.contains(".build/debug"))
-    XCTAssertFalse(action.contains(".build/release"))
+    XCTAssertTrue(action.contains("toolchain.outputs.build_key"))
+    XCTAssertTrue(action.contains("default: ''"))
+    XCTAssertTrue(action.contains("if: inputs.build-cache != ''"))
+    XCTAssertTrue(action.contains("if: inputs.build-cache == ''"))
+    XCTAssertTrue(action.contains("native-app/.build\n"))
+    XCTAssertTrue(action.contains("path: tools/.build"))
+    XCTAssertTrue(action.contains("swift-tools-v1-"))
+    XCTAssertTrue(action.contains("swift-native-v1-"))
+    XCTAssertTrue(action.contains("inputs.build-cache"))
+    XCTAssertTrue(action.contains("xcrun --show-sdk-path; pwd -P"))
+    XCTAssertTrue(try job("verify", in: build).contains("build-cache: source"))
+    for name in ["package", "updates"] {
+      XCTAssertTrue(try job(name, in: build).contains("build-cache: optimized"))
+    }
+    XCTAssertTrue(try job("verify", in: release).contains("build-cache: source"))
+    for name in ["prepare", "updates", "build"] {
+      XCTAssertTrue(try job(name, in: release).contains("build-cache: optimized"))
+    }
+    XCTAssertTrue(try job("prepare", in: release).contains("tools-only: 'true'"))
+    XCTAssertTrue(action.contains("if: inputs.tools-only != 'true'"))
+    XCTAssertTrue(action.contains("inputs.build-cache != '' && inputs.tools-only != 'true'"))
+    XCTAssertTrue(action.contains("inputs.build-cache == '' && inputs.tools-only != 'true'"))
+    XCTAssertFalse(action.contains("release/native"))
     XCTAssertTrue(action.contains("uname -m"))
     XCTAssertTrue(action.contains("-ge 27"))
   }
   func testReleaseJobsUseOneImmutableSourceAndProtectedSigning() throws {
     let release = try source(".github/workflows/release.yml")
-    for name in ["verify", "build"] {
+    for name in ["verify", "updates", "build"] {
       let section = try job(name, in: release)
       XCTAssertTrue(section.contains("ref: ${{ needs.prepare.outputs.commit }}"))
       XCTAssertTrue(section.contains("uses: ./.github/actions/prepare-macos"))
+      XCTAssertTrue(section.contains("needs: prepare"))
+      XCTAssertFalse(section.contains("needs: verify"))
     }
     let build = try job("build", in: release)
     XCTAssertTrue(build.contains("./polka release --desktop"))
+    XCTAssertFalse(build.contains("./polka release --prebuilt"))
     XCTAssertTrue(build.contains("environment: release"))
     XCTAssertTrue(build.contains("${{ secrets.POLKA_SIGNING_P12 }}"))
     XCTAssertTrue(build.contains("${{ secrets.SPARKLE_PRIVATE_KEY }}"))
     let publish = try job("publish", in: release)
-    XCTAssertTrue(publish.contains("needs: [prepare, verify, build]"))
+    XCTAssertTrue(publish.contains("needs: [prepare, verify, updates, build]"))
+    XCTAssertFalse(publish.contains("if: always()"))
     XCTAssertTrue(publish.contains("COMMIT: ${{ needs.prepare.outputs.commit }}"))
     let currentTag = try XCTUnwrap(
       publish.range(of: #"gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq '.sha'"#))
@@ -287,6 +314,19 @@ final class ReleasePreparationTests: XCTestCase {
     XCTAssertLessThan(currentTag.lowerBound, rejectChangedTag.lowerBound)
     XCTAssertLessThan(rejectChangedTag.lowerBound, firstUpload.lowerBound)
     XCTAssertTrue(publish[rejectChangedTag.upperBound..<firstUpload.lowerBound].contains("exit 1"))
+  }
+  func testReleaseUpdaterRunsSeparatelyFromSourceVerification() throws {
+    let release = try source(".github/workflows/release.yml")
+    let verify = try job("verify", in: release)
+    XCTAssertTrue(verify.contains("./polka verify --no-desktop"))
+    XCTAssertFalse(verify.contains("./polka build"))
+    XCTAssertFalse(verify.contains("./polka desktop updates"))
+    let updates = try job("updates", in: release)
+    XCTAssertTrue(updates.contains("./polka build"))
+    XCTAssertTrue(updates.contains("./polka desktop updates --prebuilt --release"))
+    XCTAssertTrue(updates.contains("release-macos-arm64-update-diagnostics"))
+    XCTAssertFalse(updates.contains("environment: release"))
+    XCTAssertFalse(updates.contains("secrets."))
   }
   func testWorkflowsHaveNoNonSwiftApplicationOrToolchainFallbacks() throws {
     for path in [

@@ -33,6 +33,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: source
       - name: Verify Swift services, UI models, regression fixtures and Swift tooling
         timeout-minutes: 25
         run: ./polka verify --no-desktop
@@ -52,6 +54,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: optimized
       - name: Build optimized native app
         run: ./polka build
       - name: Package ZIP and DMG and smoke-test the relocated optimized app
@@ -88,6 +92,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: optimized
       - name: Build optimized native app
         run: ./polka build
       - name: Verify authenticated native update, held installation and relaunch

@@ -36,6 +36,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: optimized
+          tools-only: 'true'
 
       - name: Resolve release
         id: release
@@ -61,7 +64,7 @@ jobs:
     name: Verify native macOS release source
     needs: prepare
     runs-on: xcode-27
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -69,9 +72,34 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.commit }}
       - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: source
       - name: Verify Swift services, UI models, regression fixtures and Swift tooling
         timeout-minutes: 25
         run: ./polka verify --no-desktop
+      - name: Upload native coverage reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos-arm64-source-coverage
+          path: artifacts/coverage/
+          if-no-files-found: error
+          retention-days: 7
+
+  updates:
+    name: Test native macOS release update and relaunch
+    needs: prepare
+    runs-on: xcode-27
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: optimized
       - name: Build optimized native fixture app
         run: ./polka build
       - name: Verify native update and relaunch
@@ -103,6 +131,8 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.commit }}
       - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: optimized
       - name: Build and authenticate update archive, verify packaged app
         env:
           POLKA_SIGNING_P12: ${{ secrets.POLKA_SIGNING_P12 }}
@@ -134,7 +164,7 @@ jobs:
 
   publish:
     name: Upload release assets
-    needs: [prepare, verify, build]
+    needs: [prepare, verify, updates, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
