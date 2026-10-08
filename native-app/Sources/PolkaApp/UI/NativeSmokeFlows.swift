@@ -3,6 +3,27 @@ import Foundation
 import PolkaCore
 import SwiftUI
 
+/// SwiftUI can defer representable creation until the hosting view's next layout.
+/// Wait for a usable control, rather than treating an animation delay as readiness.
+@MainActor func nativeSmokeWaitForView<View: NSView>(
+  in window: NSWindow, ofType type: View.Type, attempts: Int = 100,
+  ready: (View) -> Bool = { _ in true }
+) async -> View? {
+  func find(in view: NSView) -> View? {
+    if let match = view as? View, ready(match) { return match }
+    for child in view.subviews { if let match = find(in: child) { return match } }
+    return nil
+  }
+  for attempt in 0...attempts {
+    if let content = window.contentView {
+      content.layoutSubtreeIfNeeded()
+      if let match = find(in: content) { return match }
+    }
+    if attempt < attempts { try? await Task.sleep(nanoseconds: 10_000_000) }
+  }
+  return nil
+}
+
 /// Runs only in the app-owned, isolated desktop fixture. All keys are posted to
 /// this process's real AppKit event loop, and every copy uses the injected board.
 @MainActor func nativeSmokeAdditionalFlows(
@@ -381,13 +402,10 @@ import SwiftUI
   }
   await application.show("emoji")
   await settle()
-  func categoryBar(in view: NSView) -> NativeEmojiCategoryBar? {
-    if let bar = view as? NativeEmojiCategoryBar { return bar }
-    for child in view.subviews { if let bar = categoryBar(in: child) { return bar } }
-    return nil
-  }
-  if let view = shelf.contentView, let bar = categoryBar(in: view),
-    bar.buttons.count == nativeEmojiCategories.count
+  if let bar = await nativeSmokeWaitForView(
+    in: shelf, ofType: NativeEmojiCategoryBar.self,
+    ready: { $0.buttons.count == nativeEmojiCategories.count && $0.bounds.width > 0 }),
+    let view = shelf.contentView
   {
     if bar.bounds.width < standardWidth - 32
       || bar.buttons.contains(where: { $0.bounds.width < 40 || $0.bounds.height < 36 })
@@ -451,7 +469,7 @@ import SwiftUI
     await settle()
     await screenshot("emoji-all")
   } else {
-    failures.append("emoji category tabs missing")
+    failures.append("emoji category tabs missing after layout: \(keyboardState())")
   }
   model.query = "heart"
   await settle()
