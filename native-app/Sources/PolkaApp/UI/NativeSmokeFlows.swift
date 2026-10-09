@@ -420,6 +420,80 @@ import SwiftUI
   } else {
     failures.append("fixture has no text record for preview keyboard flow")
   }
+  // Color/plain-text previews exercise the same real AppKit keyboard route and
+  // synthetic clipboard as the other desktop flows, never the user's board.
+  trace("color and plain-text previews")
+  let previewFixtures: [(String, String)] = [
+    ("color", "rgba(100, 160, 255, 0.5)"),
+    ("plain", "Цвет #64a0ff упоминается в тексте.\nОбычный текст остаётся обычным текстом."),
+    ("large", String(repeating: "x", count: 1_048_500)),
+  ]
+  for (name, content) in previewFixtures {
+    do {
+      try platform.history.add(.text, content: content, preview: String(content.prefix(400)))
+    } catch {
+      failures.append("cannot create \(name) preview fixture: \(error)")
+      continue
+    }
+    platform.refresh()
+    await application.show("clipboard")
+    guard let clip = model.clips.first(where: { Data($0.content.utf8) == Data(content.utf8) })
+    else {
+      failures.append("missing \(name) preview fixture")
+      continue
+    }
+    model.selectedID = clip.id
+    let original = platform.history.snapshot()
+    post(36, .command, "\r")
+    if !(await wait({ model.previewID == clip.id })) {
+      failures.append("Command Enter did not open \(name) preview")
+    }
+    guard
+      let text = await nativeSmokeWaitForView(
+        in: shelf, ofType: NSTextView.self,
+        ready: {
+          $0.accessibilityIdentifier() == "clipboard-preview-text"
+            && Data($0.string.utf8) == Data(content.utf8)
+        })
+    else {
+      failures.append("\(name) preview did not render exact selectable text")
+      model.back()
+      continue
+    }
+    if !text.isSelectable || text.isEditable || text.isAutomaticLinkDetectionEnabled {
+      failures.append("\(name) preview text was not inert and selectable")
+    }
+    await screenshot("clipboard-preview-\(name)")
+    if abs(shelf.frame.width - standardWidth) > 1 {
+      failures.append("\(name) entry preview is wider than launcher")
+    }
+    platform.capture.write(text: "Synthetic preview copy sentinel")
+    post(36, .shift, "\r")
+    if !(await wait({
+      !model.busy && Data(platform.capture.syntheticText.utf8) == Data(content.utf8)
+    })) {
+      failures.append("Shift Enter did not copy exact \(name) preview text")
+    }
+    if !model.visible { await application.show(nil) }
+    platform.capture.write(text: "Synthetic preview select sentinel")
+    post(36, [], "\r")
+    if !(await wait({
+      !model.busy && !model.visible
+        && Data(platform.capture.syntheticText.utf8) == Data(content.utf8)
+    })) {
+      failures.append("Enter did not select exact \(name) preview text for paste")
+    }
+    if platform.history.snapshot() != original {
+      failures.append("opening/copying \(name) preview changed stored history")
+    }
+    // A copy can close the shelf; reopen the preserved preview before returning.
+    if !model.visible { await application.show(nil) }
+    post(53)
+    if !(await wait({ model.previewID == nil })) {
+      failures.append("Escape did not return \(name) preview to history")
+    }
+  }
+  await screenshot("clipboard-color-history")
   await application.show("snippets")
   await settle()
   if let snippet = model.snippets.first {

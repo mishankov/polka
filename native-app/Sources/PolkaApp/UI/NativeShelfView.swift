@@ -1,4 +1,5 @@
 import AppKit
+import PolkaCore
 import SwiftUI
 
 struct NativeShelfView: View {
@@ -343,6 +344,8 @@ struct NativeClipboardView: View {
                   if clip.kind == "image", let image = nativeImage(clip.preview) {
                     Image(nsImage: image).resizable().scaledToFill().frame(width: 38, height: 38)
                       .clipped().cornerRadius(4)
+                  } else if clip.kind == "text", let color = ClipboardColor.parse(clip.content) {
+                    NativeColorSwatch(color: color).frame(width: 38, height: 38)
                   } else {
                     Image(systemName: clip.kind == "image" ? "photo" : "textformat").font(
                       .system(size: 23)
