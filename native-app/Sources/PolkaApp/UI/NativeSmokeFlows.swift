@@ -568,6 +568,31 @@ import SwiftUI
       return nil
     }
     if let view = settings.contentView, let sidebar = table(in: view) {
+      let paneBeforeScrolling = model.settingsPane
+      let rowFrames = nativeSettingsPanes.indices.map {
+        sidebar.convert(sidebar.rect(ofRow: $0), to: nil)
+      }
+      for delta: Int32 in [-120, 120] {
+        if let cg = CGEvent(
+          scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+          wheel1: delta, wheel2: 0, wheel3: 0), let event = NSEvent(cgEvent: cg)
+        {
+          sidebar.scrollWheel(with: event)
+          await settle()
+          for row in nativeSettingsPanes.indices {
+            if sidebar.convert(sidebar.rect(ofRow: row), to: nil) != rowFrames[row]
+              || !sidebar.visibleRect.contains(sidebar.rect(ofRow: row))
+            {
+              failures.append("settings sidebar scrolling moved or hid pane \(row)")
+            }
+          }
+          if model.settingsPane != paneBeforeScrolling {
+            failures.append("settings sidebar scrolling changed selected pane")
+          }
+        } else {
+          failures.append("cannot create settings sidebar wheel event")
+        }
+      }
       settings.makeFirstResponder(sidebar)
       post(125, window: settings)
       if !(await wait({ model.settingsPane == "about" })) {
