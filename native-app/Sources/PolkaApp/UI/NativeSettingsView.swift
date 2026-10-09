@@ -51,7 +51,9 @@ struct NativeSettingsView: View {
         }.buttonStyle(.plain).disabled(model.busy).help(
           nativeShortcutLabel(model.settings.launcherShortcut))
       }.frame(width: 210).background(Color(nsColor: .windowBackgroundColor))
-      Divider()
+      // The column backgrounds extend under the transparent title bar;
+      // keep their separator continuous through that area as well.
+      Divider().ignoresSafeArea(.container, edges: .top)
       VStack(alignment: .leading, spacing: 0) {
         VStack(alignment: .leading, spacing: 7) {
           Text(pane.label).font(.system(size: 23, weight: .semibold))

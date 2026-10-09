@@ -72,4 +72,22 @@ final class NativeShelfPresentationTests: XCTestCase {
     XCTAssertFalse(open.contains(CGPoint(x: 1, y: 1)))
     XCTAssertTrue(open.contains(CGPoint(x: 1, y: 541)))
   }
+
+  func testOutlineLeavesTopOpenAndKeepsSidesAndBottomAfterResize() {
+    for size in [CGSize(width: 560, height: 542), CGSize(width: 960, height: 680)] {
+      let bounds = CGRect(origin: .zero, size: size)
+      let stroke = NativeShelfPresentationView.outlinePath(in: bounds).copy(
+        strokingWithWidth: 1, lineCap: .butt, lineJoin: .round, miterLimit: 10)
+      XCTAssertTrue(stroke.contains(CGPoint(x: 0.5, y: bounds.midY)))
+      XCTAssertTrue(stroke.contains(CGPoint(x: bounds.maxX - 0.5, y: bounds.midY)))
+      XCTAssertTrue(stroke.contains(CGPoint(x: bounds.midX, y: 0.5)))
+      for x in stride(from: CGFloat(2), to: bounds.maxX - 2, by: 0.5) {
+        XCTAssertFalse(
+          stroke.contains(CGPoint(x: x, y: bounds.maxY - 0.25)),
+          "The top border must not cross the display edge or hardware notch")
+      }
+      XCTAssertFalse(stroke.contains(CGPoint(x: 0.5, y: 0.5)))
+      XCTAssertTrue(NativeShelfPresentationView.outlinePath(in: .zero).isEmpty)
+    }
+  }
 }

@@ -286,7 +286,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     // nonopaque so the rounded bottom corners can reveal the desktop.
     shelf.backgroundColor = .clear
     shelf.isOpaque = false
-    shelf.hasShadow = true
+    // The system shadow adds a closed keyline across the hardware notch.
+    // NativeShelfPresentationView draws only the sides and bottom instead.
+    shelf.hasShadow = false
     shelf.level = .statusBar
     shelf.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
     shelf.contentView = NativeShelfPresentationView(model: model)
