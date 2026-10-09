@@ -120,6 +120,10 @@ main() {
   install_command chmod 755 "$stage"
   install_command ditto "$bundle" "$stage/Polka.app"
   printf 'Preparing first launch…\n'
+  # Dependency licenses can retain read-only modes from SwiftPM checkouts.
+  # macOS requires write permission to remove their quarantine attributes.
+  # Change only the staged copy, preserving executable bits and signed contents.
+  install_command chmod -R u+w "$stage/Polka.app"
   install_command xattr -dr com.apple.quarantine "$stage/Polka.app"
   install_command codesign --verify --deep --strict "$stage/Polka.app"
   ensure_stopped
