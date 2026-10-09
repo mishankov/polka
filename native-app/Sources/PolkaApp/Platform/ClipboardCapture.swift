@@ -25,6 +25,15 @@ struct NativeClipboardSnapshot {
   private var fixtureTypes: [String] = []
   private var ocrBusy = false
   private var stopped = false
+  private(set) var enabled = true
+  func setEnabled(_ value: Bool) {
+    guard enabled != value else { return }
+    enabled = value
+    cancel()
+    // Do not capture the pasteboard contents left while the app was disabled.
+    if !fixture { capturedChange = NSPasteboard.general.changeCount }
+    if value { indexImages() }
+  }
   private var generation = 0
   private var activeImage: (id: String, incarnation: Int)?
   private var ocrTask: Task<Void, Never>?
@@ -56,7 +65,8 @@ struct NativeClipboardSnapshot {
     ocrVersion = "vision-r3-accurate-ru-en-correction-cpu-software-image-bundle-v6-\(release)"
   }
   func capture() throws {
-    guard !fixture, !stopped, history.storage.ready, !history.getPreferences().paused else {
+    guard !fixture, enabled, !stopped, history.storage.ready, !history.getPreferences().paused
+    else {
       return
     }
     let board = NSPasteboard.general
@@ -112,7 +122,7 @@ struct NativeClipboardSnapshot {
   }
   /// Injection point for consistent synthetic pasteboard snapshots; no system clipboard access.
   func capture(snapshot: NativeClipboardSnapshot) throws {
-    guard !stopped, history.storage.ready, !history.getPreferences().paused,
+    guard enabled, !stopped, history.storage.ready, !history.getPreferences().paused,
       snapshot.changeCount != capturedChange
     else { return }
     capturedChange = snapshot.changeCount
@@ -163,7 +173,8 @@ struct NativeClipboardSnapshot {
           let preview = NSBitmapImageRep(cgImage: thumbnail).representation(
             using: .png, properties: [:])
         else { throw PolkaCoreError.invalid("Не удалось создать миниатюру изображения") }
-        guard epoch == generation, !stopped, history.storage.ready, !history.getPreferences().paused
+        guard epoch == generation, enabled, !stopped, history.storage.ready,
+          !history.getPreferences().paused
         else { return }
         try history.add(
           .image, content: png.base64EncodedString(),
@@ -181,7 +192,8 @@ struct NativeClipboardSnapshot {
         guard text.utf8.count <= 1024 * 1024 else {
           throw PolkaCoreError.invalid("Текст не сохранён: размер превышает 1 МБ.")
         }
-        guard epoch == generation, !stopped, history.storage.ready, !history.getPreferences().paused
+        guard epoch == generation, enabled, !stopped, history.storage.ready,
+          !history.getPreferences().paused
         else { return }
         try history.add(
           .text, content: text, preview: String(decoding: text.utf16.prefix(400), as: UTF16.self))
@@ -230,7 +242,7 @@ struct NativeClipboardSnapshot {
     {
       cancel()
     }
-    guard !stopped, !ocrBusy, history.storage.ready else { return }
+    guard enabled, !stopped, !ocrBusy, history.storage.ready else { return }
     guard let image = history.imageTextImages().first(where: { $0.ocr?.version != ocrVersion }),
       let png = Data(base64Encoded: image.content)
     else { return }
@@ -261,7 +273,7 @@ struct NativeClipboardSnapshot {
         guard !Task.isCancelled else { return }
         result = ImageText(version: ocrVersion, status: .failed, text: "", languages: [])
       }
-      guard epoch == generation, !stopped, !Task.isCancelled else { return }
+      guard epoch == generation, enabled, !stopped, !Task.isCancelled else { return }
       try? history.saveImageText(image.id, incarnation: image.incarnation, result: result)
     }
   }

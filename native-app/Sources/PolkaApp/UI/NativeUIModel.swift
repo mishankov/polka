@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import PolkaCore
 import SwiftUI
 
 /// Commands deliberately follow the existing public feature names. Platform services
@@ -73,6 +74,8 @@ struct NativeUIPeer: Identifiable, Equatable {
   var error: String = ""
 }
 struct NativeUISettings: Equatable {
+  var builtinApps = BuiltinAppAvailability()
+  var clipboardShortcutError = ""
   var login = false
   var paused = false
   var pasteOnSelect = true
@@ -156,6 +159,7 @@ struct NativeBrowseContext {
   @Published var files: [NativeUIFile] = []
   @Published var incomingFileDropTargeted = false
   @Published var incomingFileDropPending = false
+  @Published var outgoingFileDrag = false
   var incomingFileDropToken: UUID?
   @Published var apps: [NativeUIApp] = [] { didSet { if apps != oldValue { cachedSearch = nil } } }
   @Published var settings = NativeUISettings()
@@ -190,6 +194,7 @@ struct NativeBrowseContext {
   @Published var pairingCode = ""
   @Published var selectedPeerID: String?
   @Published var settingsPane = "general"
+  var settingsFocusRevision = 0
   var settingsPaneChanged: ((String) -> Void)?
   var action: ((NativeUICommand) async throws -> Void)?
   var searchProvider: ((String) -> [NativeUISearchRow])? { didSet { cachedSearch = nil } }
@@ -202,8 +207,10 @@ struct NativeBrowseContext {
   private var cachedEmoji: (query: String, category: String, tone: String, rows: [NativeUIEmoji])?
   private var cachedSearch: (query: String, revision: Int, rows: [NativeUISearchRow])?
   private var cachedCalculationStatus: (query: String, revision: Int, value: String?)?
+  private var suspendedContexts = Set<String>()
   private var contexts: [String: NativeBrowseContext] = [:]
   private var pending = false
+  private(set) var pendingCommand: String?
   private var presentationRevision = 0
   var sessionRevision: Int { presentationRevision }
   var fileAnchor: String?
@@ -281,12 +288,14 @@ struct NativeBrowseContext {
   func perform(_ command: NativeUICommand, completion: (() -> Void)? = nil) {
     guard !pending else { return }
     pending = true
+    pendingCommand = command.name
     busy = true
     error = ""
     let revision = presentationRevision
     Task { @MainActor in
       defer {
         pending = false
+        pendingCommand = nil
         busy = false
       }
       do {
@@ -314,7 +323,9 @@ struct NativeBrowseContext {
     destination next: String, resume: Bool = false, searchQuery: String? = nil,
     sourceClipID: String? = nil, now: Date = Date()
   ) {
+    let next = settings.builtinApps.allows(destination: next) ? next : "apps"
     if visible { saveContext(now: now) }
+    let suspended = suspendedContexts.remove(next) != nil
     presentationRevision += 1
     incomingFileDropTargeted = false
     incomingFileDropPending = false
@@ -337,7 +348,9 @@ struct NativeBrowseContext {
     emojiTone = "default"
     selectedFiles = []
     fileAnchor = nil
-    if resume, let context = contexts[next], now.timeIntervalSince(context.savedAt) <= 60 {
+    if let context = contexts[next],
+      suspended || (resume && now.timeIntervalSince(context.savedAt) <= 60)
+    {
       query = context.query
       selectedID = context.selectedID
       previewID = context.previewID
@@ -374,8 +387,21 @@ struct NativeBrowseContext {
     incomingFileDropPending = false
     incomingFileDropToken = nil
   }
+  func suspendBuiltinApp(_ destination: String) {
+    if self.destination == destination, visible { saveContext() }
+    if contexts[destination] != nil { suspendedContexts.insert(destination) }
+  }
+  var canChangeBuiltinApps: Bool {
+    !busy && !outgoingFileDrag && !incomingFileDropPending && !incomingFileDropTargeted
+      && NSApp?.modalWindow == nil && NSApp?.windows.contains { $0.attachedSheet != nil } != true
+  }
+  func setBuiltinApp(_ id: String, enabled: Bool) {
+    guard canChangeBuiltinApps else { return }
+    perform(
+      NativeUICommand("builtinApps.setEnabled", strings: ["id": id], bools: ["enabled": enabled]))
+  }
   func navigate(_ destination: String) {
-    guard !busy else { return }
+    guard !busy, settings.builtinApps.allows(destination: destination) else { return }
     if visible { saveContext() }
     perform(NativeUICommand("launcher.show", strings: ["destination": destination]))
   }
@@ -395,7 +421,8 @@ struct NativeBrowseContext {
     }
   }
   func edit(_ clip: NativeUIClip) {
-    guard writable, !busy, clip.kind == "text" else { return }
+    guard writable, !busy, settings.builtinApps.allows(destination: "snippets"), clip.kind == "text"
+    else { return }
     if destination != "snippets" {
       perform(NativeUICommand("shelf.showSnippets", strings: ["sourceClipId": clip.id]))
       return
@@ -405,11 +432,15 @@ struct NativeBrowseContext {
       expectedName: clip.name, expectedContent: clip.content)
   }
   func createSnippet() {
-    guard writable, !busy, draft == nil else { return }
+    guard writable, !busy, settings.builtinApps.allows(destination: "snippets"), draft == nil else {
+      return
+    }
     draft = NativeSnippetDraft()
   }
   func saveSnippet() {
-    guard writable, !busy, let draft, !draft.content.isEmpty else { return }
+    guard writable, !busy, settings.builtinApps.allows(destination: "snippets"), let draft,
+      !draft.content.isEmpty
+    else { return }
     let method = draft.id.isEmpty ? "clipboardHistory.createSnippet" : "clipboardHistory.edit"
     perform(
       NativeUICommand(

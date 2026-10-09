@@ -558,6 +558,122 @@ import SwiftUI
       failures.append("removing file references deleted synthetic originals")
     }
   } catch { failures.append("file fixture failed: " + error.localizedDescription) }
+  // Disable every optional app using actual Settings focus navigation and Space.
+  // The fixture's board and profiles remain synthetic throughout this flow.
+  await application.show("snippets")
+  await settle()
+  model.createSnippet()
+  model.draft?.name = "Disabled app draft"
+  model.draft?.content = "Preserved while disabled"
+  model.query = "disabled browse context"
+  post(43, .command, "б")
+  if !(await wait({ NSApp.keyWindow?.identifier?.rawValue == "polka-settings" && !model.busy })) {
+    failures.append("Command comma with non-Latin layout did not open Settings")
+  }
+  if let settings = NSApp.windows.first(where: { $0.identifier?.rawValue == "polka-settings" }),
+    let sidebar = await nativeSmokeWaitForView(in: settings, ofType: NSTableView.self)
+  {
+    settings.makeFirstResponder(sidebar)
+    for _ in 0..<nativeSettingsPanes.count where model.settingsPane != "builtin-apps" {
+      post(125, window: settings)
+      await settle()
+    }
+    if model.settingsPane != "builtin-apps" {
+      failures.append("ArrowDown could not reach Built-in apps Settings")
+    }
+    var focused: NativeBuiltinAppSwitch?
+    for _ in 0..<20 {
+      post(48, window: settings)
+      await settle()
+      if let button = settings.firstResponder as? NativeBuiltinAppSwitch {
+        focused = button
+        break
+      }
+    }
+    if focused == nil { failures.append("Tab did not reach a built-in app switch") }
+    var visited = Set<String>()
+    for _ in 0..<4 {
+      guard let button = settings.firstResponder as? NativeBuiltinAppSwitch else {
+        failures.append(
+          "Tab did not navigate between built-in app switches: \(keyboardState(settings))")
+        break
+      }
+      let identifier = button.accessibilityIdentifier()
+      let id = String(identifier.dropFirst("builtin-app-toggle-".count))
+      visited.insert(id)
+      post(49, [], " ", window: settings)
+      if !(await wait({ !model.settings.builtinApps.isEnabled(id) && !model.busy })) {
+        failures.append("Space did not disable \(id)")
+      }
+      // A held Space must not repeatedly flip a focused toggle.
+      if let repeatEvent = NSEvent.keyEvent(
+        with: .keyDown, location: .zero, modifierFlags: [],
+        timestamp: 0, windowNumber: settings.windowNumber, context: nil, characters: " ",
+        charactersIgnoringModifiers: " ", isARepeat: true, keyCode: 49)
+      {
+        NSApp.postEvent(repeatEvent, atStart: false)
+      }
+      await settle()
+      if model.settings.builtinApps.isEnabled(id) {
+        failures.append("Repeated Space toggled \(id)")
+      }
+      if settings.firstResponder !== button {
+        failures.append(
+          "Switch lost focus after toggling \(id): enabled=\(button.isEnabled), attached=\(button.window === settings); \(keyboardState(settings))"
+        )
+      }
+      post(48, window: settings)
+      await settle()
+    }
+    if visited.count != 4 || !model.apps.filter({ $0.id.hasPrefix("builtin:") }).isEmpty {
+      failures.append("Keyboard toggles did not independently disable all four built-in apps")
+    }
+    for destination in ["clipboard", "snippets", "files", "emoji", "toggle-clipboard"] {
+      await application.show(destination)
+      if model.visible || NSApp.keyWindow !== settings {
+        failures.append("Direct navigation reopened disabled \(destination)")
+      }
+    }
+    if visited.count == 4 {
+      await application.show(nil)
+      await settle()
+      if model.destination != "apps" || !model.visible {
+        failures.append("Main shelf was unavailable with all optional apps disabled")
+      }
+      post(43, .command, "б")
+      if !(await wait({ settings.isKeyWindow && !model.busy })) {
+        failures.append("Settings was unavailable with all optional apps disabled")
+      }
+    }
+    await screenshot("settings-builtin-apps-disabled", window: settings, includeTitlebar: true)
+    // Re-enable through the same native control action used by pointer input.
+    for app in LauncherSearch.builtinApps {
+      if let button = await nativeSmokeWaitForView(
+        in: settings, ofType: NativeBuiltinAppSwitch.self,
+        ready: { $0.accessibilityIdentifier() == "builtin-app-toggle-" + app.id })
+      {
+        button.performClick(nil)
+        if !(await wait({ model.settings.builtinApps.isEnabled(app.id) && !model.busy })) {
+          failures.append("Switch click did not re-enable \(app.id)")
+        }
+      } else {
+        failures.append("Missing built-in app switch: \(app.id)")
+      }
+    }
+    await screenshot("settings-builtin-apps", window: settings, includeTitlebar: true)
+    settings.close()
+    await application.show("snippets")
+    await settle()
+    if model.draft?.content != "Preserved while disabled"
+      || model.query != "disabled browse context"
+    {
+      failures.append("Re-enabling snippets lost its draft or browsing context")
+    }
+    model.back()  // Deliberately discard only this synthetic draft.
+    // Keep the existing Settings sidebar sequence starting from Clipboard.
+  } else {
+    failures.append("Settings controls missing for built-in app keyboard flow")
+  }
   application.openSettings("clipboard")
   await settle()
   if let settings = NSApp.windows.first(where: { $0.identifier?.rawValue == "polka-settings" }) {
@@ -569,12 +685,17 @@ import SwiftUI
     }
     if let view = settings.contentView, let sidebar = table(in: view) {
       settings.makeFirstResponder(sidebar)
-      post(125, window: settings)
+      for _ in 0..<nativeSettingsPanes.count where model.settingsPane != "about" {
+        post(125, window: settings)
+        await settle()
+      }
       if !(await wait({ model.settingsPane == "about" })) {
-        failures.append("native settings sidebar ArrowDown did not select about")
+        failures.append(
+          "native settings sidebar ArrowDown did not select about: pane=\(model.settingsPane), row=\(sidebar.selectedRow); \(keyboardState(settings))"
+        )
       }
       await screenshot("settings-about", window: settings)
-      for _ in 0..<3 {
+      for _ in 0..<nativeSettingsPanes.count where model.settingsPane != "general" {
         post(126, window: settings)
         await settle()
       }
@@ -653,7 +774,10 @@ import SwiftUI
       await screenshot("settings-sync", window: settings)
       settings.contentView = originalContent
       settings.makeFirstResponder(sidebar)
-      post(125, window: settings)
+      for _ in 0..<nativeSettingsPanes.count where model.settingsPane != "about" {
+        post(125, window: settings)
+        await settle()
+      }
       if !(await wait({ model.settingsPane == "about" })) {
         failures.append("native settings sidebar did not return from sync to about")
       }
@@ -668,7 +792,9 @@ import SwiftUI
     application.openSettings(nil)
     await settle()
     if !settings.isVisible || NSApp.keyWindow !== settings || model.settingsPane != preservedPane {
-      failures.append("settings close/reopen did not reuse window and selected pane")
+      failures.append(
+        "settings close/reopen did not reuse window and selected pane: pane=\(model.settingsPane), expected=\(preservedPane); \(keyboardState(settings))"
+      )
     }
     if settings.titleVisibility != .hidden {
       failures.append("settings close/reopen restored unwanted title text")
