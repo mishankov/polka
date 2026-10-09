@@ -121,7 +121,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       platform.openSettings = { [weak self] pane in self?.openSettings(pane) }
       platform.currentPanel = { [weak self] in self?.shelf }
       platform.showIncomingFiles = { [weak self] in
-        guard let self else { return }
+        guard let self, platform.builtinApps.allows(destination: "files") else { return }
         // The helper can emit enter from both its strip and its polling timer.
         // Preserve the current presentation and any provider already decoding.
         if lifecycle.requested && (incomingDrag || model.destination == "files") {
@@ -153,7 +153,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
         }
       }
       platform.filesDropped = { [weak self] in
-        guard let self, !terminating else { return }
+        guard let self, !terminating, platform.builtinApps.allows(destination: "files") else {
+          return
+        }
         cancelIncomingEnd()
         incomingDrag = false
         incomingEndDeferred = false
@@ -396,6 +398,14 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     NSApp.hide(sender)
   }
   func validateMenuItem(_ item: NSMenuItem) -> Bool {
+    let destinations: [Selector: String] = [
+      #selector(historyAction): "clipboard", #selector(snippetsAction): "snippets",
+      #selector(filesAction): "files",
+    ]
+    if let destination = item.action.flatMap({ destinations[$0] }) {
+      return model.settings.builtinApps.allows(destination: destination) && !model.busy
+        && NSApp.modalWindow == nil && !NSApp.windows.contains { $0.attachedSheet != nil }
+    }
     if item.action == #selector(closeWindowAction(_:)) {
       return !model.busy && NSApp.modalWindow == nil && NSApp.keyWindow != nil
         && NSApp.keyWindow?.attachedSheet == nil
@@ -440,6 +450,16 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   func show(_ requested: String?, query: String = "", byHover: Bool = false, drag: Bool = false)
     async
   {
+    let destination = requested == "toggle-clipboard" ? "clipboard" : requested
+    if let destination, !platform.builtinApps.allows(destination: destination) { return }
+    let navigationCommands: Set<String> = [
+      "launcher.show", "launcher.openMac", "clipboardHistory.show", "shelf.showSnippets",
+      "shelf.showEmoji", "shelf.showFiles", "shelf.files.add", "builtinApps.setEnabled",
+    ]
+    guard
+      !model.busy || model.pendingCommand.map(navigationCommands.contains) == true
+        || (requested == "files" && model.incomingFileDropPending)
+    else { return }
     if requested == "toggle" || requested == "toggle-clipboard" {
       let destination = requested == "toggle-clipboard" ? "clipboard" : nil
       if lifecycle.requested && (destination == nil || model.destination == destination) {
@@ -455,16 +475,21 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       cancelIncomingEnd()
       incomingEndDeferred = false
     }
-    let (entry, newSession) = lifecycle.begin(
+    var (entry, newSession) = lifecycle.begin(
       requested.flatMap(ShelfDestination.init(rawValue:)), now: Date().timeIntervalSince1970 * 1000,
       query: query)
+    if !platform.builtinApps.allows(destination: entry.destination.rawValue) {
+      (entry, _) = lifecycle.begin(.apps, now: Date().timeIntervalSince1970 * 1000)
+    }
     if drag {
       activationTransition.cancel()
     } else {
       activationTransition.requestFocus(revision: entry.revision)
     }
     if newSession { await platform.beginSession() }
-    guard lifecycle.requested, lifecycle.revision == entry.revision else { return }
+    guard lifecycle.requested, lifecycle.revision == entry.revision,
+      platform.builtinApps.allows(destination: entry.destination.rawValue)
+    else { return }
     model.present(
       destination: entry.destination.rawValue, resume: entry.resumes,
       searchQuery: entry.resumes ? nil : query)
@@ -528,6 +553,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
   }
   func openSettings(_ pane: String?) {
+    guard !model.busy || model.pendingCommand == "shelf.settings", NSApp.modalWindow == nil,
+      !NSApp.windows.contains(where: { $0.attachedSheet != nil })
+    else { return }
     activationTransition.cancel()
     hide(force: true)
     if let pane { model.settingsPane = pane }

@@ -1,9 +1,12 @@
 import AppKit
+import PolkaCore
 import SwiftUI
 
 let nativeSettingsPanes: [(id: String, label: String, icon: String)] = [
   ("general", "Основные", "slider.horizontal.3"), ("shelf", "Полка и сочетания", "command"),
-  ("clipboard", "Буфер обмена", "clipboard"), ("about", "О приложении", "info.circle"),
+  ("clipboard", "Буфер обмена", "clipboard"),
+  ("builtin-apps", "Встроенные приложения", "square.grid.2x2"),
+  ("about", "О приложении", "info.circle"),
 ]
 
 struct NativeSettingsView: View {
@@ -13,6 +16,7 @@ struct NativeSettingsView: View {
   }
   private var subtitle: String {
     switch model.settingsPane {
+    case "builtin-apps": "Выберите приложения, которые нужны на полке."
     case "shelf": "Открытие полки, быстрые команды и индикаторы устройств."
     case "clipboard": "Сохранение, вставка и история на других Mac."
     case "about": "Версия приложения и обновления."
@@ -26,7 +30,8 @@ struct NativeSettingsView: View {
           Text("Полка").font(.system(size: 18, weight: .semibold))
           Text("Настройки").font(.system(size: 12)).foregroundStyle(.secondary)
         }.padding(.horizontal, 20).padding(.top, 22).padding(.bottom, 22)
-        NativeSettingsSidebar(model: model).frame(height: 160).padding(.horizontal, 10)
+        NativeSettingsSidebar(model: model).frame(height: CGFloat(nativeSettingsPanes.count * 40))
+          .padding(.horizontal, 10)
         Spacer(minLength: 20)
         Divider().padding(.horizontal, 16)
         Button {
@@ -59,6 +64,7 @@ struct NativeSettingsView: View {
             case "shelf": shelf
             case "clipboard": clipboard
             case "about": about
+            case "builtin-apps": builtinApps
             default: general
             }
           }.frame(maxWidth: 640, alignment: .leading)
@@ -71,6 +77,34 @@ struct NativeSettingsView: View {
       .background(NativeKeyboardBridge(model: model, settings: true).frame(width: 0, height: 0))
       .onChange(of: model.settingsPane) { _, pane in model.settingsPaneChanged?(pane) }
       .accessibilityIdentifier("native-settings")
+  }
+  private var builtinApps: some View {
+    VStack(alignment: .leading, spacing: 20) {
+      NativeSettingsGroup("Приложения на полке") {
+        ForEach(LauncherSearch.builtinApps) { app in
+          HStack {
+            VStack(alignment: .leading, spacing: 5) {
+              Text(app.name).font(.system(size: 13))
+              note(app.description)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            NativeBuiltinAppToggle(
+              model: model, appID: app.id, title: app.name,
+              enabled: model.settings.builtinApps.isEnabled(app.id)
+            ).controlSize(.small)
+          }
+          if app.id != LauncherSearch.builtinApps.last?.id { Divider() }
+        }
+      }
+      note(
+        "Изменения применяются сразу. Данные, настройки и черновики сохраняются; полка и настройки всегда доступны."
+      )
+      note(
+        "При отключении истории новые копирования не сохраняются, распознавание изображений останавливается. После включения действует прежняя настройка сохранения. Синхронизация и срок хранения продолжают работать по своим настройкам в разделе «Буфер обмена»."
+      )
+      note(
+        "Отключение сниппетов и эмодзи скрывает их команды; общие службы копирования и вставки остаются доступны другим приложениям. Отключение файлов убирает цель перетаскивания у верхнего края; ссылки на файлы сохраняются до выхода из Полки."
+      )
+    }
   }
   private var general: some View {
     VStack(alignment: .leading, spacing: 20) {
@@ -144,6 +178,11 @@ struct NativeSettingsView: View {
       NativeStorageNotice(model: model)
       NativeErrorNotice(text: model.helperError)
       if model.helperStatus == "starting" { note("Запускаем наблюдение за буфером…") }
+      if !model.settings.builtinApps.allows(destination: "clipboard") {
+        note(
+          "История отключена в разделе «Встроенные приложения». Новые копирования не сохраняются, сочетание не активно. Настройки ниже сохраняются для повторного включения; синхронизация и срок хранения продолжают действовать."
+        )
+      }
       NativeSettingsGroup("Сохранение истории") {
         settingToggle(
           "Сохранять текст и изображения",
@@ -198,6 +237,7 @@ struct NativeSettingsView: View {
         }
       }
       NativeSettingsGroup("Сочетание для истории") {
+        NativeErrorNotice(text: model.settings.clipboardShortcutError)
         shortcutRow(
           "Открыть историю", value: model.settings.clipboardShortcut,
           disabled: !model.writable || model.busy
@@ -207,7 +247,8 @@ struct NativeSettingsView: View {
         HStack {
           NativeCommandButton(
             title: "Открыть историю",
-            shortcut: nativeShortcutLabel(model.settings.clipboardShortcut), disabled: model.busy
+            shortcut: nativeShortcutLabel(model.settings.clipboardShortcut),
+            disabled: model.busy || !model.settings.builtinApps.allows(destination: "clipboard")
           ) { model.perform(NativeUICommand("clipboardHistory.show")) }
           Spacer(minLength: 8)
           NativeCommandButton(
@@ -512,7 +553,7 @@ struct NativeUpdateNotice: View {
 /// A native source list owns Up/Down/Home/End and VoiceOver selection. Keeping
 /// the sidebar in AppKit avoids requiring pointer input to change settings tabs.
 struct NativeSettingsSidebar: NSViewRepresentable {
-  var model: NativeUIModel
+  @ObservedObject var model: NativeUIModel
   func makeCoordinator() -> Coordinator { Coordinator(model) }
   func makeNSView(context: Context) -> NSScrollView {
     let scroll = NSScrollView()
@@ -561,7 +602,8 @@ struct NativeSettingsSidebar: NSViewRepresentable {
       let cell = NSTableCellView()
       let text = NSTextField(labelWithString: pane.label)
       text.font = .systemFont(ofSize: 13)
-      text.lineBreakMode = .byTruncatingTail
+      text.lineBreakMode = .byWordWrapping
+      text.maximumNumberOfLines = 2
       let icon = NSImageView()
       icon.image = NSImage(systemSymbolName: pane.icon, accessibilityDescription: nil)
       icon.contentTintColor = .secondaryLabelColor
@@ -604,7 +646,8 @@ struct NativeSettingsSidebar: NSViewRepresentable {
     }
     func tableViewSelectionDidChange(_ notification: Notification) {
       guard let table, nativeSettingsPanes.indices.contains(table.selectedRow) else { return }
-      model.settingsPane = nativeSettingsPanes[table.selectedRow].id
+      let pane = nativeSettingsPanes[table.selectedRow].id
+      if model.settingsPane != pane { model.settingsPane = pane }
       synchronizeCells()
     }
   }
@@ -654,4 +697,81 @@ func nativeReleaseNoteText(_ settings: NativeUISettings, language: String) -> St
   return language == "ru"
     ? "Для этого выпуска примечания не опубликованы."
     : "Release notes have not been published for this version."
+}
+
+/// A native switch participates in the window's Tab chain and VoiceOver.
+/// Space is a focused-control key, so it never competes with global shortcuts.
+struct NativeBuiltinAppToggle: NSViewRepresentable {
+  @ObservedObject var model: NativeUIModel
+  var appID: String
+  var title: String
+  var enabled: Bool
+  func makeNSView(context: Context) -> NativeBuiltinAppSwitch {
+    let control = NativeBuiltinAppSwitch()
+    control.target = control
+    control.action = #selector(NativeBuiltinAppSwitch.change)
+    control.controlSize = .small
+    control.sizeToFit()
+    return control
+  }
+  func sizeThatFits(_ proposal: ProposedViewSize, nsView: NativeBuiltinAppSwitch, context: Context)
+    -> CGSize?
+  {
+    nsView.intrinsicContentSize
+  }
+  func updateNSView(_ button: NativeBuiltinAppSwitch, context: Context) {
+    button.controlSize = .small
+    button.setAccessibilityLabel(title)
+    button.state = enabled ? .on : .off
+    button.setAvailable(model.canChangeBuiltinApps, focusRevision: model.settingsFocusRevision)
+    button.setAccessibilityIdentifier("builtin-app-toggle-" + appID)
+    button.focusRevision = { model.settingsFocusRevision }
+    button.changeValue = { value in model.setBuiltinApp(appID, enabled: value) }
+  }
+}
+final class NativeBuiltinAppSwitch: NSSwitch {
+  var changeValue: ((Bool) -> Void)?
+  var focusRevision: (() -> Int)?
+  private weak var restoreWindow: NSWindow?
+  private var disabledFocusRevision = 0
+  override var acceptsFirstResponder: Bool { isEnabled }
+  override var canBecomeKeyView: Bool {
+    // NSSwitch normally requires Full Keyboard Access. These settings must
+    // remain reachable through the standard Tab flow with that option off.
+    acceptsFirstResponder && !isHiddenOrHasHiddenAncestor && window?.canBecomeKey == true
+  }
+  func setAvailable(_ available: Bool, focusRevision: Int) {
+    let owner = window
+    if available != isEnabled {
+      isEnabled = available
+      if available { owner?.recalculateKeyViewLoop() }
+    }
+    if available, let owner = restoreWindow {
+      // SwiftUI may move focus before updating a busy AppKit control.
+      // Restore the focus captured by its action, unless the user moved it.
+      if owner.isKeyWindow, window === owner, focusRevision == disabledFocusRevision {
+        owner.makeFirstResponder(self)
+      }
+      restoreWindow = nil
+    }
+  }
+  @objc func change() {
+    guard isEnabled, NSApp?.modalWindow == nil,
+      NSApp?.windows.contains(where: { $0.attachedSheet != nil }) != true
+    else { return }
+    if window?.firstResponder === self {
+      restoreWindow = window
+      disabledFocusRevision = focusRevision?() ?? 0
+    }
+    changeValue?(state == .on)
+  }
+  override func keyDown(with event: NSEvent) {
+    if event.keyCode == 49,
+      event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+    {
+      if !event.isARepeat { performClick(nil) }
+      return
+    }
+    super.keyDown(with: event)
+  }
 }

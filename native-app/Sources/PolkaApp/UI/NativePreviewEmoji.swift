@@ -80,7 +80,9 @@ struct NativeClipboardPreview: View {
         if clip.kind == "text" {
           NativeCommandButton(
             title: clip.snippet ? "Изменить сниппет" : "Создать сниппет", symbol: "pencil",
-            shortcut: "⌘E", disabled: model.busy || !model.writable
+            shortcut: "⌘E",
+            disabled: model.busy || !model.writable
+              || !model.settings.builtinApps.allows(destination: "snippets")
           ) { model.edit(clip) }
         }
         if model.canPaste {

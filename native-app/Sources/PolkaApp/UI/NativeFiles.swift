@@ -203,7 +203,8 @@ struct NativeFileDropModifier: ViewModifier {
 /// does not consistently receive drags over those AppKit-backed children.
 extension ShelfPanel: NSDraggingDestination {
   private func incomingOperation(_ sender: NSDraggingInfo) -> NSDragOperation {
-    guard let model = dropModel, model.visible, !model.busy, !model.incomingFileDropPending,
+    guard let model = dropModel, model.settings.builtinApps.allows(destination: "files"),
+      model.visible, !model.busy, !model.incomingFileDropPending,
       isVisible, attachedSheet == nil, NSApp.modalWindow == nil,
       NSApp.keyWindow?.attachedSheet == nil, NSApp.keyWindow?.sheetParent == nil,
       (sender.draggingSource as? NSView)?.window !== self,
@@ -261,7 +262,8 @@ extension NativeUIModel {
   /// Provider decoding can outlive an entire presentation. Keep Escape usable,
   /// and commit only to the presentation in which the files were released.
   @discardableResult func acceptIncomingFiles(_ providers: [NSItemProvider]) -> Bool {
-    guard visible, !busy, !incomingFileDropPending, !providers.isEmpty, providers.count <= 1000,
+    guard settings.builtinApps.allows(destination: "files"), visible, !busy,
+      !incomingFileDropPending, !providers.isEmpty, providers.count <= 1000,
       NSApp?.modalWindow == nil, NSApp?.keyWindow?.attachedSheet == nil,
       NSApp?.keyWindow?.sheetParent == nil
     else { return false }

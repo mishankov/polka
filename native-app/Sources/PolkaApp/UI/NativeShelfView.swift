@@ -390,7 +390,9 @@ struct NativeClipboardView: View {
                 if clip.kind == "text" {
                   NativeIconButton(
                     label: clip.snippet ? "Изменить сниппет" : "Создать сниппет", symbol: "pencil",
-                    shortcut: "⌘E", disabled: !model.writable || model.busy
+                    shortcut: "⌘E",
+                    disabled: !model.writable || model.busy
+                      || !model.settings.builtinApps.allows(destination: "snippets")
                   ) { model.edit(clip) }
                 }
                 if clip.kind == "image" || nativeWebURL(clip.content) != nil {

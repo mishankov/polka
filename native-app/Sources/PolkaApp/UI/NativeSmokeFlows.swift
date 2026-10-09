@@ -64,7 +64,34 @@ import SwiftUI
     }
     return predicate()
   }
+  func click(_ control: NSControl) {
+    guard let owner = control.window else {
+      failures.append("cannot click a detached native control")
+      return
+    }
+    let point = control.convert(
+      NSPoint(x: control.bounds.midX, y: control.bounds.midY), to: nil)
+    // Post both halves to AppKit rather than running performClick inside this
+    // actor task. NSSwitch can run an animation/tracking loop synchronously;
+    // its action must be free to schedule SwiftUI updates on the main actor.
+    for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+      if let event = NSEvent.mouseEvent(
+        with: type, location: point, modifierFlags: [],
+        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: owner.windowNumber,
+        context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)
+      {
+        NSApp.postEvent(event, atStart: false)
+      } else {
+        failures.append("cannot construct native mouse event")
+      }
+    }
+  }
   func settle() async { try? await Task.sleep(nanoseconds: 230_000_000) }
+  func trace(_ message: String) {
+    // stdout is buffered when the harness captures pipes. Keep the last step
+    // available even if a hosted AppKit call hangs and the child is terminated.
+    FileHandle.standardError.write(Data("Native smoke: \(message)\n".utf8))
+  }
   func keyboardState(_ owner: NSWindow? = nil) -> String {
     let window = owner ?? shelf
     let text = window.firstResponder as? NSTextView
@@ -558,6 +585,143 @@ import SwiftUI
       failures.append("removing file references deleted synthetic originals")
     }
   } catch { failures.append("file fixture failed: " + error.localizedDescription) }
+  // Disable every optional app using actual Settings focus navigation and Space.
+  // The fixture's board and profiles remain synthetic throughout this flow.
+  await application.show("snippets")
+  await settle()
+  model.createSnippet()
+  model.draft?.name = "Disabled app draft"
+  model.draft?.content = "Preserved while disabled"
+  model.query = "disabled browse context"
+  post(43, .command, "б")
+  if !(await wait({ NSApp.keyWindow?.identifier?.rawValue == "polka-settings" && !model.busy })) {
+    failures.append("Command comma with non-Latin layout did not open Settings")
+  }
+  if let settings = NSApp.windows.first(where: { $0.identifier?.rawValue == "polka-settings" }),
+    let sidebar = await nativeSmokeWaitForView(in: settings, ofType: NSTableView.self)
+  {
+    settings.makeFirstResponder(sidebar)
+    for _ in 0..<nativeSettingsPanes.count where model.settingsPane != "builtin-apps" {
+      post(125, window: settings)
+      await settle()
+    }
+    if model.settingsPane != "builtin-apps" {
+      failures.append("ArrowDown could not reach Built-in apps Settings")
+    }
+    var focused: NativeBuiltinAppSwitch?
+    for _ in 0..<20 {
+      post(48, window: settings)
+      await settle()
+      if let button = settings.firstResponder as? NativeBuiltinAppSwitch {
+        focused = button
+        break
+      }
+    }
+    if focused == nil { failures.append("Tab did not reach a built-in app switch") }
+    var visited = Set<String>()
+    for _ in 0..<4 {
+      guard let button = settings.firstResponder as? NativeBuiltinAppSwitch else {
+        failures.append(
+          "Tab did not navigate between built-in app switches: \(keyboardState(settings))")
+        break
+      }
+      let identifier = button.accessibilityIdentifier()
+      let id = String(identifier.dropFirst("builtin-app-toggle-".count))
+      visited.insert(id)
+      post(49, [], " ", window: settings)
+      if !(await wait({ !model.settings.builtinApps.isEnabled(id) && !model.busy })) {
+        failures.append("Space did not disable \(id)")
+      }
+      // A held Space must not repeatedly flip a focused toggle.
+      if let repeatEvent = NSEvent.keyEvent(
+        with: .keyDown, location: .zero, modifierFlags: [],
+        timestamp: 0, windowNumber: settings.windowNumber, context: nil, characters: " ",
+        charactersIgnoringModifiers: " ", isARepeat: true, keyCode: 49)
+      {
+        NSApp.postEvent(repeatEvent, atStart: false)
+      }
+      await settle()
+      if model.settings.builtinApps.isEnabled(id) {
+        failures.append("Repeated Space toggled \(id)")
+      }
+      if settings.firstResponder !== button {
+        failures.append(
+          "Switch lost focus after toggling \(id): enabled=\(button.isEnabled), attached=\(button.window === settings); \(keyboardState(settings))"
+        )
+      }
+      post(48, window: settings)
+      await settle()
+    }
+    if visited.count != 4 || !model.apps.filter({ $0.id.hasPrefix("builtin:") }).isEmpty {
+      failures.append("Keyboard toggles did not independently disable all four built-in apps")
+    }
+    for destination in ["clipboard", "snippets", "files", "emoji", "toggle-clipboard"] {
+      let previousKeyWindow = NSApp.keyWindow
+      let previousDestination = model.destination
+      await application.show(destination)
+      // A blocked command must preserve the current surface and key window,
+      // including when another application already took desktop focus.
+      if model.visible || model.destination != previousDestination
+        || NSApp.keyWindow !== previousKeyWindow
+      {
+        failures.append("Direct navigation reopened disabled \(destination)")
+      }
+    }
+    if visited.count == 4 {
+      await application.show(nil)
+      await settle()
+      if model.destination != "apps" || !model.visible {
+        failures.append("Main shelf was unavailable with all optional apps disabled")
+      }
+      post(43, .command, "б")
+      if !(await wait({ settings.isKeyWindow && !model.busy })) {
+        failures.append("Settings was unavailable with all optional apps disabled")
+      }
+    }
+    await screenshot("settings-builtin-apps-disabled", window: settings, includeTitlebar: true)
+    // Re-enable with pointer events through the real AppKit event loop.
+    for app in LauncherSearch.builtinApps {
+      trace("find switch to re-enable \(app.id)")
+      var reportedState = false
+      if let button = await nativeSmokeWaitForView(
+        in: settings, ofType: NativeBuiltinAppSwitch.self,
+        ready: {
+          guard $0.accessibilityIdentifier() == "builtin-app-toggle-" + app.id else { return false }
+          if !reportedState {
+            trace(
+              "\(app.id): control enabled=\($0.isEnabled), state=\($0.state.rawValue), model enabled=\(model.settings.builtinApps.isEnabled(app.id)), canChange=\(model.canChangeBuiltinApps); \(keyboardState(settings))"
+            )
+            reportedState = true
+          }
+          return $0.isEnabled && $0.state == .off
+        })
+      {
+        trace("post pointer events for \(app.id)")
+        click(button)
+        if !(await wait({ model.settings.builtinApps.isEnabled(app.id) && !model.busy })) {
+          failures.append("Switch click did not re-enable \(app.id)")
+        }
+        trace("pointer input completed for \(app.id)")
+      } else {
+        failures.append("Missing built-in app switch: \(app.id)")
+      }
+    }
+    trace("render enabled built-in apps")
+    await screenshot("settings-builtin-apps", window: settings, includeTitlebar: true)
+    trace("restore snippets draft")
+    settings.close()
+    await application.show("snippets")
+    await settle()
+    if model.draft?.content != "Preserved while disabled"
+      || model.query != "disabled browse context"
+    {
+      failures.append("Re-enabling snippets lost its draft or browsing context")
+    }
+    model.back()  // Deliberately discard only this synthetic draft.
+    // Keep the existing Settings sidebar sequence starting from Clipboard.
+  } else {
+    failures.append("Settings controls missing for built-in app keyboard flow")
+  }
   application.openSettings("clipboard")
   await settle()
   if let settings = NSApp.windows.first(where: { $0.identifier?.rawValue == "polka-settings" }) {
@@ -569,12 +733,17 @@ import SwiftUI
     }
     if let view = settings.contentView, let sidebar = table(in: view) {
       settings.makeFirstResponder(sidebar)
-      post(125, window: settings)
+      for _ in 0..<nativeSettingsPanes.count where model.settingsPane != "about" {
+        post(125, window: settings)
+        await settle()
+      }
       if !(await wait({ model.settingsPane == "about" })) {
-        failures.append("native settings sidebar ArrowDown did not select about")
+        failures.append(
+          "native settings sidebar ArrowDown did not select about: pane=\(model.settingsPane), row=\(sidebar.selectedRow); \(keyboardState(settings))"
+        )
       }
       await screenshot("settings-about", window: settings)
-      for _ in 0..<3 {
+      for _ in 0..<nativeSettingsPanes.count where model.settingsPane != "general" {
         post(126, window: settings)
         await settle()
       }
@@ -653,7 +822,10 @@ import SwiftUI
       await screenshot("settings-sync", window: settings)
       settings.contentView = originalContent
       settings.makeFirstResponder(sidebar)
-      post(125, window: settings)
+      for _ in 0..<nativeSettingsPanes.count where model.settingsPane != "about" {
+        post(125, window: settings)
+        await settle()
+      }
       if !(await wait({ model.settingsPane == "about" })) {
         failures.append("native settings sidebar did not return from sync to about")
       }
@@ -668,7 +840,9 @@ import SwiftUI
     application.openSettings(nil)
     await settle()
     if !settings.isVisible || NSApp.keyWindow !== settings || model.settingsPane != preservedPane {
-      failures.append("settings close/reopen did not reuse window and selected pane")
+      failures.append(
+        "settings close/reopen did not reuse window and selected pane: pane=\(model.settingsPane), expected=\(preservedPane); \(keyboardState(settings))"
+      )
     }
     if settings.titleVisibility != .hidden {
       failures.append("settings close/reopen restored unwanted title text")

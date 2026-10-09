@@ -282,6 +282,25 @@ public enum Desktop {
       print("Native desktop \(phase) smoke passed.")
     } catch {
       if let child {
+        if child.process.isRunning,
+          let failure = error as? DesktopFailure,
+          failure.message.hasPrefix("No native smoke report:")
+        {
+          // Sample only the child owned by this locked, isolated fixture,
+          // before cleanup removes the process that failed to make progress.
+          if let sampler = try? DesktopChild(
+            executable: URL(fileURLWithPath: "/usr/bin/sample"),
+            arguments: [
+              String(child.process.processIdentifier), "1", "-file",
+              artifacts.appendingPathComponent("\(phase)-timeout.sample.txt").path,
+            ], environment: environment(context.environment))
+          {
+            try? await sampler.wait(timeout: 5)
+            try? await sampler.stop()
+            try? Data(sampler.diagnostics.utf8).write(
+              to: artifacts.appendingPathComponent("\(phase)-timeout.sample.log"))
+          }
+        }
         try await child.stop()
         try? Data(child.diagnostics.utf8).write(
           to: artifacts.appendingPathComponent("\(phase).log"))

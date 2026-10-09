@@ -25,7 +25,8 @@ import UserNotifications
   private var initializationTask: Task<Void, Never>?
   private var maintenance: Timer?
   private var launcherRegistered = false
-  private var clipboardRegistered = false
+  private(set) var clipboardRegistered = false
+  private(set) var builtinApps = BuiltinAppAvailability()
   private var launcherAccelerator = "CommandOrControl+Shift+Space"
   private var usage: [String: LauncherUsage] = [:]
   private var calculationDate = Date()
@@ -72,6 +73,11 @@ import UserNotifications
       path: root.appendingPathComponent("clipboard-history/sync.enc"), codec: codec,
       history: history, discovery: !fixture,
       changed: { [weak model] in DispatchQueue.main.async { model?.searchRevision += 1 } })
+    builtinApps = BuiltinAppAvailability(
+      overrides: (try settings.get(key: BuiltinAppAvailability.settingsKey)) as? [String: Bool]
+        ?? [:])
+    model.settings.builtinApps = builtinApps
+    capture.setEnabled(builtinApps.allows(destination: "clipboard"))
     model.action = { [weak self] command in
       guard let self else { return }
       try await self.handle(command)
@@ -88,12 +94,18 @@ import UserNotifications
     }
     model.fileDragURLs = { [weak self] ids in
       guard let self else { return [] }
+      try self.requireEnabled("files")
       return try self.files.drag(ids)
     }
     model.fileDragStarted = { [weak self] in
+      self?.model.outgoingFileDrag = true
       _ = self?.fileProbe.write(["enabled": false, "outgoing": true])
     }
-    model.fileDragEnded = { [weak self] in _ = self?.fileProbe.write(["enabled": true]) }
+    model.fileDragEnded = { [weak self] in
+      guard let self else { return }
+      self.model.outgoingFileDrag = false
+      _ = self.fileProbe.write(["enabled": self.builtinApps.allows(destination: "files")])
+    }
     updates.changed = { [weak self] in self?.refresh() }
     updates.beforeInstall = { [weak self] in
       self?.history.flush()
@@ -305,6 +317,7 @@ import UserNotifications
   private func startFileProbe() {
     fileProbe.onMessage = { [weak self] message in
       guard let self, !self.disposed else { return }
+      guard self.builtinApps.allows(destination: "files") else { return }
       switch message["type"] as? String {
       case "enter": Task { await self.showIncomingFiles?() }
       case "drop":
@@ -324,7 +337,10 @@ import UserNotifications
       self.model.error =
         "Цель у выреза недоступна. Откройте файлы через список приложений и перетащите их на открытую полку."
     }
-    do { try fileProbe.start(NativeProfile.helper("file-shelf-probe")) } catch {
+    do {
+      try fileProbe.start(NativeProfile.helper("file-shelf-probe"))
+      _ = fileProbe.write(["enabled": builtinApps.allows(destination: "files")])
+    } catch {
       model.error = error.localizedDescription
     }
   }
@@ -412,11 +428,12 @@ import UserNotifications
     if model.files != projectedFiles { model.files = projectedFiles }
     let selectedFiles = model.selectedFiles.intersection(Set(files.items.map(\.id)))
     if model.selectedFiles != selectedFiles { model.selectedFiles = selectedFiles }
-    let apps = (LauncherSearch.builtinApps + applications.apps).map {
+    let apps = builtinApps.catalog(LauncherSearch.builtinApps + applications.apps).map {
       NativeUIApp(id: $0.id, name: $0.name, icon: $0.icon, detail: $0.description)
     }
     if model.apps != apps { model.apps = apps }
     var nextSettings = model.settings
+    nextSettings.builtinApps = builtinApps
     nextSettings.paused = snapshot.preferences.paused
     nextSettings.pasteOnSelect = snapshot.preferences.pasteOnSelect
     nextSettings.hoverEnabled = snapshot.preferences.hoverEnabled
@@ -479,14 +496,17 @@ import UserNotifications
   private func registerLauncherShortcut(_ accelerator: String) throws {
     if launcherRegistered, launcherAccelerator == accelerator { return }
     if fixture {
-      try validateFixtureShortcut(accelerator, other: history.getPreferences().accelerator)
+      try validateFixtureShortcut(
+        accelerator,
+        other: builtinApps.allows(destination: "clipboard")
+          ? history.getPreferences().accelerator : "")
       try settings.set(key: "launcherShortcut", value: accelerator)
     } else {
       try shortcuts?.set(
         "launcher", accelerator: accelerator,
         persist: { try self.settings.set(key: "launcherShortcut", value: accelerator) },
         action: { [weak self] in
-          guard let self, !self.model.busy, NSApp.modalWindow == nil else { return }
+          guard let self, !self.model.busy, NSApp?.modalWindow == nil else { return }
           Task { await self.show?("toggle", "") }
         })
     }
@@ -495,6 +515,16 @@ import UserNotifications
     model.settings.launcherShortcutError = ""
   }
   private func registerHistoryShortcut(_ accelerator: String) throws {
+    if !builtinApps.allows(destination: "clipboard") {
+      if !accelerator.isEmpty { _ = try GlobalShortcuts.parse(accelerator) }
+      var preferences = history.getPreferences()
+      preferences.accelerator = accelerator
+      try history.setPreferences(preferences)
+      shortcuts?.remove("clipboard")
+      clipboardRegistered = false
+      model.settings.clipboardShortcutError = ""
+      return
+    }
     if clipboardRegistered, history.getPreferences().accelerator == accelerator { return }
     func persist() throws {
       var preferences = history.getPreferences()
@@ -506,11 +536,15 @@ import UserNotifications
       try persist()
     } else {
       try shortcuts?.set("clipboard", accelerator: accelerator, persist: persist) { [weak self] in
-        guard let self, !self.model.busy, NSApp.modalWindow == nil else { return }
+        guard let self, self.builtinApps.allows(destination: "clipboard"), !self.model.busy,
+          NSApp?.modalWindow == nil,
+          NSApp?.windows.contains(where: { $0.attachedSheet != nil }) != true
+        else { return }
         Task { await self.show?("toggle-clipboard", "") }
       }
     }
     clipboardRegistered = true
+    model.settings.clipboardShortcutError = ""
   }
   private func search(_ query: String) -> [NativeUISearchRow] {
     var rows: [NativeUISearchRow] = []
@@ -525,7 +559,8 @@ import UserNotifications
           sourceDate: value.sourceDate ?? ""))
     }
     rows += LauncherSearch.apps(
-      LauncherSearch.builtinApps + applications.apps, query: query, usage: usage
+      builtinApps.catalog(LauncherSearch.builtinApps + applications.apps), query: query,
+      usage: usage
     ).map {
       NativeUISearchRow(
         id: $0.id, kind: "app", title: $0.name, detail: $0.description, icon: $0.icon)
@@ -533,6 +568,8 @@ import UserNotifications
     if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       let snapshot = history.snapshot(includeImageContent: false)
       for (clips, more) in [(snapshot.clips, "more-clips"), (snapshot.snippets, "more-snippets")] {
+        guard builtinApps.allows(destination: more == "more-clips" ? "clipboard" : "snippets")
+        else { continue }
         let matches = clipboardResults(clips.map(redactedClip), query: query)
         rows += matches.prefix(3).map { clip in
           let preview = nativeClipboardSnippet(projectClip(clip), query: query)
@@ -612,7 +649,80 @@ import UserNotifications
       try? await center.add(request)
     }
   }
+  func requireEnabled(_ destination: String) throws {
+    guard builtinApps.allows(destination: destination) else {
+      throw PolkaCoreError.invalid(
+        "Приложение отключено. Включите его в настройках «Встроенные приложения».")
+    }
+  }
+  private func validateAvailability(_ command: NativeUICommand) throws {
+    let id = command.strings["id"] ?? ""
+    switch command.name {
+    case "launcher.show":
+      if let destination = command.strings["destination"] {
+        try requireEnabled(destination == "toggle-clipboard" ? "clipboard" : destination)
+      }
+    case "launcher.openMac":
+      if id.hasPrefix("builtin:") { try requireEnabled(String(id.dropFirst(8))) }
+    case "clipboardHistory.show", "clipboardHistory.clear": try requireEnabled("clipboard")
+    case "shelf.showSnippets", "clipboardHistory.createSnippet", "clipboardHistory.edit":
+      try requireEnabled("snippets")
+    case "shelf.showEmoji", "shelf.selectEmoji", "shelf.copyEmoji": try requireEnabled("emoji")
+    case "shelf.showFiles", "shelf.files.add", "shelf.files.remove", "shelf.files.clear":
+      try requireEnabled("files")
+    case "clipboardHistory.copy", "clipboardHistory.select", "clipboardHistory.preview",
+      "clipboardHistory.pin", "clipboardHistory.remove", "clipboardHistory.openUrl",
+      "clipboardHistory.saveImage", "clipboardHistory.copyImageText",
+      "clipboardHistory.retryImageText":
+      if let clip = history.find(id) {
+        try requireEnabled(clip.isSnippet ? "snippets" : "clipboard")
+      }
+    default: break
+    }
+  }
+  private func setBuiltinApp(_ id: String, enabled: Bool) async throws {
+    guard LauncherSearch.builtinApps.contains(where: { $0.id == id }) else {
+      throw PolkaCoreError.invalid("Неизвестное встроенное приложение")
+    }
+    guard !model.busy || model.pendingCommand == "builtinApps.setEnabled",
+      !model.outgoingFileDrag, !model.incomingFileDropPending, !model.incomingFileDropTargeted,
+      NSApp?.modalWindow == nil, NSApp?.windows.contains(where: { $0.attachedSheet != nil }) != true
+    else { throw PolkaCoreError.invalid("Завершите текущее действие перед отключением приложения") }
+    guard builtinApps.isEnabled(id) != enabled else { return }
+    var next = builtinApps
+    next.overrides[id] = enabled
+    try settings.set(key: BuiltinAppAvailability.settingsKey, value: next.overrides)
+    let destination = String(id.dropFirst(8))
+    if !enabled { model.suspendBuiltinApp(destination) }
+    builtinApps = next
+    model.settings.builtinApps = next
+    model.searchRevision += 1
+    if destination == "clipboard" {
+      capture.setEnabled(enabled)
+      if enabled, history.storage.ready {
+        do { try registerHistoryShortcut(history.getPreferences().accelerator) } catch {
+          // Enabling the app succeeds even if another app has taken the stored shortcut.
+          model.settings.clipboardShortcutError = error.localizedDescription
+        }
+      } else if !enabled {
+        shortcuts?.remove("clipboard")
+        clipboardRegistered = false
+        model.settings.clipboardShortcutError = ""
+      }
+    }
+    if destination == "files" { _ = fileProbe.write(["enabled": enabled]) }
+    if !enabled, model.destination == destination {
+      if model.visible {
+        await show?("apps", "")
+        if model.destination == destination { model.present(destination: "apps") }
+      } else {
+        model.present(destination: "apps")
+        model.visible = false
+      }
+    }
+  }
   func handle(_ command: NativeUICommand) async throws {
+    try validateAvailability(command)
     guard updates.status != "installing" || command.name == "system.quit" else {
       throw PolkaCoreError.invalid("Обновление устанавливается")
     }
@@ -636,6 +746,8 @@ import UserNotifications
       try history.prune()
     }
     switch command.name {
+    case "builtinApps.setEnabled":
+      try await setBuiltinApp(id, enabled: command.bools["enabled"] ?? true)
     case "launcher.show":
       await show?(command.strings["destination"], command.strings["query"] ?? "")
     case "launcher.hide", "clipboardHistory.hide": hide?(true)

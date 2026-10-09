@@ -104,7 +104,7 @@ import Carbon
     identifiers[id] = name
     bindings[name] = (reference, action, code, modifiers)
   }
-  private func remove(_ name: String) {
+  func remove(_ name: String) {
     if let old = bindings.removeValue(forKey: name) { UnregisterEventHotKey(old.0) }
     for id in identifiers.filter({ $0.value == name }).keys {
       pressed.remove(id)

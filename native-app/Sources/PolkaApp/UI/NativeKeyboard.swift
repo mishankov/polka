@@ -294,13 +294,21 @@ struct NativeKeyboardBridge: NSViewRepresentable {
   func makeNSView(context: Context) -> NSView {
     let view = NSView()
     context.coordinator.view = view
-    context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+    context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: [
+      .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
+    ]) {
       [weak coordinator = context.coordinator] event in
       guard let coordinator, let view = coordinator.view, let window = view.window,
         window.isKeyWindow, event.window === window, window.attachedSheet == nil,
         NSApp.modalWindow == nil
       else { return event }
       if NSMenuTrackingState.shared.active { return event }
+      // Distinguish AppKit's automatic focus loss when a checkbox becomes busy
+      // from a user deliberately moving focus while its action completes.
+      if coordinator.settings, event.type != .keyDown || !event.isARepeat {
+        coordinator.model.settingsFocusRevision += 1
+      }
+      guard event.type == .keyDown else { return event }
       let text = window.firstResponder as? NSTextView
       // A shortcut recorder is an NSControl, never the field editor.
       if window.firstResponder is NativeShortcutCaptureView { return event }

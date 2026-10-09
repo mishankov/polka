@@ -239,6 +239,38 @@ final class ClipboardCaptureTests: XCTestCase {
     capture.stop()
     await capture.waitForStop()
   }
+  @MainActor func testDisablingHistoryCancelsOCRAndReenablingResumesSavedImages() async throws {
+    let history = try history()
+    var calls = 0
+    let capture = NativeClipboardCapture(
+      history: history, fixture: true,
+      recognize: { _ in
+        calls += 1
+        if calls == 1 { try await Task.sleep(nanoseconds: 5_000_000_000) }
+        return Data("{\"text\":\"Kept image\",\"languages\":[\"en-US\"]}".utf8)
+      })
+    let png = try image()
+    try history.add(.image, content: png.base64EncodedString(), preview: "image")
+    let id = try XCTUnwrap(history.snapshot().clips.first?.id)
+    capture.indexImages()
+    await Task.yield()
+    XCTAssertEqual(calls, 1)
+    capture.setEnabled(false)
+    await capture.waitForStop()
+    capture.indexImages()
+    XCTAssertEqual(calls, 1)
+    XCTAssertNotNil(history.find(id))
+    XCTAssertNil(history.find(id)?.ocr)
+    capture.setEnabled(true)
+    for _ in 0..<100 {
+      if history.find(id)?.ocr != nil { break }
+      try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    XCTAssertEqual(history.find(id)?.ocr?.text, "Kept image")
+    XCTAssertEqual(calls, 2)
+    capture.stop()
+    await capture.waitForStop()
+  }
   @MainActor func testOCRShutdownReapsActualNativeCommandBeforeReturning() async throws {
     let history = try history()
     let pidPath = try XCTUnwrap(roots.last).appendingPathComponent("ocr-pid")
