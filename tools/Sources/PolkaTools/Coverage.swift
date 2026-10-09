@@ -47,10 +47,13 @@ public enum Coverage {
     public let files: [Source]
     public var gate: Gate?
   }
-  public static func exportArguments(codecov: URL) -> [String] {
+  public static func exportArguments(codecov: URL, nativeEngine: Bool = false) -> [String] {
     let directory = codecov.deletingLastPathComponent()
     let products = directory.deletingLastPathComponent()
-    let binaries = targets.map {
+    // Native SwiftPM links all test targets into one package XCTest bundle;
+    // Swift Build emits a separate bundle for each target.
+    let testBundles = nativeEngine ? ["PolkaNativePackageTests"] : targets
+    let binaries = testBundles.map {
       products.appendingPathComponent("\($0).xctest/Contents/MacOS/\($0)").path
     }
     return [
@@ -147,7 +150,10 @@ public enum Coverage {
       environment: context.environment, directory: context.root
     ).trimmingCharacters(in: .whitespacesAndNewlines)
     let raw = try Command.execute(
-      "xcrun", exportArguments(codecov: URL(fileURLWithPath: path)),
+      "xcrun",
+      exportArguments(
+        codecov: URL(fileURLWithPath: path),
+        nativeEngine: context.environment["POLKA_SWIFT_BUILD_SYSTEM"] == "native"),
       environment: context.environment, directory: context.root)
     guard raw.status == 0 else { throw ToolError("LLVM coverage export failed.") }
     let files = ["PolkaCore", "PolkaApp"].flatMap {

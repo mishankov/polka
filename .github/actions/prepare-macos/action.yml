@@ -3,7 +3,7 @@ description: Validate the Apple toolchain, restore optional Swift build caches a
 
 inputs:
   build-cache:
-    description: Build profile to cache (source, tooling, optimized or optimized-native); empty caches dependency downloads only.
+    description: Build profile to cache (source, source-native, tooling, optimized or optimized-native); empty caches dependency downloads only.
     required: false
     default: ''
   tools-only:
@@ -49,10 +49,11 @@ runs:
         echo "key=$toolchain" >> "$GITHUB_OUTPUT"
         echo "build_key=$build_toolchain" >> "$GITHUB_OUTPUT"
         echo "legacy_build_key=$legacy_build_toolchain" >> "$GITHUB_OUTPUT"
-        # Keep optimized intermediates separate while using SwiftPM's native engine
+        # Keep native-engine profiles separate while using SwiftPM's native engine
         # to avoid Swift Build's repeated dependency compilation on hosted runners.
-        if [[ "$BUILD_CACHE_PROFILE" == 'optimized-native' ]]; then
+        if [[ "$BUILD_CACHE_PROFILE" == *-native ]]; then
           echo 'POLKA_SWIFT_BUILD_SYSTEM=native' >> "$GITHUB_ENV"
+          echo "fallback_profile=${BUILD_CACHE_PROFILE%-native}" >> "$GITHUB_OUTPUT"
         fi
 
     - name: Cache Swift tooling intermediates
@@ -83,16 +84,16 @@ runs:
           swift-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.legacy_build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved') }}-
 
     - name: Restore dependency downloads for the first native-engine build
-      if: inputs.build-cache == 'optimized-native' && hashFiles('native-app/.build/checkouts/*/Package.swift') == ''
+      if: endsWith(inputs.build-cache, '-native') && hashFiles('native-app/.build/checkouts/*/Package.swift') == ''
       uses: actions/cache/restore@v6
       with:
         path: native-app/.build
-        key: swift-native-v2-${{ runner.os }}-${{ runner.arch }}-optimized-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('native-app/Sources/**', 'native-app/Tests/**') }}
+        key: swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fallback_profile }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('native-app/Sources/**', 'native-app/Tests/**') }}
         restore-keys: |
-          swift-native-v2-${{ runner.os }}-${{ runner.arch }}-optimized-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-
+          swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fallback_profile }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-
 
     - name: Discard incompatible engine outputs while retaining dependency downloads
-      if: inputs.build-cache == 'optimized-native' && hashFiles('native-app/.build/build.db') == ''
+      if: endsWith(inputs.build-cache, '-native') && hashFiles('native-app/.build/build.db') == ''
       shell: bash
       run: |
         shopt -s nullglob dotglob

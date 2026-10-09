@@ -73,7 +73,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.commit }}
       - uses: ./.github/actions/prepare-macos
         with:
-          build-cache: source
+          build-cache: source-native
       - name: Verify Swift services, UI models, coverage and regression fixtures
         timeout-minutes: 25
         run: ./polka verify --no-desktop --no-tools
