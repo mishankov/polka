@@ -1,9 +1,106 @@
 import Foundation
+import PolkaCore
 import XCTest
 
 @testable import PolkaApp
 
 final class InstalledAppsTests: XCTestCase {
+  private func localizedApp(
+    at root: URL, name: String, strings: [String: [String: Any]] = [:],
+    table: [String: [String: Any]] = [:]
+  ) throws -> URL {
+    let url = root.appendingPathComponent(name + ".app")
+    let resources = url.appendingPathComponent("Contents/Resources")
+    try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: url.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+    let info: [String: Any] = [
+      "CFBundlePackageType": "APPL", "CFBundleExecutable": "Synthetic",
+      "CFBundleName": name, "CFBundleDisplayName": name, "CFBundleDevelopmentRegion": "en",
+      "CFBundleIdentifier": "app.polka.fixture." + UUID().uuidString,
+    ]
+    func write(_ values: Any, to path: URL) throws {
+      try PropertyListSerialization.data(fromPropertyList: values, format: .xml, options: 0)
+        .write(to: path)
+    }
+    try write(info, to: url.appendingPathComponent("Contents/Info.plist"))
+    let executable = url.appendingPathComponent("Contents/MacOS/Synthetic")
+    try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+    for (language, values) in strings {
+      let directory = resources.appendingPathComponent(language + ".lproj")
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      try write(values, to: directory.appendingPathComponent("InfoPlist.strings"))
+    }
+    if !table.isEmpty {
+      try write(table, to: resources.appendingPathComponent("InfoPlist.loctable"))
+    }
+    return url
+  }
+
+  @MainActor func testCatalogUsesRussianNamesAndKeepsEnglishSearchAliases() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    // Modern macOS apps can keep all translations in a loctable without .lproj directories.
+    _ = try localizedApp(
+      at: root, name: "Calculator",
+      table: [
+        "ru": ["CFBundleDisplayName": "Калькулятор"],
+        "en": ["CFBundleDisplayName": "Calculator"],
+        "LocProvenance": ["ru": 1],
+      ])
+    _ = try localizedApp(
+      at: root, name: "Calendar",
+      strings: [
+        "ru": ["CFBundleDisplayName": "Календарь"],
+        "en": ["CFBundleDisplayName": "Calendar"],
+      ])
+    let catalog = InstalledApps()
+    try await catalog.refresh(
+      roots: [root.path], extraPaths: [], preferredLanguages: ["ru-RU", "en"])
+    XCTAssertEqual(Set(catalog.apps.map(\.name)), ["Календарь", "Калькулятор"])
+    for (query, expected) in [
+      ("Calendar", "Календарь"), ("Календарь", "Календарь"),
+      ("Calculator", "Калькулятор"), ("Калькулятор", "Калькулятор"),
+    ] {
+      XCTAssertEqual(LauncherSearch.apps(catalog.apps, query: query).first?.name, expected)
+    }
+    try await catalog.refresh(
+      roots: [root.path], extraPaths: [], preferredLanguages: ["en-US", "ru"])
+    XCTAssertEqual(Set(catalog.apps.map(\.name)), ["Calendar", "Calculator"])
+  }
+
+  @MainActor func testDisplayNameMatchesRegionalLocalizationAndFallsBackFromBlankNames() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let url = try localizedApp(
+      at: root, name: "Calendar",
+      table: [
+        "pt_BR": ["CFBundleDisplayName": "Calendário brasileiro"],
+        "pt_PT": ["CFBundleDisplayName": "Calendário português"],
+        "ru": ["CFBundleDisplayName": " \n ", "CFBundleName": " Календарь "],
+        "none": ["CFBundleDisplayName": "Unlocalized"],
+      ])
+    let info = try InstalledApps.validate(url.path)
+    XCTAssertEqual(
+      InstalledApps.displayName(at: url, info: info, preferredLanguages: ["pt-PT"]),
+      "Calendário português")
+    XCTAssertEqual(
+      InstalledApps.displayName(at: url, info: info, preferredLanguages: ["ru-RU"]), "Календарь")
+    XCTAssertEqual(
+      InstalledApps.displayName(at: url, info: info, preferredLanguages: ["en-US"]), "Calendar")
+  }
+
+  @MainActor func testSystemCalendarAndCalculatorHaveRussianDisplayNames() throws {
+    for (name, expected) in [("Calendar", "Календарь"), ("Calculator", "Калькулятор")] {
+      let url = URL(fileURLWithPath: "/System/Applications/\(name).app")
+      let info = try InstalledApps.validate(url.path)
+      XCTAssertEqual(
+        InstalledApps.displayName(at: url, info: info, preferredLanguages: ["ru-RU", "en"]),
+        expected)
+    }
+  }
+
   @MainActor func testCatalogRefreshDetectsInstallationRemovalAndMetadataChanges() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
