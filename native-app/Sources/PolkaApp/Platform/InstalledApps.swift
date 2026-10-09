@@ -32,7 +32,48 @@ import PolkaCore
     else { throw PolkaCoreError.invalid("Исполняемый файл приложения не найден") }
     return info
   }
-  func refresh(roots suppliedRoots: [String]? = nil, extraPaths: [String]? = nil) async throws {
+  static func displayName(
+    at url: URL, info: [String: Any], preferredLanguages: [String]
+  ) -> String {
+    func name(in values: [String: Any]?) -> String? {
+      for key in ["CFBundleDisplayName", "CFBundleName"] {
+        if let value = (values?[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !value.isEmpty
+        {
+          return value
+        }
+      }
+      return nil
+    }
+    if let bundle = Bundle(url: url), let resource = bundle.resourceURL {
+      let table =
+        NSDictionary(contentsOf: resource.appendingPathComponent("InfoPlist.loctable"))
+        as? [String: [String: Any]] ?? [:]
+      // Other bundles' preferredLocalizations/localizedInfoDictionary can inherit
+      // Polka's language. Resolve the installed app against the user's preferences
+      // explicitly, including apps whose translations only exist in a loctable.
+      let development = bundle.developmentLocalization ?? "en"
+      let localizations = Set(
+        bundle.localizations + [development] + table.keys.filter { name(in: table[$0]) != nil }
+      )
+      .subtracting(["Base", "none"])
+      for language in Bundle.preferredLocalizations(
+        from: [development] + localizations.subtracting([development]).sorted(),
+        forPreferences: preferredLanguages)
+      {
+        if let localized = name(in: table[language]) { return localized }
+        let strings = resource.appendingPathComponent(language + ".lproj/InfoPlist.strings")
+        if let localized = name(in: NSDictionary(contentsOf: strings) as? [String: Any]) {
+          return localized
+        }
+      }
+    }
+    return name(in: info) ?? url.deletingPathExtension().lastPathComponent
+  }
+  func refresh(
+    roots suppliedRoots: [String]? = nil, extraPaths: [String]? = nil,
+    preferredLanguages: [String] = Locale.preferredLanguages
+  ) async throws {
     guard !refreshing else { return }
     refreshing = true
     defer { refreshing = false }
@@ -99,23 +140,7 @@ import PolkaCore
         .prefix(32)
       let id = "mac:\(hash)"
       guard let info = try? Self.validate(path) else { continue }
-      let bundle = Bundle(url: url)
-      let base =
-        (info["CFBundleDisplayName"] as? String) ?? (info["CFBundleName"] as? String)
-        ?? url.deletingPathExtension().lastPathComponent
-      var localization = bundle?.localizedInfoDictionary
-      if let resource = bundle?.resourceURL, let language = bundle?.preferredLocalizations.first,
-        let table = NSDictionary(contentsOf: resource.appendingPathComponent("InfoPlist.loctable"))
-          as? [String: [String: Any]], let values = table[language]
-      {
-        localization = values
-      }
-      let localized =
-        (localization?["CFBundleDisplayName"] as? String)
-        ?? (localization?["CFBundleName"] as? String)
-      let name =
-        (localized?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        ? localized! : base).trimmingCharacters(in: .whitespacesAndNewlines)
+      let name = Self.displayName(at: url, info: info, preferredLanguages: preferredLanguages)
       let icon =
         entries[id]?.signature == signature ? entries[id]!.app.icon : Self.iconDataURL(path)
       let terms = [
