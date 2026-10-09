@@ -734,6 +734,12 @@ final class NativeBuiltinAppSwitch: NSSwitch {
   var focusRevision: (() -> Int)?
   private weak var restoreWindow: NSWindow?
   private var disabledFocusRevision = 0
+  override var acceptsFirstResponder: Bool { isEnabled }
+  override var canBecomeKeyView: Bool {
+    // NSSwitch normally requires Full Keyboard Access. These settings must
+    // remain reachable through the standard Tab flow with that option off.
+    acceptsFirstResponder && !isHiddenOrHasHiddenAncestor && window?.canBecomeKey == true
+  }
   func setAvailable(_ available: Bool, focusRevision: Int) {
     let owner = window
     if available != isEnabled {
