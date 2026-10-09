@@ -257,8 +257,9 @@ final class ReleasePreparationTests: XCTestCase {
   func testPackageAndUpdateChecksUseOptimizedSwiftProducts() throws {
     let build = try source(".github/workflows/build.yml")
     let package = try job("package", in: build)
-    XCTAssertEqual(package.components(separatedBy: "run: ./polka build").count - 1, 1)
-    XCTAssertTrue(package.contains("./polka package --prebuilt --desktop"))
+    XCTAssertEqual(package.components(separatedBy: "run: ./polka package --desktop").count - 1, 1)
+    XCTAssertFalse(package.contains("run: ./polka build"))
+    XCTAssertTrue(package.contains("./polka package --desktop"))
     XCTAssertTrue(package.contains("./polka desktop updates --prebuilt --release"))
     XCTAssertTrue(package.contains("release/native-dev/*.zip"))
     XCTAssertTrue(package.contains("release/native-dev/*.dmg"))

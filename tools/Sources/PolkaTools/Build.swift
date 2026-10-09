@@ -84,13 +84,20 @@ public enum BuildTool {
   ]
   public static func buildHelpers(context: ToolContext = ToolContext()) throws {
     try ToolFiles.directory(context.root.appendingPathComponent("build"))
-    for helper in helpers {
-      try Command.run(
-        "/usr/bin/xcrun",
-        ["swiftc", "-O", helper.source, "-o", helper.output] + helper.flags
-          + helper.frameworks.flatMap { ["-framework", $0] },
-        environment: SigningTool.publicEnvironment(context.environment), directory: context.root)
-    }
+    let jobs =
+      Int(context.environment["POLKA_SWIFT_BUILD_JOBS"] ?? "")
+      ?? ProcessInfo.processInfo.activeProcessorCount
+    try Command.parallel(
+      helpers.map { helper in
+        {
+          try Command.run(
+            "/usr/bin/xcrun",
+            ["swiftc", "-O", helper.source, "-o", helper.output] + helper.flags
+              + helper.frameworks.flatMap { ["-framework", $0] },
+            environment: SigningTool.publicEnvironment(context.environment), directory: context.root
+          )
+        }
+      }, limit: jobs)
   }
   public static func products(configuration: String, context: ToolContext = ToolContext()) throws
     -> URL

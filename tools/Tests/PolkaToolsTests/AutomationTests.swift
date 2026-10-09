@@ -100,7 +100,7 @@ final class AutomationTests: XCTestCase {
     XCTAssertTrue(action.contains("swift package --package-path tools resolve"))
     XCTAssertTrue(build.contains("needs: [verify, tooling, package]"))
     XCTAssertTrue(build.contains("name: Verify and package macOS arm64"))
-    XCTAssertTrue(build.contains("./polka package --prebuilt --desktop"))
+    XCTAssertTrue(build.contains("./polka package --desktop"))
     XCTAssertTrue(release.contains("./polka release-prepare"))
     XCTAssertTrue(release.contains("needs: [prepare, verify, tooling, updates, build]"))
     XCTAssertTrue(release.contains("ref: ${{ needs.prepare.outputs.commit }}"))

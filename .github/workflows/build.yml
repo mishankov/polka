@@ -71,10 +71,8 @@ jobs:
         with:
           build-cache: optimized-native
           tools-configuration: debug
-      - name: Build optimized native app
-        run: ./polka build
-      - name: Package ZIP and DMG and smoke-test the relocated optimized app
-        run: ./polka package --prebuilt --desktop
+      - name: Build optimized app, package ZIP and DMG and smoke-test the relocated app
+        run: ./polka package --desktop
       - name: Verify authenticated native update, held installation and relaunch
         run: ./polka desktop updates --prebuilt --release
       - name: Report desktop coverage
