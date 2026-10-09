@@ -555,12 +555,9 @@ struct NativeUpdateNotice: View {
 struct NativeSettingsSidebar: NSViewRepresentable {
   @ObservedObject var model: NativeUIModel
   func makeCoordinator() -> Coordinator { Coordinator(model) }
-  func makeNSView(context: Context) -> NSScrollView {
-    let scroll = NSScrollView()
-    scroll.drawsBackground = false
-    scroll.contentView.drawsBackground = false
-    scroll.hasVerticalScroller = false
-    scroll.hasHorizontalScroller = false
+  func makeNSView(context: Context) -> NSTableView {
+    // All panes fit in the fixed sidebar. A scroll view with hidden scrollers
+    // still responds to wheel/trackpad input and can move panes out of view.
     let table = NSTableView()
     table.headerView = nil
     table.backgroundColor = .clear
@@ -577,11 +574,10 @@ struct NativeSettingsSidebar: NSViewRepresentable {
     table.focusRingType = .none
     table.intercellSpacing = NSSize(width: 0, height: 2)
     table.setAccessibilityLabel("Разделы настроек")
-    scroll.documentView = table
     context.coordinator.table = table
-    return scroll
+    return table
   }
-  func updateNSView(_ scroll: NSScrollView, context: Context) {
+  func updateNSView(_ table: NSTableView, context: Context) {
     context.coordinator.model = model
     let index = nativeSettingsPanes.firstIndex { $0.id == model.settingsPane } ?? 0
     if context.coordinator.table?.selectedRow != index {
