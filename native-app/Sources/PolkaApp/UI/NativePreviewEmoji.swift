@@ -73,27 +73,29 @@ struct NativeClipboardPreview: View {
   var clip: NativeUIClip
   var body: some View {
     VStack(spacing: 0) {
-      HStack {
+      VStack(alignment: .leading, spacing: 8) {
         Text(clip.name.isEmpty ? nativeClipDate(clip.createdAt) : clip.name).font(.system(size: 11))
           .foregroundStyle(.secondary).lineLimit(1)
-        Spacer()
-        if clip.kind == "text" {
-          NativeCommandButton(
-            title: clip.snippet ? "Изменить сниппет" : "Создать сниппет", symbol: "pencil",
-            shortcut: "⌘E",
-            disabled: model.busy || !model.writable
-              || !model.settings.builtinApps.allows(destination: "snippets")
-          ) { model.edit(clip) }
-        }
-        if model.canPaste {
-          NativeCommandButton(title: "Копировать", shortcut: "⇧↵", disabled: model.busy) {
-            model.chooseClip(clip, copyOnly: true)
+        HStack {
+          Spacer()
+          if clip.kind == "text" {
+            NativeCommandButton(
+              title: clip.snippet ? "Изменить сниппет" : "Создать сниппет", symbol: "pencil",
+              shortcut: "⌘E",
+              disabled: model.busy || !model.writable
+                || !model.settings.builtinApps.allows(destination: "snippets")
+            ) { model.edit(clip) }
           }
+          if model.canPaste {
+            NativeCommandButton(title: "Копировать", shortcut: "⇧↵", disabled: model.busy) {
+              model.chooseClip(clip, copyOnly: true)
+            }
+          }
+          NativeCommandButton(
+            title: model.canPaste ? "Вставить" : "Копировать", shortcut: "↵", disabled: model.busy,
+            prominent: true
+          ) { model.chooseClip(clip) }
         }
-        NativeCommandButton(
-          title: model.canPaste ? "Вставить" : "Копировать", shortcut: "↵", disabled: model.busy,
-          prominent: true
-        ) { model.chooseClip(clip) }
       }.padding(10)
       HStack {
         ForEach(Array(model.previewActions(for: clip).enumerated()), id: \.element.id) {

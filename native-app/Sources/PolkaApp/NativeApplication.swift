@@ -434,7 +434,8 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   private func geometry() {
     let screen = presentationScreen ?? screen()
     let expanded = model.previewID != nil || model.draft != nil
-    let width = min(expanded ? CGFloat(960) : 560, screen.frame.width)
+    // Every shelf destination, preview and editor shares the launcher's width.
+    let width = min(CGFloat(560), screen.frame.width)
     let top = screen.safeAreaInsets.top
     let center =
       (screen.auxiliaryTopLeftArea.flatMap { left in
