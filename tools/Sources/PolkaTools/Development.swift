@@ -195,7 +195,7 @@ public enum DevelopmentTool {
   }
   public static func prepareBroker(
     _ signing: DevelopmentSigning, directory: URL = brokerDirectory,
-    appId: String = "app.everything.desktop.native-development", sourcePath: URL? = nil,
+    appId: String = "app.polka.desktop.native-development", sourcePath: URL? = nil,
     context: ToolContext = ToolContext()
   ) throws -> DevelopmentBroker {
     let fingerprint = try SigningTool.fingerprint(["POLKA_SIGNING_CERT_SHA1": signing.fingerprint])

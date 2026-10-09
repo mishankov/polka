@@ -29,7 +29,7 @@ enum NativeProfile {
   static var isolatedFixture: Bool {
     if update != nil { return true }
     guard ProcessInfo.processInfo.environment["POLKA_NATIVE_FIXTURE"] == "1",
-      let override = ProcessInfo.processInfo.environment["EVERYTHING_PROFILE"], !override.isEmpty
+      let override = ProcessInfo.processInfo.environment["POLKA_PROFILE"], !override.isEmpty
     else { return false }
     let root = URL(fileURLWithPath: override).standardizedFileURL.resolvingSymlinksInPath()
     let temporary = URL(fileURLWithPath: NSTemporaryDirectory()).resolvingSymlinksInPath()
@@ -39,13 +39,13 @@ enum NativeProfile {
     environment: [String: String] = ProcessInfo.processInfo.environment, bundle: Bundle = .main
   ) -> URL {
     if let update = updateFixture(bundle: bundle) { return update.profile }
-    if let override = environment["EVERYTHING_PROFILE"], !override.isEmpty {
+    if let override = environment["POLKA_PROFILE"], !override.isEmpty {
       return URL(fileURLWithPath: override).standardizedFileURL
     }
     let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[
       0]
     if bundle.object(forInfoDictionaryKey: "PolkaDevelopment") as? Bool != true {
-      return support.appendingPathComponent("Everything App", isDirectory: true)
+      return support.appendingPathComponent("Polka", isDirectory: true)
     }
     let checkout =
       bundle.object(forInfoDictionaryKey: "PolkaCheckout") as? String

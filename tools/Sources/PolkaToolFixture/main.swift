@@ -61,7 +61,7 @@ import PolkaTools
       case "plutil":
         print(
           args[1] == "CFBundleIdentifier"
-            ? env["BUNDLE_ID"] ?? "app.everything.desktop" : env["BUNDLE_VERSION"] ?? "0.5.0")
+            ? env["BUNDLE_ID"] ?? "app.polka.desktop" : env["BUNDLE_VERSION"] ?? "0.5.0")
       case "codesign":
         fail(
           env["SIGNATURE_FAILURE"] != nil

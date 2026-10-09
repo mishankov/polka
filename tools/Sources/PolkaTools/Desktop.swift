@@ -258,7 +258,7 @@ public enum Desktop {
         "startup": "--native-startup-close-smoke", "notice": "--native-notice-quit-smoke",
       ][phase]!
       var env = environment(context.environment)
-      env["EVERYTHING_PROFILE"] = profile.path
+      env["POLKA_PROFILE"] = profile.path
       env["POLKA_NATIVE_FIXTURE"] = "1"
       env["POLKA_NATIVE_SMOKE_RESULT"] = resultPath.path
       env["POLKA_NATIVE_SMOKE_SCREENSHOT"] = artifacts.appendingPathComponent("clipboard.png").path
@@ -332,7 +332,7 @@ public enum Desktop {
     do {
       try FileManager.default.createDirectory(at: artifacts, withIntermediateDirectories: true)
       var env = environment(context.environment)
-      env["EVERYTHING_PROFILE"] = profile.path
+      env["POLKA_PROFILE"] = profile.path
       env["POLKA_NATIVE_FIXTURE"] = "1"
       env["POLKA_NATIVE_SMOKE_RESULT"] = resultPath.path
       if external {

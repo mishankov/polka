@@ -7,7 +7,7 @@ public struct PolkaMetadata: Codable, Equatable {
     public var icon: String
     public init(
       minimumSystemVersion: String = "27.0", category: String = "public.app-category.productivity",
-      icon: String = "build/Everything.icon"
+      icon: String = "build/Polka.icon"
     ) {
       self.minimumSystemVersion = minimumSystemVersion
       self.category = category
@@ -19,7 +19,7 @@ public struct PolkaMetadata: Codable, Equatable {
     public var productName: String
     public var mac: Mac
     public init(
-      appId: String = "app.everything.desktop", productName: String = "Polka", mac: Mac = Mac()
+      appId: String = "app.polka.desktop", productName: String = "Polka", mac: Mac = Mac()
     ) {
       self.appId = appId
       self.productName = productName

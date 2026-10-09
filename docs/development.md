@@ -37,11 +37,11 @@
 ./polka package --prebuilt --desktop
 ```
 
-Ресурсы и иконка находятся в `native-app/Resources/`, emoji JSON — в `native-app/Sources/PolkaCore/Resources/`. Помощники из `native/` собирает `BuildTool.buildHelpers` в `tools/Sources/PolkaTools/Build.swift`. Swift XCTest можно запустить напрямую: `swift test --package-path native-app`. Набор эталонных запросов содержит 2 164 случая в `tests/fixtures/search-cases.json.gz` и выполняется `./polka search-test`.
+Ресурсы находятся в `native-app/Resources/`, иконка — в `build/Polka.icon/`, emoji JSON — в `native-app/Sources/PolkaCore/Resources/`. Помощники из `native/` собирает `BuildTool.buildHelpers` в `tools/Sources/PolkaTools/Build.swift`. Swift XCTest можно запустить напрямую: `swift test --package-path native-app`. Набор эталонных запросов содержит 2 164 случая в `tests/fixtures/search-cases.json.gz` и выполняется `./polka search-test`.
 
 ## Профиль и development-подпись
 
-Профиль checkout: `~/Library/Application Support/polka-development/native-ИМЯ-CHECKOUT-ХЕШ`. Разные checkout имеют разные профили; один checkout сохраняет профиль между запусками. `EVERYTHING_PROFILE=/absolute/path` выбирает явный каталог. Установленная программа использует `~/Library/Application Support/Everything App/`. [Что хранится](data.md).
+Профиль checkout: `~/Library/Application Support/polka-development/native-ИМЯ-CHECKOUT-ХЕШ`. Разные checkout имеют разные профили; один checkout сохраняет профиль между запусками. `POLKA_PROFILE=/absolute/path` выбирает явный каталог. Установленная программа использует `~/Library/Application Support/Polka/`. [Что хранится](data.md).
 
 `dev` создаёт один сертификат **Polka Native Development Signing** в `~/Library/Application Support/polka-development/signing`. Каталог закрыт правами 0700, файлы — 0600. Сертификат используется через временный signing keychain, не импортируется в login Keychain и не меняет системное доверие. Повреждённый или неполный cache вызывает ошибку и не заменяется автоматически.
 

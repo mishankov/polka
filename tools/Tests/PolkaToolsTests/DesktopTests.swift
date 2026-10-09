@@ -86,7 +86,7 @@ final class DesktopTests: XCTestCase {
         directory: URL(fileURLWithPath: "/Applications/Polka.app"),
         appID: "app.polka.native-update-test.123"))
     XCTAssertThrowsError(
-      try UpdateFixtureCleanup.pattern(directory: root, appID: "app.everything.desktop"))
+      try UpdateFixtureCleanup.pattern(directory: root, appID: "app.polka.desktop"))
     XCTAssertEqual(
       try UpdateFixtureCleanup.targets(output: "12\n13\n", status: 0, ownPID: 12), [13])
     XCTAssertEqual(try UpdateFixtureCleanup.targets(output: "", status: 1), [])
@@ -96,8 +96,8 @@ final class DesktopTests: XCTestCase {
   func testDesktopEnvironmentRetainsSyntheticProfileAndStripsHostMode() {
     XCTAssertEqual(
       Desktop.environment([
-        "ELECTRON_RUN_AS_NODE": "1", "EVERYTHING_PROFILE": "synthetic", "OTHER": "value",
-      ]), ["EVERYTHING_PROFILE": "synthetic", "OTHER": "value"])
+        "ELECTRON_RUN_AS_NODE": "1", "POLKA_PROFILE": "synthetic", "OTHER": "value",
+      ]), ["POLKA_PROFILE": "synthetic", "OTHER": "value"])
   }
   func testUpdaterCleanupTerminatesOnlyProcessesUnderDisposableMarker() async throws {
     let root = try Desktop.directory("polka-native-update-")

@@ -21,7 +21,7 @@ Paths and commands below are relative to the repository root.
 
 Compare changes since the baseline release and current behavior with `README.md` and the relevant `docs/` files, especially `macos.md`, `data.md`, `architecture.md`, and `validation.md`. Correct stale feature claims, UI labels, shortcuts, defaults, supported platforms, installation steps, local data behavior, signing requirements, and validation claims. This is a native Swift, SwiftUI and AppKit app for macOS 27+ Apple silicon. The Swift package in `tools/` runs development, release and test tooling through `./polka`. There is no separate promotional site workflow.
 
-Inspect screenshots actually referenced by the documentation. Refresh stale images when needed, using real UI captures and a disposable profile (`EVERYTHING_PROFILE=/absolute/test/profile`). Keep private clipboard contents and credentials out of screenshots. Do not invent a screenshot or website refresh requirement if none exists. Report anything that could not be verified.
+Inspect screenshots actually referenced by the documentation. Refresh stale images when needed, using real UI captures and a disposable profile (`POLKA_PROFILE=/absolute/test/profile`). Keep private clipboard contents and credentials out of screenshots. Do not invent a screenshot or website refresh requirement if none exists. Report anything that could not be verified.
 
 Create `release-notes/VERSION.json` in the release source commit, without the tag's optional `v` prefix:
 

@@ -5,12 +5,12 @@
   "author": "Polka contributors",
   "license": "MIT",
   "build": {
-    "appId": "app.everything.desktop",
+    "appId": "app.polka.desktop",
     "productName": "Polka",
     "mac": {
       "minimumSystemVersion": "27.0",
       "category": "public.app-category.productivity",
-      "icon": "build/Everything.icon"
+      "icon": "build/Polka.icon"
     }
   }
 }

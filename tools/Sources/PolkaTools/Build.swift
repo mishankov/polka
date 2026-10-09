@@ -172,7 +172,7 @@ public enum BuildTool {
       <key>LSUIElement</key><true/>
       <key>NSHighResolutionCapable</key><true/>
       <key>NSLocalNetworkUsageDescription</key><string>Полка синхронизирует историю буфера обмена между связанными Mac в вашей локальной сети.</string>
-      <key>NSBonjourServices</key><array><string>_everyclip._tcp</string></array>
+      <key>NSBonjourServices</key><array><string>_polkaclip._tcp</string></array>
       \(updates)
       </dict></plist>
       """
