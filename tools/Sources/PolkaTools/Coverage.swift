@@ -136,10 +136,14 @@ public enum Coverage {
   }
   public static func run(context: ToolContext) throws {
     try Command.run(
-      "swift", ["test", "--package-path", "native-app", "--enable-code-coverage"],
+      "swift",
+      ["test"] + context.swiftBuildArguments
+        + ["--package-path", "native-app", "--enable-code-coverage"],
       environment: context.environment, directory: context.root)
     let path = try Command.capture(
-      "swift", ["test", "--package-path", "native-app", "--show-codecov-path"],
+      "swift",
+      ["test"] + context.swiftBuildArguments
+        + ["--package-path", "native-app", "--show-codecov-path"],
       environment: context.environment, directory: context.root
     ).trimmingCharacters(in: .whitespacesAndNewlines)
     let raw = try Command.execute(

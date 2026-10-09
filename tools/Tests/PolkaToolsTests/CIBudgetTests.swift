@@ -24,11 +24,21 @@ final class CIBudgetTests: XCTestCase {
     }
   }
 
-  private func check(_ pages: [[String: Any]]) throws -> Command.Result {
+  private func check(_ pages: [[String: Any]], withSummary: Bool = false) throws -> Command.Result {
     let temporary = try Files.temporary("polka-ci-budget")
     defer { try? FileManager.default.removeItem(at: temporary) }
     let path = temporary.appendingPathComponent("jobs.json")
     try JSONSerialization.data(withJSONObject: pages).write(to: path)
+    if withSummary {
+      return try Command.execute(
+        "/bin/bash",
+        [
+          "--noprofile", "--norc", "-e", "-o", "pipefail", "-c",
+          #"bash "$1" "$2" | tee "$3""#, "ci-budget",
+          TestSupport.root.appendingPathComponent("scripts/check-ci-budget.sh").path, path.path,
+          temporary.appendingPathComponent("summary.md").path,
+        ])
+    }
     return try Command.execute(
       "/bin/bash",
       [TestSupport.root.appendingPathComponent("scripts/check-ci-budget.sh").path, path.path])
@@ -46,6 +56,12 @@ final class CIBudgetTests: XCTestCase {
     XCTAssertNotEqual(result.status, 0)
     XCTAssertTrue(result.output.contains("301s / 300s"))
     XCTAssertTrue(result.output.contains("::error::"))
+  }
+
+  func testBudgetFailureSurvivesSummaryPipeline() throws {
+    let result = try check([["jobs": fixture(finishes: [240, 120, 301])]], withSummary: true)
+    XCTAssertNotEqual(result.status, 0)
+    XCTAssertTrue(result.output.contains("301s / 300s"))
   }
 
   func testStaggeredRunnerQueuesAreExcludedFromExecutionBudget() throws {

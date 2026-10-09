@@ -248,6 +248,7 @@ final class ReleasePreparationTests: XCTestCase {
     }
     let aggregate = try job("macos-arm64", in: build)
     XCTAssertTrue(aggregate.contains("scripts/check-ci-budget.sh"))
+    XCTAssertTrue(aggregate.contains("shell: bash"))  // Preserve failures through tee.
     XCTAssertTrue(aggregate.contains("attempts/$GITHUB_RUN_ATTEMPT/jobs"))
     XCTAssertTrue(aggregate.contains("gh api --paginate --slurp"))
     XCTAssertFalse(aggregate.contains("continue-on-error"))
@@ -289,7 +290,8 @@ final class ReleasePreparationTests: XCTestCase {
     XCTAssertTrue(action.contains("checkout_path=$(pwd -P)"))
     XCTAssertTrue(action.contains("os_family=$(cut -d. -f1,2"))
     XCTAssertTrue(try job("verify", in: build).contains("build-cache: source"))
-    XCTAssertTrue(try job("package", in: build).contains("build-cache: optimized"))
+    XCTAssertTrue(try job("package", in: build).contains("build-cache: optimized-native"))
+    XCTAssertTrue(action.contains("POLKA_SWIFT_BUILD_SYSTEM=native"))
     XCTAssertTrue(try job("verify", in: release).contains("build-cache: source"))
     for name in ["prepare", "updates", "build"] {
       XCTAssertTrue(try job(name, in: release).contains("build-cache: optimized"))

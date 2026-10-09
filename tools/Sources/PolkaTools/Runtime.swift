@@ -13,6 +13,9 @@ public struct ToolError: Error, CustomStringConvertible {
 public struct ToolContext {
   public var root: URL
   public var environment: [String: String]
+  public var swiftBuildArguments: [String] {
+    environment["POLKA_SWIFT_BUILD_SYSTEM"] == "native" ? ["--build-system", "native"] : []
+  }
   public init(
     root: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
     environment: [String: String] = ProcessInfo.processInfo.environment

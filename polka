@@ -2,4 +2,7 @@
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$root"
+if [ "${POLKA_SWIFT_BUILD_SYSTEM:-}" = native ]; then
+  exec swift run --build-system native --package-path "$root/tools" --configuration release polka-tool "$@"
+fi
 exec swift run --package-path "$root/tools" --configuration release polka-tool "$@"

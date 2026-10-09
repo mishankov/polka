@@ -4,6 +4,16 @@ import XCTest
 @testable import PolkaTools
 
 final class AutomationTests: XCTestCase {
+  func testBuildSystemOverrideIsExplicitAndRetainedAfterRemovingSigningSecrets() {
+    let context = ToolContext(environment: [
+      "POLKA_SWIFT_BUILD_SYSTEM": "native", "POLKA_SIGNING_PASSWORD": "private",
+    ])
+    XCTAssertEqual(context.swiftBuildArguments, ["--build-system", "native"])
+    let publicContext = ToolContext(environment: SigningTool.publicEnvironment(context.environment))
+    XCTAssertEqual(publicContext.swiftBuildArguments, context.swiftBuildArguments)
+    XCTAssertNil(publicContext.environment["POLKA_SIGNING_PASSWORD"])
+    XCTAssertTrue(ToolContext(environment: [:]).swiftBuildArguments.isEmpty)
+  }
   func testCommandOptionsAndInvalidCombinations() throws {
     let value = try ToolRequest(["verify", "--no-desktop", "--release"])
     XCTAssertEqual(value.flags, ["no-desktop", "release"])

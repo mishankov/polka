@@ -98,7 +98,8 @@ public enum Automation {
       ? ["native-app", "tools"] : [selected == "app" ? "native-app" : "tools"]
     {
       try Command.run(
-        "swift", ["test", "--package-path", package], environment: context.environment,
+        "swift", ["test"] + context.swiftBuildArguments + ["--package-path", package],
+        environment: context.environment,
         directory: context.root)
     }
   }
