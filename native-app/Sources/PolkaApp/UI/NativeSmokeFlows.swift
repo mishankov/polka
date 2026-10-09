@@ -397,6 +397,9 @@ import SwiftUI
       failures.append("posted Command1 did not transform preview")
     }
     await screenshot("clipboard-preview")
+    if abs(shelf.frame.width - standardWidth) > 1 {
+      failures.append("clipboard entry preview is wider than launcher")
+    }
     post(53)
     if !(await wait({ model.previewID == nil })) {
       failures.append("posted Escape did not return preview to list")
@@ -407,6 +410,9 @@ import SwiftUI
       failures.append("posted Command Shift Backspace did not show clear confirmation")
     }
     await screenshot("clipboard-clear-confirmation")
+    if abs(shelf.frame.width - standardWidth) > 1 {
+      failures.append("clipboard clear confirmation is wider than launcher")
+    }
     post(53)
     if !(await wait({ !model.confirmClear })) || model.clips.count != count {
       failures.append("clear confirmation cancellation changed history")
@@ -416,6 +422,31 @@ import SwiftUI
   }
   await application.show("snippets")
   await settle()
+  if let snippet = model.snippets.first {
+    model.selectedID = snippet.id
+    post(36, .command, "\r")
+    if !(await wait({ model.previewID == snippet.id })) {
+      failures.append("posted Command Enter did not open snippet preview")
+    }
+    await screenshot("snippet-preview")
+    if abs(shelf.frame.width - standardWidth) > 1 {
+      failures.append("snippet entry preview is wider than launcher")
+    }
+    post(14, .command, "e")
+    if !(await wait({ model.draft?.id == snippet.id })) {
+      failures.append("posted Command E did not edit snippet from preview")
+    }
+    await screenshot("snippet-edit")
+    if abs(shelf.frame.width - standardWidth) > 1 {
+      failures.append("existing snippet editor is wider than launcher")
+    }
+    post(53)
+    if !(await wait({ model.draft == nil })) {
+      failures.append("posted Escape did not cancel existing snippet editor")
+    }
+    await application.show("snippets")
+    await settle()
+  }
   post(45, .command, "n")
   if !(await wait({ model.draft != nil })) {
     failures.append("posted CommandN did not create a snippet draft")
@@ -423,6 +454,9 @@ import SwiftUI
   model.draft?.name = "Тестовый шаблон"
   model.draft?.content = "Несохранённый текст для проверки редактора."
   await screenshot("snippet-editor")
+  if abs(shelf.frame.width - standardWidth) > 1 {
+    failures.append("new snippet editor is wider than launcher")
+  }
   post(53)
   if !(await wait({ model.draft == nil })) {
     failures.append("posted Escape did not cancel snippet editor")
