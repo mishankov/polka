@@ -14,7 +14,13 @@ public struct ToolContext {
   public var root: URL
   public var environment: [String: String]
   public var swiftBuildArguments: [String] {
-    environment["POLKA_SWIFT_BUILD_SYSTEM"] == "native" ? ["--build-system", "native"] : []
+    var arguments =
+      environment["POLKA_SWIFT_BUILD_SYSTEM"] == "native"
+      ? ["--build-system", "native"] : []
+    if let value = environment["POLKA_SWIFT_BUILD_JOBS"], let jobs = Int(value), jobs > 0 {
+      arguments += ["--jobs", String(jobs)]
+    }
+    return arguments
   }
   public init(
     root: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),

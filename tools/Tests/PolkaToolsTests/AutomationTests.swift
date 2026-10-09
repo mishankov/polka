@@ -14,6 +14,48 @@ final class AutomationTests: XCTestCase {
     XCTAssertNil(publicContext.environment["POLKA_SIGNING_PASSWORD"])
     XCTAssertTrue(ToolContext(environment: [:]).swiftBuildArguments.isEmpty)
   }
+  func testBuildParallelismReachesAppCommandsWithoutExposingSigningSecrets() {
+    let context = ToolContext(environment: [
+      "POLKA_SWIFT_BUILD_SYSTEM": "native", "POLKA_SWIFT_BUILD_JOBS": "3",
+      "POLKA_SIGNING_PASSWORD": "private",
+    ])
+    XCTAssertEqual(context.swiftBuildArguments, ["--build-system", "native", "--jobs", "3"])
+    let publicContext = ToolContext(environment: SigningTool.publicEnvironment(context.environment))
+    XCTAssertEqual(publicContext.swiftBuildArguments, context.swiftBuildArguments)
+    for value in ["0", "-1", "invalid"] {
+      XCTAssertTrue(
+        ToolContext(environment: ["POLKA_SWIFT_BUILD_JOBS": value]).swiftBuildArguments.isEmpty)
+    }
+  }
+  func testBootstrapSharesDebugToolingButRetainsAppBuildRequest() throws {
+    let temporary = try Files.temporary("polka-bootstrap")
+    defer { try? FileManager.default.removeItem(at: temporary) }
+    let swift = temporary.appendingPathComponent("swift")
+    try Data("#!/bin/sh\nprintf '%s\\n' \"$@\"\n".utf8).write(to: swift)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: swift.path)
+    let bootstrap = TestSupport.root.appendingPathComponent("polka").path
+    for configuration in ["debug", "release"] {
+      var environment = ProcessInfo.processInfo.environment
+      for key in ["POLKA_TOOLS_CONFIGURATION", "POLKA_SWIFT_BUILD_JOBS"] {
+        environment.removeValue(forKey: key)
+      }
+      environment["PATH"] = temporary.path + ":" + (environment["PATH"] ?? "")
+      // The app engine never changes the engine used to bootstrap the shared CLI cache.
+      environment["POLKA_SWIFT_BUILD_SYSTEM"] = "native"
+      if configuration == "debug" {
+        environment["POLKA_TOOLS_CONFIGURATION"] = configuration
+        environment["POLKA_SWIFT_BUILD_JOBS"] = "3"
+      }
+      let output = try Command.capture(bootstrap, ["build", "--release"], environment: environment)
+      let expected =
+        ["run"] + (configuration == "debug" ? ["--jobs", "3"] : [])
+        + [
+          "--package-path", TestSupport.root.appendingPathComponent("tools").path,
+          "--configuration", configuration, "polka-tool", "build", "--release",
+        ]
+      XCTAssertEqual(output.split(separator: "\n").map(String.init), expected)
+    }
+  }
   func testCommandOptionsAndInvalidCombinations() throws {
     let value = try ToolRequest(["verify", "--no-desktop", "--release"])
     XCTAssertEqual(value.flags, ["no-desktop", "release"])

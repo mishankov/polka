@@ -10,6 +10,10 @@ inputs:
     description: Prepare only Swift tooling, without resolving or restoring app dependencies.
     required: false
     default: 'false'
+  tools-configuration:
+    description: Compilation configuration for the CLI; app compilation is independent.
+    required: false
+    default: release
 
 runs:
   using: composite
@@ -19,6 +23,7 @@ runs:
       shell: bash
       env:
         BUILD_CACHE_PROFILE: ${{ inputs.build-cache }}
+        TOOLS_CONFIGURATION: ${{ inputs.tools-configuration }}
       run: |
         test "$(uname -m)" = arm64
         os_version=$(sw_vers -productVersion)
@@ -31,6 +36,10 @@ runs:
         sdk_path=$(xcrun --show-sdk-path)
         checkout_path=$(pwd -P)
         printf '%s\n' "$xcode_version" "$swift_version"
+        build_jobs=$(sysctl -n hw.ncpu)
+        printf 'Runner CPUs: %s; memory bytes: %s\n' "$build_jobs" "$(sysctl -n hw.memsize)"
+        echo "POLKA_SWIFT_BUILD_JOBS=$build_jobs" >> "$GITHUB_ENV"
+        echo "POLKA_TOOLS_CONFIGURATION=$TOOLS_CONFIGURATION" >> "$GITHUB_ENV"
         toolchain=$(printf '%s\n' "$os_version" "$xcode_version" "$swift_version" "$sdk_version" | shasum -a 256 | cut -d' ' -f1)
         legacy_build_toolchain=$(printf '%s\n' "$toolchain" "$developer_path" "$sdk_path" "$checkout_path" | shasum -a 256 | cut -d' ' -f1)
         # Host OS patches can share intermediates only with identical compilers,
@@ -51,9 +60,12 @@ runs:
       uses: actions/cache@v6
       with:
         path: tools/.build
-        key: swift-tools-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('tools/Sources/**', 'tools/Tests/**') }}
+        # All CI jobs use the same default engine for the CLI. Share debug
+        # intermediates with the tooling test job instead of compiling it three times.
+        key: swift-tools-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.tools-configuration }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('tools/Sources/**', 'tools/Tests/**') }}
         restore-keys: |
-          swift-tools-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-
+          swift-tools-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.tools-configuration }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-
+          swift-tools-v2-${{ runner.os }}-${{ runner.arch }}-tooling-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-
           swift-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.legacy_build_key }}-${{ hashFiles('tools/Package.swift') }}-
 
     - name: Cache Swift app intermediates
@@ -86,7 +98,7 @@ runs:
         shopt -s nullglob dotglob
         for entry in native-app/.build/*; do
           case "${entry##*/}" in
-            checkouts|repositories|artifacts) ;;
+            checkouts|repositories|artifacts|workspace-state.json|polka-inputs-v1.json) ;;
             *) rm -rf -- "$entry" ;;
           esac
         done

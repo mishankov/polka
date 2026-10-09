@@ -35,6 +35,7 @@ jobs:
       - uses: ./.github/actions/prepare-macos
         with:
           build-cache: source
+          tools-configuration: debug
       - name: Verify Swift services, UI models, coverage and regression fixtures
         run: ./polka verify --no-desktop --no-tools
       - name: Upload native coverage reports
@@ -55,9 +56,10 @@ jobs:
       - uses: ./.github/actions/prepare-macos
         with:
           build-cache: tooling
+          tools-configuration: debug
           tools-only: 'true'
       - name: Verify automation, signing, release gates and cancellation
-        run: swift test --package-path tools
+        run: swift test --package-path tools --jobs "$POLKA_SWIFT_BUILD_JOBS"
 
   package:
     name: Package and test native macOS arm64
@@ -68,6 +70,7 @@ jobs:
       - uses: ./.github/actions/prepare-macos
         with:
           build-cache: optimized-native
+          tools-configuration: debug
       - name: Build optimized native app
         run: ./polka build
       - name: Package ZIP and DMG and smoke-test the relocated optimized app
