@@ -289,7 +289,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     shelf.hasShadow = true
     shelf.level = .statusBar
     shelf.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-    shelf.contentView = NSHostingView(rootView: NativeShelfView(model: model))
+    shelf.contentView = NativeShelfPresentationView(model: model)
     shelf.dropModel = model
     shelf.registerForDraggedTypes([.fileURL])
   }
@@ -499,6 +499,8 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     if !drag { incomingEndDeferred = false }
     presentationScreen = screen()
     geometry()
+    (shelf.contentView as? NativeShelfPresentationView)?.setPresented(
+      true, topInset: model.topInset)
     lifecycle.commit(entry.revision)
     traceLifecycle("show-\(entry.destination.rawValue)")
     if drag {
@@ -539,6 +541,8 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     model.incomingFileDropTargeted = false
     if cancelPaste { platform?.cancelPaste() }
     model.conceal()
+    (shelf.contentView as? NativeShelfPresentationView)?.setPresented(
+      false, topInset: model.topInset, animated: cancelPaste)
     let revision = lifecycle.revision
     hover.dismiss()
     if !cancelPaste {
@@ -546,7 +550,8 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       lifecycle.finishClose(revision)
       return
     }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+    DispatchQueue.main.asyncAfter(deadline: .now() + NativeShelfPresentationView.closingDuration) {
+      [weak self] in
       guard let self, self.lifecycle.revision == revision, !self.lifecycle.requested else { return }
       self.shelf.orderOut(nil)
       self.lifecycle.finishClose(revision)

@@ -3,7 +3,6 @@ import SwiftUI
 
 struct NativeShelfView: View {
   @ObservedObject var model: NativeUIModel
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(spacing: 0) {
       if model.topInset > 0 { Color.clear.frame(height: model.topInset) }
@@ -22,21 +21,6 @@ struct NativeShelfView: View {
       model.searchRevision += 1
     }
     .modifier(NativeFileDropModifier(model: model))
-    .mask {
-      GeometryReader { geometry in
-        UnevenRoundedRectangle(
-          bottomLeadingRadius: model.visible ? 22 : 12,
-          bottomTrailingRadius: model.visible ? 22 : 12
-        )
-        .frame(
-          width: model.visible ? geometry.size.width : min(96, geometry.size.width),
-          height: model.visible ? geometry.size.height : max(3, model.topInset)
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-      }
-      .animation(
-        reduceMotion ? nil : .easeOut(duration: model.visible ? 0.2 : 0.15), value: model.visible)
-    }
     .accessibilityIdentifier("native-shelf")
   }
 }
