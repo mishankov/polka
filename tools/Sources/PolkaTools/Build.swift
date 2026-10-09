@@ -84,20 +84,28 @@ public enum BuildTool {
   ]
   public static func buildHelpers(context: ToolContext = ToolContext()) throws {
     try ToolFiles.directory(context.root.appendingPathComponent("build"))
-    for helper in helpers {
-      try Command.run(
-        "/usr/bin/xcrun",
-        ["swiftc", "-O", helper.source, "-o", helper.output] + helper.flags
-          + helper.frameworks.flatMap { ["-framework", $0] },
-        environment: SigningTool.publicEnvironment(context.environment), directory: context.root)
-    }
+    let jobs =
+      Int(context.environment["POLKA_SWIFT_BUILD_JOBS"] ?? "")
+      ?? ProcessInfo.processInfo.activeProcessorCount
+    try Command.parallel(
+      helpers.map { helper in
+        {
+          try Command.run(
+            "/usr/bin/xcrun",
+            ["swiftc", "-O", helper.source, "-o", helper.output] + helper.flags
+              + helper.frameworks.flatMap { ["-framework", $0] },
+            environment: SigningTool.publicEnvironment(context.environment), directory: context.root
+          )
+        }
+      }, limit: jobs)
   }
   public static func products(configuration: String, context: ToolContext = ToolContext()) throws
     -> URL
   {
     let value = try Command.capture(
       "/usr/bin/xcrun",
-      ["swift", "build", "--package-path", "native-app", "-c", configuration, "--show-bin-path"],
+      ["swift", "build"] + context.swiftBuildArguments
+        + ["--package-path", "native-app", "-c", configuration, "--show-bin-path"],
       environment: SigningTool.publicEnvironment(context.environment), directory: context.root
     ).trimmingCharacters(in: .whitespacesAndNewlines)
     return URL(fileURLWithPath: value)
@@ -107,12 +115,16 @@ public enum BuildTool {
     context: ToolContext = ToolContext()
   ) throws {
     let products = try productsPath ?? self.products(configuration: configuration, context: context)
+    let bundle = products.appendingPathComponent("PolkaNative_PolkaCore.bundle")
+    let structuredResource = bundle.appendingPathComponent("Contents/Resources/emoji-data.json")
+    let resource =
+      ToolFiles.manager.fileExists(atPath: structuredResource.path)
+      ? structuredResource : bundle.appendingPathComponent("emoji-data.json")
     let required =
       [
         products.appendingPathComponent("PolkaNative"),
         products.appendingPathComponent("Sparkle.framework/Sparkle"),
-        products.appendingPathComponent(
-          "PolkaNative_PolkaCore.bundle/Contents/Resources/emoji-data.json"),
+        resource,
       ] + (helperPaths ?? helpers.map { context.root.appendingPathComponent($0.output) })
     for path in required where !ToolFiles.manager.fileExists(atPath: path.path) {
       throw ToolError(
@@ -314,10 +326,9 @@ public enum BuildTool {
     } else {
       try Command.run(
         "/usr/bin/xcrun",
-        [
-          "swift", "build", "--package-path", "native-app", "-c", configuration, "--product",
-          "PolkaNative",
-        ], environment: SigningTool.publicEnvironment(context.environment), directory: context.root)
+        ["swift", "build"] + context.swiftBuildArguments
+          + ["--package-path", "native-app", "-c", configuration, "--product", "PolkaNative"],
+        environment: SigningTool.publicEnvironment(context.environment), directory: context.root)
       try buildHelpers(context: context)
     }
     let products = try self.products(configuration: configuration, context: context)

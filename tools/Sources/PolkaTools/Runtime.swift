@@ -13,6 +13,15 @@ public struct ToolError: Error, CustomStringConvertible {
 public struct ToolContext {
   public var root: URL
   public var environment: [String: String]
+  public var swiftBuildArguments: [String] {
+    var arguments =
+      environment["POLKA_SWIFT_BUILD_SYSTEM"] == "native"
+      ? ["--build-system", "native"] : []
+    if let value = environment["POLKA_SWIFT_BUILD_JOBS"], let jobs = Int(value), jobs > 0 {
+      arguments += ["--jobs", String(jobs)]
+    }
+    return arguments
+  }
   public init(
     root: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
     environment: [String: String] = ProcessInfo.processInfo.environment
@@ -23,6 +32,38 @@ public struct ToolContext {
 }
 
 public enum Command {
+  private final class ParallelWork: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: [() throws -> Void]
+    private(set) var failure: Error?
+    init(_ operations: [() throws -> Void]) { pending = operations }
+    func next() -> (() throws -> Void)? {
+      lock.lock()
+      defer { lock.unlock() }
+      guard failure == nil, !pending.isEmpty else { return nil }
+      return pending.removeFirst()
+    }
+    func fail(_ error: Error) {
+      lock.lock()
+      defer { lock.unlock() }
+      if failure == nil { failure = error }
+    }
+  }
+  /// Independent operations finish before returning, including on failure, so
+  /// callers can safely remove their shared inputs and temporary directories.
+  static func parallel(_ operations: [() throws -> Void], limit: Int) throws {
+    try checkCancellation(true, registry: .shared)
+    let work = ParallelWork(operations)
+    if !operations.isEmpty {
+      DispatchQueue.concurrentPerform(iterations: max(1, min(limit, operations.count))) { _ in
+        while let operation = work.next() {
+          do { try operation() } catch { work.fail(error) }
+        }
+      }
+    }
+    try checkCancellation(true, registry: .shared)
+    if let failure = work.failure { throw failure }
+  }
   /// Escalation retains the exact Process object, so a later unrelated process
   /// can never be targeted merely because macOS reused an exited child's PID.
   public static func terminate(_ process: Process, signal: Int32 = SIGTERM, grace: TimeInterval = 2)

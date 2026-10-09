@@ -58,6 +58,13 @@ final class BuildSigningTests: XCTestCase {
     XCTAssertThrowsError(try check())
     try ToolFiles.write("helper", to: helper)
     try check()
+    try ToolFiles.remove(resources.appendingPathComponent("emoji-data.json"))
+    XCTAssertThrowsError(try check())
+    let flatResource = root.appendingPathComponent("PolkaNative_PolkaCore.bundle/emoji-data.json")
+    try ToolFiles.write("[]", to: flatResource)
+    try check()
+    try ToolFiles.remove(flatResource)
+    XCTAssertThrowsError(try check())
   }
   func testRelativeFrameworkLinksAndPackageOptions() throws {
     let root = try temporary()

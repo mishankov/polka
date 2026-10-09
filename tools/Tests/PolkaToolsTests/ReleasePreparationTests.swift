@@ -230,21 +230,37 @@ final class ReleasePreparationTests: XCTestCase {
     let build = try source(".github/workflows/build.yml")
     let aggregate = try job("macos-arm64", in: build)
     XCTAssertTrue(aggregate.contains("name: Verify and package macOS arm64"))
-    XCTAssertTrue(aggregate.contains("needs: [verify, tooling, package, updates]"))
+    XCTAssertTrue(aggregate.contains("needs: [verify, tooling, package]"))
     XCTAssertTrue(aggregate.contains("if: always()"))
     XCTAssertTrue(aggregate.contains("all(.[]; .result == \"success\")"))
-    for name in ["verify", "tooling", "package", "updates"] {
+    for name in ["verify", "tooling", "package"] {
       XCTAssertTrue(try job(name, in: build).contains("runs-on: xcode-27"))
     }
     XCTAssertTrue(try job("verify", in: build).contains("./polka verify --no-desktop --no-tools"))
   }
+  func testBuildBudgetRemainsMandatoryAndIncludesAllMacOSJobs() throws {
+    let build = try source(".github/workflows/build.yml")
+    for name in ["verify", "tooling", "package"] {
+      let section = try job(name, in: build)
+      XCTAssertTrue(section.contains("timeout-minutes: 10"))
+      XCTAssertFalse(section.contains("continue-on-error"))
+      XCTAssertFalse(section.contains("needs:"))
+    }
+    let aggregate = try job("macos-arm64", in: build)
+    XCTAssertTrue(aggregate.contains("scripts/check-ci-budget.sh"))
+    XCTAssertTrue(aggregate.contains("shell: bash"))  // Preserve failures through tee.
+    XCTAssertTrue(aggregate.contains("attempts/$GITHUB_RUN_ATTEMPT/jobs"))
+    XCTAssertTrue(aggregate.contains("gh api --paginate --slurp"))
+    XCTAssertFalse(aggregate.contains("continue-on-error"))
+    XCTAssertTrue(build.contains("actions: read"))
+  }
   func testPackageAndUpdateChecksUseOptimizedSwiftProducts() throws {
     let build = try source(".github/workflows/build.yml")
     let package = try job("package", in: build)
-    let updates = try job("updates", in: build)
-    for section in [package, updates] { XCTAssertTrue(section.contains("./polka build")) }
-    XCTAssertTrue(package.contains("./polka package --prebuilt --desktop"))
-    XCTAssertTrue(updates.contains("./polka desktop updates --prebuilt --release"))
+    XCTAssertEqual(package.components(separatedBy: "run: ./polka package --desktop").count - 1, 1)
+    XCTAssertFalse(package.contains("run: ./polka build"))
+    XCTAssertTrue(package.contains("./polka package --desktop"))
+    XCTAssertTrue(package.contains("./polka desktop updates --prebuilt --release"))
     XCTAssertTrue(package.contains("release/native-dev/*.zip"))
     XCTAssertTrue(package.contains("release/native-dev/*.dmg"))
     XCTAssertTrue(package.contains("if-no-files-found: error"))
@@ -275,9 +291,8 @@ final class ReleasePreparationTests: XCTestCase {
     XCTAssertTrue(action.contains("checkout_path=$(pwd -P)"))
     XCTAssertTrue(action.contains("os_family=$(cut -d. -f1,2"))
     XCTAssertTrue(try job("verify", in: build).contains("build-cache: source"))
-    for name in ["package", "updates"] {
-      XCTAssertTrue(try job(name, in: build).contains("build-cache: optimized"))
-    }
+    XCTAssertTrue(try job("package", in: build).contains("build-cache: optimized-native"))
+    XCTAssertTrue(action.contains("POLKA_SWIFT_BUILD_SYSTEM=native"))
     XCTAssertTrue(try job("verify", in: release).contains("build-cache: source"))
     for name in ["prepare", "updates", "build"] {
       XCTAssertTrue(try job(name, in: release).contains("build-cache: optimized"))

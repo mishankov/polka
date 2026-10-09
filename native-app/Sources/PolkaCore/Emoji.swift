@@ -47,8 +47,16 @@ public struct EmojiCatalog: Sendable {
     "🎉": "ура праздник поздравляю party congratulations", "🔥": "огонь круто fire lit",
     "😢": "грустно грусть sad crying", "😭": "грустно грусть sad crying",
   ]
+  static func packagedResourceURL(in resources: URL?) -> URL? {
+    guard let resources,
+      let bundle = Bundle(url: resources.appendingPathComponent("PolkaNative_PolkaCore.bundle"))
+    else { return nil }
+    return bundle.url(forResource: "emoji-data", withExtension: "json")
+  }
   public static let shared: EmojiCatalog = {
-    guard let url = Bundle.module.url(forResource: "emoji-data", withExtension: "json"),
+    guard
+      let url = packagedResourceURL(in: Bundle.main.resourceURL)
+        ?? Bundle.module.url(forResource: "emoji-data", withExtension: "json"),
       let data = try? Data(contentsOf: url), let catalog = try? EmojiCatalog(data: data)
     else {
       fatalError("The complete bundled emoji-data.json resource is missing or invalid")

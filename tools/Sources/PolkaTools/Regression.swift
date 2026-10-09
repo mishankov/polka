@@ -14,11 +14,14 @@ public enum Regression {
     if probe == nil {
       try Command.run(
         "swift",
-        ["build", "--package-path", "native-app", "--product", "PolkaCoreProbe"]
+        ["build"] + context.swiftBuildArguments
+          + ["--package-path", "native-app", "--product", "PolkaCoreProbe"]
           + (codeCoverage ? ["--enable-code-coverage"] : []),
         environment: context.environment, directory: context.root)
       let products = try Command.capture(
-        "swift", ["build", "--package-path", "native-app", "--show-bin-path"],
+        "swift",
+        ["build"] + context.swiftBuildArguments
+          + ["--package-path", "native-app", "--show-bin-path"],
         environment: context.environment, directory: context.root
       ).trimmingCharacters(in: .whitespacesAndNewlines)
       probe = URL(fileURLWithPath: products).appendingPathComponent("PolkaCoreProbe").path

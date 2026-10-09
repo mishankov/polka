@@ -63,8 +63,9 @@ public enum PackageTool {
         "/usr/bin/ditto",
         ["-c", "-k", "--sequesterRsrc", "--keepParent", built.bundle.path, archive.path],
         environment: publicContext.environment)
-      let stage = try ToolFiles.temporary("polka-native-dmg-")
-      do {
+      func createImage() throws {
+        let stage = try ToolFiles.temporary("polka-native-dmg-")
+        defer { try? ToolFiles.remove(stage) }
         try ToolFiles.manager.copyItem(
           at: built.bundle, to: stage.appendingPathComponent(built.metadata.productName + ".app"))
         try ToolFiles.manager.createSymbolicLink(
@@ -79,12 +80,10 @@ public enum PackageTool {
         try Command.run(
           "/usr/bin/hdiutil", ["verify", image.path], environment: publicContext.environment)
         try ToolFiles.remove(stage)
-      } catch {
-        try? ToolFiles.remove(stage)
-        throw error
       }
-      let relocated = try ToolFiles.temporary("polka-native-zip-")
-      do {
+      func verifyArchive() throws {
+        let relocated = try ToolFiles.temporary("polka-native-zip-")
+        defer { try? ToolFiles.remove(relocated) }
         try Command.run(
           "/usr/bin/ditto", ["-x", "-k", archive.path, relocated.path],
           environment: publicContext.environment)
@@ -94,10 +93,10 @@ public enum PackageTool {
           ["--verify", "--deep", "--strict", app.path], environment: publicContext.environment)
         if options.desktop { try Desktop.smokeSync(app: app, context: publicContext) }
         try ToolFiles.remove(relocated)
-      } catch {
-        try? ToolFiles.remove(relocated)
-        throw error
       }
+      // Both operations only read the signed bundle/ZIP. The DMG can be built
+      // and verified while the relocated ZIP runs its desktop checks.
+      try Command.parallel([createImage, verifyArchive], limit: 2)
       if options.official {
         metadata.releaseNotes = try ReleaseNotes.read(version: metadata.version, root: context.root)
           .bilingual

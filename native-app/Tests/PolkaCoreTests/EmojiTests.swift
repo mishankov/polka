@@ -3,6 +3,30 @@ import XCTest
 @testable import PolkaCore
 
 final class EmojiTests: XCTestCase {
+  func testPackagedCatalogResolvesBothSwiftPMResourceLayoutsWithoutBuildDirectory() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    XCTAssertNil(EmojiCatalog.packagedResourceURL(in: nil))
+    XCTAssertNil(EmojiCatalog.packagedResourceURL(in: root))
+    for layout in ["", "Contents/Resources"] {
+      let directory = root.appendingPathComponent(layout.isEmpty ? "flat" : "structured")
+      let bundle = directory.appendingPathComponent("PolkaNative_PolkaCore.bundle")
+      let resources = layout.isEmpty ? bundle : bundle.appendingPathComponent(layout)
+      try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+      if !layout.isEmpty {
+        let plist = try PropertyListSerialization.data(
+          fromPropertyList: [
+            "CFBundleIdentifier": "app.polka.fixture", "CFBundlePackageType": "BNDL",
+          ],
+          format: .xml, options: 0)
+        try plist.write(to: bundle.appendingPathComponent("Contents/Info.plist"))
+      }
+      let file = resources.appendingPathComponent("emoji-data.json")
+      try Data("bundled catalog".utf8).write(to: file)
+      let resolved = try XCTUnwrap(EmojiCatalog.packagedResourceURL(in: directory))
+      XCTAssertEqual(try Data(contentsOf: resolved), Data("bundled catalog".utf8))
+    }
+  }
   func testCompleteLocalizedCatalogAndSequences() {
     let catalog = EmojiCatalog.shared
     XCTAssertEqual(catalog.emojis.count, 3781)
