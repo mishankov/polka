@@ -175,6 +175,8 @@ struct NativeMediaIndicatorView: View {
   var geometry: NativeMediaIndicatorGeometry
   private let cameraColor = Color(red: 1, green: 81 / 255, blue: 78 / 255)
   private let micColor = Color(red: 242 / 255, green: 163 / 255, blue: 69 / 255)
+  private let badgeWidth: CGFloat = 110
+  private let badgeHeight: CGFloat = 38
   var body: some View {
     GeometryReader { container in
       let notched = geometry.hasNotch
@@ -186,8 +188,8 @@ struct NativeMediaIndicatorView: View {
             style: StrokeStyle(lineWidth: geometry.strokeWidth, lineCap: .butt, lineJoin: .round))
         } else {
           // A filled badge keeps the icons legible when there is no housing.
-          RoundedRectangle(cornerRadius: 18).fill(rimStyle)
-            .frame(width: 110, height: 64).offset(y: -20)
+          UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(rimStyle)
+            .frame(width: badgeWidth, height: badgeHeight)
         }
         if ["active", "unknown"].contains(state.camera) {
           device("video", value: state.camera, color: cameraColor, notched: notched)
@@ -195,8 +197,9 @@ struct NativeMediaIndicatorView: View {
               x: center
                 - (notched
                   ? geometry.notch.width / 2 + 38
-                  : state.microphone == "inactive" || state.microphone == "disabled" ? 0 : 23),
-              y: notched ? 23 : 21)
+                  : state.microphone == "inactive" || state.microphone == "disabled"
+                    ? 0 : badgeWidth / 4),
+              y: notched ? 23 : badgeHeight / 2)
         }
         if ["active", "unknown"].contains(state.microphone) {
           device("mic", value: state.microphone, color: micColor, notched: notched)
@@ -204,8 +207,8 @@ struct NativeMediaIndicatorView: View {
               x: center
                 + (notched
                   ? geometry.notch.width / 2 + 38
-                  : state.camera == "inactive" || state.camera == "disabled" ? 0 : 23),
-              y: notched ? 23 : 21)
+                  : state.camera == "inactive" || state.camera == "disabled" ? 0 : badgeWidth / 4),
+              y: notched ? 23 : badgeHeight / 2)
         }
       }.frame(width: container.size.width, height: container.size.height, alignment: .top)
     }.accessibilityElement(children: .ignore).accessibilityLabel(state.label).allowsHitTesting(
@@ -229,12 +232,16 @@ struct NativeMediaIndicatorView: View {
           : Color(red: 169 / 255, green: 175 / 255, blue: 166 / 255))
   }
   private func device(_ symbol: String, value: String, color: Color, notched: Bool) -> some View {
-    Image(systemName: symbol).font(.system(size: 25, weight: .semibold))
+    // SF Symbols have different artwork heights at the same font size.
+    // Fit their aspect ratios to a shared height before centering the cells.
+    Image(systemName: symbol).resizable().scaledToFit()
+      .font(.system(size: 25, weight: notched ? .semibold : .medium))
       .foregroundStyle(
         notched
           ? (value == "unknown" ? .gray : color)
           : Color(red: 33 / 255, green: 27 / 255, blue: 22 / 255)
       )
+      .frame(height: notched ? 24 : 20)
       .frame(width: 40, height: notched ? 40 : 36)
       .background(
         notched ? Color(red: 23 / 255, green: 19 / 255, blue: 19 / 255) : .clear,
