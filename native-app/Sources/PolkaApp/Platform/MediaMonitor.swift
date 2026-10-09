@@ -7,6 +7,8 @@ import SwiftUI
   private var polling = false
   private var epoch = 0
   private var overlays: [String: NSPanel] = [:]
+  private var screenObserver: NSObjectProtocol?
+  private var lastState: NativeMediaPresentation?
   private var preferences: [String: Bool] = ["cameraEnabled": true, "microphoneEnabled": true]
   private let settings: SettingsStore
   private let model: NativeUIModel
@@ -24,6 +26,11 @@ import SwiftUI
     ]
     publish()
     restart()
+    screenObserver = NotificationCenter.default.addObserver(
+      forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.refreshGeometry() }
+    }
   }
   func set(_ device: String, enabled: Bool) throws {
     guard ["camera", "microphone"].contains(device) else {
@@ -43,6 +50,8 @@ import SwiftUI
   private func restart() {
     epoch += 1
     timer?.invalidate()
+    timer = nil
+    lastState = nil
     for overlay in overlays.values { overlay.orderOut(nil) }
     guard !fixture, suspended.isEmpty, preferences.values.contains(true) else { return }
     timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -74,6 +83,7 @@ import SwiftUI
     }
   }
   private func render(_ state: NativeMediaPresentation) {
+    lastState = state
     for screen in NSScreen.screens {
       let id = String(
         describing: screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
@@ -82,42 +92,21 @@ import SwiftUI
       if let existing = overlays[id] {
         panel = existing
       } else {
-        panel = NSPanel(
-          contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
-          defer: false)
-        panel.isReleasedWhenClosed = false
-        panel.hidesOnDeactivate = false
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.ignoresMouseEvents = true
-        panel.sharingType = .none
-        panel.level = .screenSaver
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        panel = NativeMediaIndicatorPanel()
         overlays[id] = panel
       }
       if !state.visible {
         panel.orderOut(nil)
         continue
       }
-      let notchWidth =
-        screen.auxiliaryTopLeftArea.flatMap { left in
-          screen.auxiliaryTopRightArea.map { max(0, $0.minX - left.maxX) }
-        } ?? 0
-      let notchHeight = notchWidth > 0 ? screen.safeAreaInsets.top : 0
-      let center =
-        screen.auxiliaryTopLeftArea.flatMap { left in
-          screen.auxiliaryTopRightArea.map { (left.maxX + $0.minX) / 2 }
-        } ?? screen.frame.midX
-      let width = min(screen.frame.width, notchWidth > 0 ? notchWidth + 124 : 116)
-      let height = min(screen.frame.height, max(46, notchHeight + 14))
-      panel.setFrame(
-        NSRect(
-          x: max(screen.frame.minX, min(screen.frame.maxX - width, center - width / 2)),
-          y: screen.frame.maxY - height, width: width, height: height), display: true)
-      panel.contentView = NSHostingView(
-        rootView: NativeMediaIndicatorView(
-          state: state, notchWidth: notchWidth, notchHeight: notchHeight))
+      let geometry = NativeMediaIndicatorGeometry(screen: screen)
+      panel.setFrame(geometry.panelFrame, display: true)
+      let view = NativeMediaIndicatorView(state: state, geometry: geometry)
+      if let host = panel.contentView as? NSHostingView<NativeMediaIndicatorView> {
+        host.rootView = view
+      } else {
+        panel.contentView = NSHostingView(rootView: view)
+      }
       panel.orderFrontRegardless()
 
     }
@@ -131,6 +120,16 @@ import SwiftUI
       overlays.removeValue(forKey: id)
     }
   }
+  func refreshGeometry() {
+    guard suspended.isEmpty, let lastState else { return }
+    render(lastState)
+  }
+  /// The shared desktop harness injects activity; it never starts device probes.
+  func showFixture(_ state: NativeMediaPresentation) -> [NSPanel] {
+    guard fixture, NativeProfile.isolatedFixture, suspended.isEmpty else { return [] }
+    render(state)
+    return Array(overlays.values)
+  }
   func suspend(_ reason: String) {
     suspended.insert(reason)
     restart()
@@ -143,6 +142,9 @@ import SwiftUI
     epoch += 1
     timer?.invalidate()
     timer = nil
+    lastState = nil
+    if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+    screenObserver = nil
     for overlay in overlays.values { overlay.close() }
     overlays.removeAll()
   }
@@ -170,53 +172,61 @@ struct NativeMediaPresentation {
 }
 struct NativeMediaIndicatorView: View {
   var state: NativeMediaPresentation
-  var notchWidth: CGFloat
-  var notchHeight: CGFloat
+  var geometry: NativeMediaIndicatorGeometry
   private let cameraColor = Color(red: 1, green: 81 / 255, blue: 78 / 255)
   private let micColor = Color(red: 242 / 255, green: 163 / 255, blue: 69 / 255)
   var body: some View {
-    GeometryReader { geometry in
-      let notched = notchWidth > 0
-      let rimWidth = notched ? notchWidth + 20 : 110
-      let rimHeight = notched ? notchHeight + 12 : 44
+    GeometryReader { container in
+      let notched = geometry.hasNotch
+      let center = notched ? geometry.notch.midX : container.size.width / 2
       ZStack(alignment: .top) {
-        // Extending the rounded rectangle upward gives square top corners.
-        ZStack {
-          if state.camera == "active", state.microphone == "active" {
-            HStack(spacing: 0) {
-              cameraColor
-              micColor
-            }
-          } else {
-            (state.camera == "active"
-              ? cameraColor
-              : state.microphone == "active"
-                ? micColor : Color(red: 169 / 255, green: 175 / 255, blue: 166 / 255))
-          }
-        }.frame(width: rimWidth, height: rimHeight + 20)
-          .clipShape(RoundedRectangle(cornerRadius: notched ? 20 : 18))
-          .offset(y: -20)
+        if notched {
+          geometry.contour.stroke(
+            rimStyle,
+            style: StrokeStyle(lineWidth: geometry.strokeWidth, lineCap: .butt, lineJoin: .round))
+        } else {
+          // A filled badge keeps the icons legible when there is no housing.
+          RoundedRectangle(cornerRadius: 18).fill(rimStyle)
+            .frame(width: 110, height: 64).offset(y: -20)
+        }
         if ["active", "unknown"].contains(state.camera) {
           device("video", value: state.camera, color: cameraColor, notched: notched)
             .position(
-              x: geometry.size.width / 2
+              x: center
                 - (notched
-                  ? notchWidth / 2 + 38
+                  ? geometry.notch.width / 2 + 38
                   : state.microphone == "inactive" || state.microphone == "disabled" ? 0 : 23),
               y: notched ? 23 : 21)
         }
         if ["active", "unknown"].contains(state.microphone) {
           device("mic", value: state.microphone, color: micColor, notched: notched)
             .position(
-              x: geometry.size.width / 2
+              x: center
                 + (notched
-                  ? notchWidth / 2 + 38
+                  ? geometry.notch.width / 2 + 38
                   : state.camera == "inactive" || state.camera == "disabled" ? 0 : 23),
               y: notched ? 23 : 21)
         }
-      }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+      }.frame(width: container.size.width, height: container.size.height, alignment: .top)
     }.accessibilityElement(children: .ignore).accessibilityLabel(state.label).allowsHitTesting(
       false)
+  }
+  private var rimStyle: AnyShapeStyle {
+    if state.camera == "active", state.microphone == "active" {
+      let split = geometry.hasNotch ? geometry.notch.midX / geometry.panelFrame.width : 0.5
+      return AnyShapeStyle(
+        LinearGradient(
+          stops: [
+            .init(color: cameraColor, location: 0), .init(color: cameraColor, location: split),
+            .init(color: micColor, location: split), .init(color: micColor, location: 1),
+          ], startPoint: .leading, endPoint: .trailing))
+    }
+    return AnyShapeStyle(
+      state.camera == "active"
+        ? cameraColor
+        : state.microphone == "active"
+          ? micColor
+          : Color(red: 169 / 255, green: 175 / 255, blue: 166 / 255))
   }
   private func device(_ symbol: String, value: String, color: Color, notched: Bool) -> some View {
     Image(systemName: symbol).font(.system(size: 25, weight: .semibold))

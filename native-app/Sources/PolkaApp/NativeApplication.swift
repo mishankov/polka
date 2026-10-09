@@ -879,8 +879,13 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       }
     }
     await show("clipboard")
+    if let media {
+      failures += await nativeMediaSmokeOverlay(application: self, shelf: shelf, monitor: media)
+    }
+    failures += nativeMediaSmokeScreenshots(shelf: shelf)
     failures += await nativeSmokeAdditionalFlows(
       application: self, shelf: shelf, model: model, platform: platform)
+    _ = media?.showFixture(.init(camera: "inactive", microphone: "inactive"))
     let result: [String: Any] = [
       "ok": failures.isEmpty, "failures": failures, "nativeVisible": shelf.isVisible,
       "destination": model.destination, "snippets": model.snippets.count,
