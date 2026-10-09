@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>app.everything.desktop.image-text</string>
+    <string>app.polka.desktop.image-text</string>
     <key>CFBundleName</key>
     <string>Polka Image Text</string>
     <key>CFBundleExecutable</key>

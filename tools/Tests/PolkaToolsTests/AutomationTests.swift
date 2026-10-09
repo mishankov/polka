@@ -25,7 +25,7 @@ final class AutomationTests: XCTestCase {
   func testNativeMetadataAndBothPackageManifests() throws {
     let metadata = try PolkaMetadata.load(root: TestSupport.root)
     XCTAssertEqual(metadata.name, "polka")
-    XCTAssertEqual(metadata.build.appId, "app.everything.desktop")
+    XCTAssertEqual(metadata.build.appId, "app.polka.desktop")
     XCTAssertNoThrow(try ReleaseVersion.parse(metadata.version))
     XCTAssertNoThrow(try JSONEncoder().encode(metadata))
   }

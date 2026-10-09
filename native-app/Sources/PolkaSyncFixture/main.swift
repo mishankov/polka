@@ -85,8 +85,8 @@ private final class PeerState {
     guard !certificate.isEmpty, tls13 else {
       throw FixtureError(message: "Unauthenticated transport")
     }
-    let id = head.headers.first(name: "x-everything-id") ?? ""
-    let token = head.headers.first(name: "x-everything-token") ?? ""
+    let id = head.headers.first(name: "x-polka-id") ?? ""
+    let token = head.headers.first(name: "x-polka-token") ?? ""
     let body =
       bytes.isEmpty
       ? [:] : try required(JSONSerialization.jsonObject(with: bytes), [String: Any].self)
@@ -290,8 +290,8 @@ private func client(_ configuration: [String: Any], group: EventLoopGroup) throw
     let result = loop.makePromise(of: Data.self)
     let headers = HTTPHeaders([
       ("Host", "127.0.0.1"), ("Connection", "close"), ("Content-Type", "application/json"),
-      ("Content-Length", String(encoded?.count ?? 0)), ("x-everything-id", id),
-      ("x-everything-token", token), ("x-everything-snippets", "1"),
+      ("Content-Length", String(encoded?.count ?? 0)), ("x-polka-id", id),
+      ("x-polka-token", token), ("x-polka-snippets", "1"),
     ])
     let head = HTTPRequestHead(
       version: .http1_1, method: body == nil ? .GET : .POST, uri: route, headers: headers)

@@ -270,7 +270,7 @@ final class NativeClipboardSync: @unchecked Sendable {
   }
   private static func generateCredentials() throws -> SyncCredentials {
     let key = P256.Signing.PrivateKey()
-    let name = try DistinguishedName { CommonName("Everything clipboard sync") }
+    let name = try DistinguishedName { CommonName("Polka clipboard sync") }
     let certificate = try Certificate(
       version: .v3,
       serialNumber: Certificate.SerialNumber(
@@ -510,8 +510,8 @@ final class NativeClipboardSync: @unchecked Sendable {
       guard !stopped, credentials?.enabled == true, validFingerprint(fingerprint) else {
         throw PolkaCoreError.invalid("Синхронизация отключена")
       }
-      let id = head.headers.first(name: "x-everything-id") ?? ""
-      let token = head.headers.first(name: "x-everything-token") ?? ""
+      let id = head.headers.first(name: "x-polka-id") ?? ""
+      let token = head.headers.first(name: "x-polka-token") ?? ""
       if head.method == .POST && head.uri == "/pair" {
         guard let invite = invitation, invite.expiresAt > Date().timeIntervalSince1970 * 1000,
           timingSafeEqual(token, invite.secret)
@@ -536,7 +536,7 @@ final class NativeClipboardSync: @unchecked Sendable {
         timingSafeEqual(peer.token, token), timingSafeEqual(peer.fingerprint, fingerprint),
         !history.getPreferences().paused
       else { throw PolkaCoreError.invalid("Устройство не связано или история на паузе") }
-      let snippets = head.headers.first(name: "x-everything-snippets") == "1"
+      let snippets = head.headers.first(name: "x-polka-snippets") == "1"
       if head.method == .GET && head.uri == "/manifest" {
         try history.prune()
         return try JSONEncoder().encode(history.manifest(snippets: snippets))
@@ -571,8 +571,8 @@ final class NativeClipboardSync: @unchecked Sendable {
     let loop = Self.group.next()
     let response = NativeSyncRequestResponse(loop: loop)
     let headers = HTTPHeaders([
-      ("Content-Type", "application/json"), ("x-everything-snippets", "1"),
-      ("x-everything-id", history.deviceId), ("x-everything-token", peer.token),
+      ("Content-Type", "application/json"), ("x-polka-snippets", "1"),
+      ("x-polka-id", history.deviceId), ("x-polka-token", peer.token),
       ("Host", endpoint.host), ("Connection", "close"),
       ("Content-Length", String(body?.count ?? 0)),
     ])
@@ -937,7 +937,7 @@ private final class NativeSyncDiscovery: NSObject, NetServiceDelegate, NetServic
   ) {
     ownID = id
     publisher = NetService(
-      domain: "local.", type: "_everyclip._tcp.", name: "Everything-\(id)", port: port)
+      domain: "local.", type: "_polkaclip._tcp.", name: "Polka-\(id)", port: port)
     self.up = up
     self.down = down
     self.failed = failed
@@ -951,7 +951,7 @@ private final class NativeSyncDiscovery: NSObject, NetServiceDelegate, NetServic
   }
   func start() {
     publisher.publish()
-    browser.searchForServices(ofType: "_everyclip._tcp.", inDomain: "local.")
+    browser.searchForServices(ofType: "_polkaclip._tcp.", inDomain: "local.")
   }
   func stop() {
     browser.stop()

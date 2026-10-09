@@ -16,7 +16,7 @@ final class Discovery: NSObject, NetServiceDelegate, NetServiceBrowserDelegate {
   init(id: String, name: String, port: Int32) {
     ownID = id
     publisher = NetService(
-      domain: "local.", type: "_everyclip._tcp.", name: "Everything-\(id)", port: port)
+      domain: "local.", type: "_polkaclip._tcp.", name: "Polka-\(id)", port: port)
     super.init()
     publisher.delegate = self
     publisher.setTXTRecord(
@@ -27,7 +27,7 @@ final class Discovery: NSObject, NetServiceDelegate, NetServiceBrowserDelegate {
   }
   func start() {
     publisher.publish()
-    browser.searchForServices(ofType: "_everyclip._tcp.", inDomain: "local.")
+    browser.searchForServices(ofType: "_polkaclip._tcp.", inDomain: "local.")
     emit(["type": "ready"])
   }
   func netServiceBrowser(

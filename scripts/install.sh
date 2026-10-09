@@ -105,7 +105,7 @@ main() {
   bundle="$temporary/unpacked/Polka.app"
   info="$bundle/Contents/Info.plist"
   [[ ! -L "$bundle" && -d "$bundle" ]] || fail 'The release does not contain Polka.app.'
-  [[ "$(plutil -extract CFBundleIdentifier raw -o - "$info")" == app.everything.desktop ]] || fail 'Unexpected app identity.'
+  [[ "$(plutil -extract CFBundleIdentifier raw -o - "$info")" == app.polka.desktop ]] || fail 'Unexpected app identity.'
   [[ "$(plutil -extract CFBundleShortVersionString raw -o - "$info")" == "$version" ]] || fail 'App version does not match the release.'
   codesign --verify --deep --strict "$bundle"
 

@@ -105,7 +105,7 @@ curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/inst
 ./polka dev
 ```
 
-Разные checkout используют отдельные постоянные профили разработки. Development-подпись и небольшой помощник доступа к Keychain сохраняются между сборками. Явный `EVERYTHING_PROFILE=/absolute/path` выбирает другой профиль. [Разработка и проверка](docs/development.md).
+Разные checkout используют отдельные постоянные профили разработки. Development-подпись и небольшой помощник доступа к Keychain сохраняются между сборками. Явный `POLKA_PROFILE=/absolute/path` выбирает другой профиль. [Разработка и проверка](docs/development.md).
 
 ```sh
 ./polka build --release

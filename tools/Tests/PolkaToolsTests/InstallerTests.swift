@@ -148,7 +148,7 @@ final class InstallerTests: XCTestCase {
     try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"), to: executable)
     try TestSupport.write("License fixture", to: license)
     let info = [
-      "CFBundleIdentifier": "app.everything.desktop", "CFBundleExecutable": "Polka",
+      "CFBundleIdentifier": "app.polka.desktop", "CFBundleExecutable": "Polka",
       "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "0.5.0",
       "CFBundleVersion": "0.5.0",
     ]

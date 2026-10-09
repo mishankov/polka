@@ -34,13 +34,13 @@ less install-polka.sh
 ./polka package --prebuilt --desktop
 ```
 
-`BuildTool` из `tools/Sources/PolkaTools/Build.swift` собирает Swift-программу и помощники из `native/`, компилирует иконку из `native-app/Resources/`, копирует ресурсы, лицензии и Sparkle. Framework symlinks и rpath относительны; `.app` не зависит от checkout или Swift `.build` после упаковки.
+`BuildTool` из `tools/Sources/PolkaTools/Build.swift` собирает Swift-программу и помощники из `native/`, компилирует иконку из `build/Polka.icon/`, копирует ресурсы, лицензии и Sparkle. Framework symlinks и rpath относительны; `.app` не зависит от checkout или Swift `.build` после упаковки.
 
 Локальный Release bundle — `release/native-build/Polka Native.app`; ZIP и DMG находятся в `release/native-dev/`. `package` проверяет code seal, DMG и извлечённый в новый каталог ZIP. `--desktop` запускает изолированный native smoke из извлечённой копии. `--dir` создаёт только bundle, `--debug` выбирает Debug вместо оптимизированного Release. Локальная упаковка не подключена к официальному feed и использует ad-hoc подпись. Development-сертификат и стабильный Keychain broker для `dev` описаны в [development.md](development.md).
 
 ## Официальная подпись
 
-Официальная программа имеет bundle ID `app.everything.desktop`. Выпуски используют один постоянный self-signed сертификат RSA 3072/SHA-256. Fingerprint SHA-1 служит идентификатором сертификата для `codesign`, не алгоритмом подписи. Подписывается вложенный код, затем bundle; identifiers помощников закреплены. Сборка проверяет сертификат, срок действия и соответствие designated requirements, а не переподписывает Sparkle через `--deep`.
+Официальная программа имеет bundle ID `app.polka.desktop`. Выпуски используют один постоянный self-signed сертификат RSA 3072/SHA-256. Fingerprint SHA-1 служит идентификатором сертификата для `codesign`, не алгоритмом подписи. Подписывается вложенный код, затем bundle; identifiers помощников закреплены. Сборка проверяет сертификат, срок действия и соответствие designated requirements, а не переподписывает Sparkle через `--deep`.
 
 Приватный сертификат импортируется только во временный signing keychain; login/default keychain и системное доверие не изменяются. Секреты исключаются из окружения дочерних сборок, keychain удаляется после работы. Не меняйте сертификат и identifiers между выпусками.
 

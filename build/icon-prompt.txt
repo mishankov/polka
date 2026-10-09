@@ -1,11 +1,11 @@
 Polka app icon — generated with the built-in image_gen tool.
-Production icon: build/Everything.icon (Apple Icon Composer package).
-Foreground: build/Everything.icon/Assets/shelf.png (1254 × 1254, alpha preserved).
+Production icon: build/Polka.icon (Apple Icon Composer package).
+Foreground: build/Polka.icon/Assets/shelf.png (1254 × 1254, alpha preserved).
 Original reference: build/icon.png (1024 × 1024, alpha preserved).
 Xcode's asset compiler builds the .icon into Assets.car and a fallback ICNS.
 The ivory background and rounded enclosure come from the native renderer;
 the foreground contains only the two blocks and shelf, avoiding the extra
-macOS frame around the previous legacy icon. Open Everything.icon in Icon
+macOS frame around the previous legacy icon. Open Polka.icon in Icon
 Composer to edit the composition. Packaging requires full Xcode 26+.
 Menu bar assets: src/main/assets/polkaTemplate*.png; regenerate with
 swift scripts/generate-icon.swift. The glyph uses the same three-part mark.
@@ -19,7 +19,7 @@ Composition: ONE centered icon only; rounded square tile occupies about 88% canv
 Constraints: no lettering, no text, no dots, no gradients of rainbow color, no extra objects, no books with page details, no furniture legs, no mockup scene, no contact sheet. Actual transparent background beyond tile. Production asset, not a presentation.
 
 Cleanup prompt:
-Use case: precise-object-edit. Production macOS icon cleanup. Preserve this Polka icon design exactly: ivory tile, two terracotta/graphite blocks, dark shelf, proportions, colors, front view. Fix ONLY the outer tile edge and transparency: remove all scattered flecks, stray pixels, ragged white fringes and artifacts outside the tile. Make the tile perimeter an immaculate smooth continuous rounded square, with clean antialiased alpha. Everything outside the tile must be fully transparent. Uniform balanced transparent margins on all four sides. No other changes. Square output.
+Use case: precise-object-edit. Production macOS icon cleanup. Preserve this Polka icon design exactly: ivory tile, two terracotta/graphite blocks, dark shelf, proportions, colors, front view. Fix ONLY the outer tile edge and transparency: remove all scattered flecks, stray pixels, ragged white fringes and artifacts outside the tile. Make the tile perimeter an immaculate smooth continuous rounded square, with clean antialiased alpha. The area outside the tile must be fully transparent. Uniform balanced transparent margins on all four sides. No other changes. Square output.
 
 Foreground extraction prompt (built-in image_gen, transparent background):
 Use case: background-extraction. Edit target: attached production app icon. Extract ONLY the existing three-part shelf symbol: the tall terracotta rounded block on the left, shorter graphite rounded block on right, and graphite horizontal shelf underneath. Remove the entire ivory rounded-square tile and its shadows, border, and all stray edge pixels. Output a square 1024x1024 transparent PNG foreground layer for Apple Icon Composer. Preserve the symbol's exact appearance, colors, matte ceramic textures, subtle bevels, proportions, coordinates and scale from the source: shelf roughly x202 to821, y648 to720; tall block x275 to494 y270 to634; right block x526 to761 y408 to634. Do not enlarge or recenter the mark. Surrounding pixels fully transparent. No new backdrop, tile, border, frame, letters or objects. Preserve the subtle shadows immediately attached to the three foreground objects; avoid a broad cast shadow. The background will be supplied by native macOS icon rendering.
