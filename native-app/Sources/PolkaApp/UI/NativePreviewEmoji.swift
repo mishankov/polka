@@ -1,4 +1,5 @@
 import AppKit
+import PolkaCore
 import SwiftUI
 
 struct NativePreviewAction: Identifiable {
@@ -117,14 +118,20 @@ struct NativeClipboardPreview: View {
         ).font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 10).padding(
           .bottom, 8)
       }
-      ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
-          if clip.kind == "text" {
-            Text(model.previewText).font(.system(size: 14, design: .monospaced)).textSelection(
-              .enabled
-            ).frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier(
-              "clipboard-preview-text")
-          } else {
+      if clip.kind == "text" {
+        if let color = ClipboardColor.parse(model.previewText) {
+          NativeColorSwatch(color: color).frame(height: 96).padding(.horizontal, 16)
+            .padding(.bottom, 12).accessibilityIdentifier("clipboard-preview-color")
+        }
+        NativePlainTextPreview(
+          text: model.previewText,
+          scrollOffset: $model.previewScrollOffset,
+          scrollToken: clip.id + "-preview-" + String(model.visible)
+        )
+        .accessibilityIdentifier("native-clipboard-preview")
+      } else {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 16) {
             if let image = model.previewImage ?? nativeImage(clip.content) {
               Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: .infinity)
                 .accessibilityLabel("Просмотр скопированного изображения")
@@ -156,12 +163,13 @@ struct NativeClipboardPreview: View {
                 .system(size: 11)
               ).foregroundStyle(.secondary)
             }
-          }
-        }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(
-          NativeScrollPositionBridge(
-            offset: $model.previewScrollOffset, token: clip.id + "-preview-" + String(model.visible)
-          ))
-      }.accessibilityIdentifier("native-clipboard-preview")
+          }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(
+            NativeScrollPositionBridge(
+              offset: $model.previewScrollOffset,
+              token: clip.id + "-preview-" + String(model.visible)
+            ))
+        }.accessibilityIdentifier("native-clipboard-preview")
+      }
     }.task(id: clip.id + String(model.visible)) {
       guard clip.kind == "image", model.previewImage == nil, nativeImage(clip.content) == nil else {
         return

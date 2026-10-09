@@ -318,7 +318,8 @@ struct NativeKeyboardBridge: NSViewRepresentable {
       {
         return event
       }
-      let editing = text != nil
+      // Selectable preview text is read-only; Backspace still returns to history.
+      let editing = text?.isEditable == true
       let identifier = text?.delegate as? NSTextField
       let searchEditing = identifier?.identifier?.rawValue == "polka-search"
       let key = NativeKeyInput(
