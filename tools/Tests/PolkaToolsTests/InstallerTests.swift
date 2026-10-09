@@ -134,6 +134,69 @@ final class InstallerTests: XCTestCase {
     XCTAssertEqual(try TestSupport.children(fixture.applications), ["Polka.app"])
     XCTAssertFalse(try fixture.calls().contains { $0["command"] as? String == "open" })
   }
+  func testReadOnlyReleaseFilesCanBePreparedWithoutSudo() throws {
+    let fixture = try Fixture()
+    defer { try? fixture.clean() }
+    try fixture.existing()
+    for name in ["version", "quarantine"] {
+      try FileManager.default.removeItem(at: fixture.bundle.appendingPathComponent(name))
+    }
+    let contents = fixture.bundle.appendingPathComponent("Contents")
+    let executable = contents.appendingPathComponent("MacOS/Polka")
+    let license = contents.appendingPathComponent("Resources/licenses/swift-system/LICENSE.txt")
+    try Files.mkdir(executable.deletingLastPathComponent())
+    try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"), to: executable)
+    try TestSupport.write("License fixture", to: license)
+    let info = [
+      "CFBundleIdentifier": "app.everything.desktop", "CFBundleExecutable": "Polka",
+      "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "0.5.0",
+      "CFBundleVersion": "0.5.0",
+    ]
+    try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+      .write(to: contents.appendingPathComponent("Info.plist"))
+    try Command.run("/usr/bin/codesign", ["--force", "--sign", "-", fixture.bundle.path])
+    for path in [fixture.bundle, license, executable] {
+      try Command.run(
+        "/usr/bin/xattr", ["-w", "com.apple.quarantine", "0081;0;PolkaInstallerTests;", path.path])
+    }
+    try Command.run(
+      "/usr/bin/xattr", ["-w", "app.polka.installer-test", "preserved", license.path])
+    try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: license.path)
+    try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: executable.path)
+    // Exercise actual macOS permission checks and code signatures, rather than the stand-ins.
+    for command in ["xattr", "codesign"] {
+      let link = fixture.root.appendingPathComponent("bin/" + command)
+      try FileManager.default.removeItem(at: link)
+      try FileManager.default.createSymbolicLink(
+        at: link, withDestinationURL: URL(fileURLWithPath: "/usr/bin/" + command))
+    }
+    let result = try fixture.run(["--no-launch"])
+    XCTAssertEqual(result.status, 0, result.error)
+    guard result.status == 0 else { return }
+    let installedLicense = fixture.target.appendingPathComponent(
+      "Contents/Resources/licenses/swift-system/LICENSE.txt")
+    let installedExecutable = fixture.target.appendingPathComponent("Contents/MacOS/Polka")
+    for path in [fixture.target, installedLicense, installedExecutable] {
+      let attributes = try Command.capture("/usr/bin/xattr", [path.path])
+      XCTAssertFalse(attributes.contains("com.apple.quarantine"), attributes)
+    }
+    XCTAssertEqual(
+      try Command.capture(
+        "/usr/bin/xattr", ["-p", "app.polka.installer-test", installedLicense.path]
+      )
+      .trimmingCharacters(in: .whitespacesAndNewlines), "preserved")
+    XCTAssertEqual(try Data(contentsOf: installedLicense), try Data(contentsOf: license))
+    XCTAssertEqual(
+      try FileManager.default.attributesOfItem(atPath: installedExecutable.path)[.posixPermissions]
+        as? Int,
+      0o755)
+    XCTAssertEqual(
+      try FileManager.default.attributesOfItem(atPath: license.path)[.posixPermissions] as? Int,
+      0o444)
+    XCTAssertFalse(try fixture.calls().contains { $0["command"] as? String == "sudo" })
+    XCTAssertEqual(try TestSupport.children(fixture.applications), ["Polka.app"])
+    XCTAssertEqual(try TestSupport.children(fixture.downloads), [])
+  }
   func testUnsupportedPlatform() throws {
     try failure(["PLATFORM": "Linux"], message: "requires macOS")
   }
