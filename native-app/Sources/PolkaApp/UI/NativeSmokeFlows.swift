@@ -64,6 +64,28 @@ import SwiftUI
     }
     return predicate()
   }
+  func click(_ control: NSControl) {
+    guard let owner = control.window else {
+      failures.append("cannot click a detached native control")
+      return
+    }
+    let point = control.convert(
+      NSPoint(x: control.bounds.midX, y: control.bounds.midY), to: nil)
+    // Post both halves to AppKit rather than running performClick inside this
+    // actor task. NSSwitch can run an animation/tracking loop synchronously;
+    // its action must be free to schedule SwiftUI updates on the main actor.
+    for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+      if let event = NSEvent.mouseEvent(
+        with: type, location: point, modifierFlags: [],
+        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: owner.windowNumber,
+        context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)
+      {
+        NSApp.postEvent(event, atStart: false)
+      } else {
+        failures.append("cannot construct native mouse event")
+      }
+    }
+  }
   func settle() async { try? await Task.sleep(nanoseconds: 230_000_000) }
   func keyboardState(_ owner: NSWindow? = nil) -> String {
     let window = owner ?? shelf
@@ -646,13 +668,17 @@ import SwiftUI
       }
     }
     await screenshot("settings-builtin-apps-disabled", window: settings, includeTitlebar: true)
-    // Re-enable through the same native control action used by pointer input.
+    // Re-enable with pointer events through the real AppKit event loop.
     for app in LauncherSearch.builtinApps {
+      print("Native smoke: re-enable \(app.id) with pointer input")
       if let button = await nativeSmokeWaitForView(
         in: settings, ofType: NativeBuiltinAppSwitch.self,
-        ready: { $0.accessibilityIdentifier() == "builtin-app-toggle-" + app.id })
+        ready: {
+          $0.accessibilityIdentifier() == "builtin-app-toggle-" + app.id && $0.isEnabled
+            && $0.state == .off
+        })
       {
-        button.performClick(nil)
+        click(button)
         if !(await wait({ model.settings.builtinApps.isEnabled(app.id) && !model.busy })) {
           failures.append("Switch click did not re-enable \(app.id)")
         }
