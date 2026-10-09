@@ -87,6 +87,11 @@ import SwiftUI
     }
   }
   func settle() async { try? await Task.sleep(nanoseconds: 230_000_000) }
+  func trace(_ message: String) {
+    // stdout is buffered when the harness captures pipes. Keep the last step
+    // available even if a hosted AppKit call hangs and the child is terminated.
+    FileHandle.standardError.write(Data("Native smoke: \(message)\n".utf8))
+  }
   func keyboardState(_ owner: NSWindow? = nil) -> String {
     let window = owner ?? shelf
     let text = window.firstResponder as? NSTextView
@@ -670,7 +675,7 @@ import SwiftUI
     await screenshot("settings-builtin-apps-disabled", window: settings, includeTitlebar: true)
     // Re-enable with pointer events through the real AppKit event loop.
     for app in LauncherSearch.builtinApps {
-      print("Native smoke: re-enable \(app.id) with pointer input")
+      trace("find switch to re-enable \(app.id)")
       if let button = await nativeSmokeWaitForView(
         in: settings, ofType: NativeBuiltinAppSwitch.self,
         ready: {
@@ -678,15 +683,19 @@ import SwiftUI
             && $0.state == .off
         })
       {
+        trace("post pointer events for \(app.id)")
         click(button)
         if !(await wait({ model.settings.builtinApps.isEnabled(app.id) && !model.busy })) {
           failures.append("Switch click did not re-enable \(app.id)")
         }
+        trace("pointer input completed for \(app.id)")
       } else {
         failures.append("Missing built-in app switch: \(app.id)")
       }
     }
+    trace("render enabled built-in apps")
     await screenshot("settings-builtin-apps", window: settings, includeTitlebar: true)
+    trace("restore snippets draft")
     settings.close()
     await application.show("snippets")
     await settle()
