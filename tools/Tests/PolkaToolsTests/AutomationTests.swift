@@ -7,6 +7,8 @@ final class AutomationTests: XCTestCase {
   func testCommandOptionsAndInvalidCombinations() throws {
     let value = try ToolRequest(["verify", "--no-desktop", "--release"])
     XCTAssertEqual(value.flags, ["no-desktop", "release"])
+    XCTAssertTrue(
+      try ToolRequest(["verify", "--no-desktop", "--no-tools"]).flags.contains("no-tools"))
     for arguments in [
       ["unknown"], ["dev", "--publish"], ["test", "wrong"], ["test", "all", "app"],
       ["build", "--debug", "--release"], ["build", "--official", "--development-signing"],
@@ -44,11 +46,11 @@ final class AutomationTests: XCTestCase {
     }
     XCTAssertTrue(action.contains("swift package --package-path native-app resolve"))
     XCTAssertTrue(action.contains("swift package --package-path tools resolve"))
-    XCTAssertTrue(build.contains("needs: [verify, package, updates]"))
+    XCTAssertTrue(build.contains("needs: [verify, tooling, package, updates]"))
     XCTAssertTrue(build.contains("name: Verify and package macOS arm64"))
     XCTAssertTrue(build.contains("./polka package --prebuilt --desktop"))
     XCTAssertTrue(release.contains("./polka release-prepare"))
-    XCTAssertTrue(release.contains("needs: [prepare, verify, build]"))
+    XCTAssertTrue(release.contains("needs: [prepare, verify, tooling, updates, build]"))
     XCTAssertTrue(release.contains("ref: ${{ needs.prepare.outputs.commit }}"))
     XCTAssertTrue(release.contains("./polka verify --no-desktop"))
     XCTAssertTrue(release.contains("./polka release --desktop"))

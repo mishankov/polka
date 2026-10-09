@@ -33,9 +33,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
-      - name: Verify Swift services, UI models, regression fixtures and Swift tooling
+        with:
+          build-cache: source
+      - name: Verify Swift services, UI models, coverage and regression fixtures
         timeout-minutes: 25
-        run: ./polka verify --no-desktop
+        run: ./polka verify --no-desktop --no-tools
       - name: Upload native coverage reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -45,6 +47,19 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  tooling:
+    name: Verify Swift tooling
+    runs-on: xcode-27
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: tooling
+          tools-only: 'true'
+      - name: Verify automation, signing, release gates and cancellation
+        run: swift test --package-path tools
+
   package:
     name: Package and test native macOS arm64
     runs-on: xcode-27
@@ -52,6 +67,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: optimized
       - name: Build optimized native app
         run: ./polka build
       - name: Package ZIP and DMG and smoke-test the relocated optimized app
@@ -88,6 +105,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: optimized
       - name: Build optimized native app
         run: ./polka build
       - name: Verify authenticated native update, held installation and relaunch
@@ -106,7 +125,7 @@ jobs:
   macos-arm64:
     # Preserve the existing branch-protection check name.
     name: Verify and package macOS arm64
-    needs: [verify, package, updates]
+    needs: [verify, tooling, package, updates]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
