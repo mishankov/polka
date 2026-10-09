@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
         with:
-          build-cache: source
+          build-cache: source-native
           tools-configuration: debug
       - name: Verify Swift services, UI models, coverage and regression fixtures
         run: ./polka verify --no-desktop --no-tools

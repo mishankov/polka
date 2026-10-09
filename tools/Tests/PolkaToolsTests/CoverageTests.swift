@@ -22,6 +22,21 @@ final class CoverageTests: XCTestCase {
     XCTAssertEqual(args.filter { $0 == "-object" }.count, 2)
     XCTAssertTrue(args.contains { $0.hasSuffix("codecov/default.profdata") })
   }
+  func testNativeEngineExportsCombinedPackageTestsInsteadOfMissingTargetBundles() {
+    let args = Coverage.exportArguments(
+      codecov: root.appendingPathComponent(
+        "native-app/.build/arm64-apple-macosx/debug/codecov/PolkaNative.json"),
+      nativeEngine: true)
+    XCTAssertEqual(
+      args.filter { $0.contains(".xctest/") },
+      [
+        root.appendingPathComponent(
+          "native-app/.build/arm64-apple-macosx/debug/PolkaNativePackageTests.xctest/Contents/MacOS/PolkaNativePackageTests"
+        ).path
+      ])
+    XCTAssertFalse(args.contains("-object"))
+    XCTAssertTrue(args.contains { $0.hasSuffix("codecov/default.profdata") })
+  }
   func testUnexecutedPlatformAndUIAreIncluded() throws {
     let report = try Coverage.summary(
       data([
