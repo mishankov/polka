@@ -270,8 +270,11 @@ public enum Desktop {
         arguments: [flag, "-AppleKeyboardUIMode", "0"],
         environment: env, directory: context.root)
       child = running
+      // Core now includes the independent disable/re-enable Settings flow,
+      // along with the existing lifecycle, editor, file and sync scenarios.
+      let timeout: TimeInterval = phase == "core" ? 90 : phase == "notice" ? 60 : 30
       let result = try await report(
-        resultPath, child: running, timeout: phase == "scroll" || phase == "startup" ? 30 : 60)
+        resultPath, child: running, timeout: timeout)
       try save(result, to: artifacts.appendingPathComponent(filename + ".json"))
       try validateSmoke(result, phase: phase)
       try await running.wait(timeout: 5)

@@ -656,8 +656,14 @@ import SwiftUI
       failures.append("Keyboard toggles did not independently disable all four built-in apps")
     }
     for destination in ["clipboard", "snippets", "files", "emoji", "toggle-clipboard"] {
+      let previousKeyWindow = NSApp.keyWindow
+      let previousDestination = model.destination
       await application.show(destination)
-      if model.visible || NSApp.keyWindow !== settings {
+      // A blocked command must preserve the current surface and key window,
+      // including when another application already took desktop focus.
+      if model.visible || model.destination != previousDestination
+        || NSApp.keyWindow !== previousKeyWindow
+      {
         failures.append("Direct navigation reopened disabled \(destination)")
       }
     }
@@ -676,11 +682,18 @@ import SwiftUI
     // Re-enable with pointer events through the real AppKit event loop.
     for app in LauncherSearch.builtinApps {
       trace("find switch to re-enable \(app.id)")
+      var reportedState = false
       if let button = await nativeSmokeWaitForView(
         in: settings, ofType: NativeBuiltinAppSwitch.self,
         ready: {
-          $0.accessibilityIdentifier() == "builtin-app-toggle-" + app.id && $0.isEnabled
-            && $0.state == .off
+          guard $0.accessibilityIdentifier() == "builtin-app-toggle-" + app.id else { return false }
+          if !reportedState {
+            trace(
+              "\(app.id): control enabled=\($0.isEnabled), state=\($0.state.rawValue), model enabled=\(model.settings.builtinApps.isEnabled(app.id)), canChange=\(model.canChangeBuiltinApps); \(keyboardState(settings))"
+            )
+            reportedState = true
+          }
+          return $0.isEnabled && $0.state == .off
         })
       {
         trace("post pointer events for \(app.id)")

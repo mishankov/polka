@@ -831,6 +831,11 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   private func smoke() async {
     guard fixture, let path = ProcessInfo.processInfo.environment["POLKA_NATIVE_SMOKE_RESULT"]
     else { return }
+    // Hosted fixtures temporarily cover/hide their windows while exercising
+    // Settings. Keep their UI updates and polling timers out of App Nap.
+    let activity = ProcessInfo.processInfo.beginActivity(
+      options: .userInitiatedAllowingIdleSystemSleep, reason: "Isolated native desktop checks")
+    defer { ProcessInfo.processInfo.endActivity(activity) }
     for _ in 0..<100 where model.storageStatus == "starting" {
       try? await Task.sleep(nanoseconds: 25_000_000)
     }
