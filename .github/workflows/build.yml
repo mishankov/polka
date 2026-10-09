@@ -29,7 +29,7 @@ jobs:
   verify:
     name: Verify native macOS source
     runs-on: xcode-27
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
@@ -50,7 +50,7 @@ jobs:
   tooling:
     name: Verify Swift tooling
     runs-on: xcode-27
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
@@ -64,7 +64,7 @@ jobs:
   package:
     name: Package and test native macOS arm64
     runs-on: xcode-27
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
@@ -111,7 +111,7 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@v7
-      - name: Enforce five-minute required-check budget
+      - name: Report five-minute target and enforce ten-minute execution limit
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

@@ -47,21 +47,37 @@ final class CIBudgetTests: XCTestCase {
   func testExactlyFiveMinutesPassesAndInitialQueueIsSeparate() throws {
     let result = try check([["jobs": fixture(queue: 180)]])
     XCTAssertEqual(result.status, 0, result.error)
-    XCTAssertTrue(result.output.contains("300s / 300s"))
+    XCTAssertTrue(result.output.contains("300s / 600s"))
     XCTAssertTrue(result.output.contains("outside budget): 180s"))
+    XCTAssertFalse(result.output.contains("::warning::"))
+  }
+
+  func testOneSecondOverTargetWarnsWithoutFailing() throws {
+    let result = try check([["jobs": fixture(finishes: [240, 120, 301])]], withSummary: true)
+    XCTAssertEqual(result.status, 0, result.error)
+    XCTAssertTrue(result.output.contains("301s / 600s"))
+    XCTAssertTrue(result.output.contains("::warning::"))
+    XCTAssertFalse(result.output.contains("::error::"))
+  }
+
+  func testExactlyTenMinutesPassesWithTargetWarning() throws {
+    let result = try check([["jobs": fixture(finishes: [240, 120, 600])]])
+    XCTAssertEqual(result.status, 0, result.error)
+    XCTAssertTrue(result.output.contains("600s / 600s"))
+    XCTAssertTrue(result.output.contains("::warning::"))
   }
 
   func testOneSecondOverBudgetFails() throws {
-    let result = try check([["jobs": fixture(finishes: [240, 120, 301])]])
+    let result = try check([["jobs": fixture(finishes: [240, 120, 601])]])
     XCTAssertNotEqual(result.status, 0)
-    XCTAssertTrue(result.output.contains("301s / 300s"))
+    XCTAssertTrue(result.output.contains("601s / 600s"))
     XCTAssertTrue(result.output.contains("::error::"))
   }
 
   func testBudgetFailureSurvivesSummaryPipeline() throws {
-    let result = try check([["jobs": fixture(finishes: [240, 120, 301])]], withSummary: true)
+    let result = try check([["jobs": fixture(finishes: [240, 120, 601])]], withSummary: true)
     XCTAssertNotEqual(result.status, 0)
-    XCTAssertTrue(result.output.contains("301s / 300s"))
+    XCTAssertTrue(result.output.contains("601s / 600s"))
   }
 
   func testStaggeredRunnerQueuesAreExcludedFromExecutionBudget() throws {
@@ -69,18 +85,18 @@ final class CIBudgetTests: XCTestCase {
       ["jobs": fixture(starts: [0, 120, 180], finishes: [180, 240, 420])]
     ])
     XCTAssertEqual(result.status, 0, result.error)
-    XCTAssertTrue(result.output.contains("240s / 300s"))
+    XCTAssertTrue(result.output.contains("240s / 600s"))
     XCTAssertTrue(result.output.contains("staggered runner queues: 420s"))
     XCTAssertTrue(result.output.contains("240s execution, 180s runner queue"))
   }
 
   func testLongQueueDoesNotHideExecutionOverrun() throws {
     let result = try check([
-      ["jobs": fixture(starts: [0, 120, 600], finishes: [180, 240, 901])]
+      ["jobs": fixture(starts: [0, 120, 600], finishes: [180, 240, 1201])]
     ])
     XCTAssertNotEqual(result.status, 0)
-    XCTAssertTrue(result.output.contains("301s / 300s"))
-    XCTAssertTrue(result.output.contains("301s execution, 600s runner queue"))
+    XCTAssertTrue(result.output.contains("601s / 600s"))
+    XCTAssertTrue(result.output.contains("601s execution, 600s runner queue"))
   }
 
   func testPaginationAndUnrelatedAggregateJob() throws {

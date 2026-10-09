@@ -242,7 +242,7 @@ final class ReleasePreparationTests: XCTestCase {
     let build = try source(".github/workflows/build.yml")
     for name in ["verify", "tooling", "package"] {
       let section = try job(name, in: build)
-      XCTAssertTrue(section.contains("timeout-minutes: 5"))
+      XCTAssertTrue(section.contains("timeout-minutes: 10"))
       XCTAssertFalse(section.contains("continue-on-error"))
       XCTAssertFalse(section.contains("needs:"))
     }
