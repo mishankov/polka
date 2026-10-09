@@ -31,6 +31,9 @@ import SwiftUI
 ) async -> [String] {
   guard NativeProfile.isolatedFixture else { return ["native smoke requires an isolated profile"] }
   var failures: [String] = []
+  if shelf.hasShadow {
+    failures.append("system shelf keyline can cross the hardware notch")
+  }
   let environment = ProcessInfo.processInfo.environment
   let screenshotDirectory: URL? = environment["POLKA_NATIVE_SMOKE_SCREENSHOT_DIR"].map {
     URL(fileURLWithPath: $0, isDirectory: true)
