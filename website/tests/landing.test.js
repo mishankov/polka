@@ -76,6 +76,7 @@ for (const width of [390, 1440]) {
   test(`all captures load and fit at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/');
+    let standardSize;
     for (const name of ['Apps', 'Clipboard', 'Snippets', 'Emoji', 'Files']) {
       await page.getByRole('tab', { name, exact: true }).click();
       const image = page.getByRole('tabpanel').locator('img');
@@ -84,6 +85,9 @@ for (const width of [390, 1440]) {
         .toBe(true);
       const bounds = await image.boundingBox();
       const frame = await page.locator('.desktop').boundingBox();
+      standardSize ??= { width: bounds.width, height: bounds.height };
+      expect(bounds.width).toBeCloseTo(standardSize.width, 0);
+      expect(bounds.height).toBeCloseTo(standardSize.height, 0);
       expect(bounds.x).toBeGreaterThanOrEqual(frame.x);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(frame.x + frame.width);
       expect(bounds.y + bounds.height).toBeLessThanOrEqual(frame.y + frame.height);
