@@ -34,24 +34,35 @@ final class NativeSettingsUpdateTests: XCTestCase {
 
   @MainActor func testSlowWriteRemainsSerializedAndShowsBusyUntilCompletion() async {
     let model = NativeUIModel()
+    let started = expectation(description: "Settings write started")
+    let becameBusy = expectation(description: "Slow write publishes busy feedback")
+    let busy = model.$busy.dropFirst().filter { $0 }.first().sink { _ in becameBusy.fulfill() }
+    defer { busy.cancel() }
     var release: CheckedContinuation<Void, Never>?
     var count = 0
     model.action = { _ in
       count += 1
-      await withCheckedContinuation { release = $0 }
+      await withCheckedContinuation {
+        release = $0
+        started.fulfill()
+      }
     }
     model.setBuiltinApp("builtin:emoji", enabled: false)
     XCTAssertFalse(model.busy)
     // The grace period affects presentation only, never command serialization.
     model.setBuiltinApp("builtin:emoji", enabled: false)
-    for _ in 0..<100 where release == nil { await Task.yield() }
-    try? await Task.sleep(nanoseconds: 200_000_000)
+    // Observe readiness instead of assuming both actor tasks have begun their
+    // grace period before a fixed sleep expires on a loaded runner.
+    await fulfillment(of: [started, becameBusy], timeout: 2)
     XCTAssertTrue(model.busy)
     XCTAssertFalse(model.canChangeBuiltinApps)
     model.setBuiltinApp("builtin:files", enabled: false)
     XCTAssertEqual(count, 1)
+    let becameIdle = expectation(description: "Completed write clears busy feedback")
+    let idle = model.$busy.dropFirst().filter { !$0 }.first().sink { _ in becameIdle.fulfill() }
+    defer { idle.cancel() }
     release?.resume()
-    for _ in 0..<100 where model.commandPending { await Task.yield() }
+    await fulfillment(of: [becameIdle], timeout: 2)
     XCTAssertFalse(model.busy)
     XCTAssertFalse(model.commandPending)
     XCTAssertTrue(model.canChangeBuiltinApps)
