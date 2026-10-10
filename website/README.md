@@ -1,6 +1,6 @@
 # Polka promo site
 
-A standalone static site using Polka’s logo and ivory, terracotta, and graphite palette. Copy follows the native Swift app and the v0.9.0 release (source commit `7681f99`), with the snippet editor height fix in this branch. Assets, fonts, and scripts are local; there are no analytics.
+A standalone static site using Polka’s logo and ivory, terracotta, and graphite palette. Copy follows the native Swift app and the v0.9.0 release (source commit `7681f99`), with the snippet editor height fix maintained separately on `fix/snippet-editor-shelf-height`. Assets, fonts, and scripts are local; there are no analytics.
 
 The website has its own Node tooling. The native app remains independent of npm.
 

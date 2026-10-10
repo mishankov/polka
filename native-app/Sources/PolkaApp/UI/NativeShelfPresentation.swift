@@ -32,7 +32,7 @@ final class NativeShelfPresentationView: NSView {
     hosting.frame = bounds
     outline.frame = bounds
     if revealMask.frame != bounds || revealMask.path == nil {
-      // Window geometry changes are immediate, including entering and leaving a preview.
+      // Window geometry changes are immediate, including preview/editor expansion.
       revealMask.removeAnimation(forKey: Self.animationKey)
       updateMask()
     }
