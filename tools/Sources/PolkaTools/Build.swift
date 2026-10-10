@@ -279,12 +279,31 @@ public enum BuildTool {
     try Files.writeJSON(pins, to: destination.appendingPathComponent("dependencies.json"))
   }
   static func compileIcon(resources: URL, metadata: PolkaMetadata, context: ToolContext) throws {
+    let environment = SigningTool.publicEnvironment(context.environment)
+    let source = context.root.appendingPathComponent(metadata.build.mac.icon)
+    let toolchain =
+      try Command.capture(
+        "/usr/bin/xcrun", ["--find", "actool"], environment: environment)
+      + Command.capture("/usr/bin/xcrun", ["--show-sdk-build-version"], environment: environment)
+      + ["DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS", "PATH"].map {
+        environment[$0] ?? ""
+      }.joined(separator: "\n")
+    let key = try NativeIconCache.key(
+      source: source, minimumSystemVersion: metadata.build.mac.minimumSystemVersion,
+      toolchain: toolchain)
+    if let files = NativeIconCache.shared.value(for: key) {
+      for (name, bytes) in files { try bytes.write(to: resources.appendingPathComponent(name)) }
+      return
+    }
     let scratch = try ToolFiles.temporary("polka-native-icon-")
     defer { try? ToolFiles.remove(scratch) }
     let input = scratch.appendingPathComponent("Icon.icon")
     let output = scratch.appendingPathComponent("out")
     try ToolFiles.manager.copyItem(
-      at: context.root.appendingPathComponent(metadata.build.mac.icon), to: input)
+      at: source, to: input)
+    let compiledKey = try NativeIconCache.key(
+      source: input, minimumSystemVersion: metadata.build.mac.minimumSystemVersion,
+      toolchain: toolchain)
     try ToolFiles.directory(output)
     try Command.run(
       "/usr/bin/xcrun",
@@ -294,11 +313,14 @@ public enum BuildTool {
         "--app-icon", "Icon", "--include-all-app-icons", "--enable-on-demand-resources", "NO",
         "--development-region", "en", "--target-device", "mac", "--minimum-deployment-target",
         metadata.build.mac.minimumSystemVersion, "--platform", "macosx",
-      ], environment: SigningTool.publicEnvironment(context.environment), directory: context.root)
+      ], environment: environment, directory: context.root)
+    var files: [String: Data] = [:]
     for file in ["Assets.car", "Icon.icns"] {
-      try ToolFiles.manager.copyItem(
-        at: output.appendingPathComponent(file), to: resources.appendingPathComponent(file))
+      let bytes = try Data(contentsOf: output.appendingPathComponent(file))
+      try bytes.write(to: resources.appendingPathComponent(file))
+      files[file] = bytes
     }
+    NativeIconCache.shared.store(files, for: compiledKey)
   }
   public static func build(
     options: BuildOptions = BuildOptions(), context: ToolContext = ToolContext()
