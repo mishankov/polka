@@ -1,14 +1,28 @@
 # Polka promo site
 
-A standalone, responsive static site using Polka’s production logo and its ivory, terracotta, and graphite palette. The hero shows real screenshots captured from the running Electron app with an isolated profile. The surrounding wallpaper is decorative. The Apps and Calculator controls switch screenshots; they do not simulate the app. All assets are local; no fonts, analytics, or remote scripts are loaded.
+A standalone static site using Polka’s logo and ivory, terracotta, and graphite palette. Copy follows the native Swift app and the v0.9.0 release (source commit `7681f99`). Assets, fonts, and scripts are local; there are no analytics.
 
-From the repository root:
+The website has its own Node tooling. The native app remains independent of npm.
 
 ```sh
+cd website
 npm ci
-npm run site:dev
-npm run site:build
-npm run site:preview
+npm run dev
+npm run build
+npm run preview
+npm test
 ```
 
-Deploy the contents of `out/website` to any static web host. The site uses relative asset paths and can be served from a subdirectory. Download links point to the latest GitHub Release, where users choose the DMG. App requirements and behavior are sourced from the repository README; update the site when those change.
+Deploy `website/dist` to a static host. Assets use relative paths, including when hosted in a subdirectory. Downloads link to the latest GitHub Release; installation guidance links to `docs/installation.md`.
+
+## Screenshots
+
+Hero images are unedited captures from the native Swift app's desktop harness, using an isolated profile and synthetic data. The surrounding wallpaper is decorative. From the repository root, run `./polka desktop core`; the harness owns the shared desktop lock and writes captures to `artifacts/desktop/native-smoke/`.
+
+Copy `launcher.png`, `clipboard-color-history.png`, `snippet-editor.png`, `emoji.png`, and `files-selection.png` to their corresponding `website/assets/polka-*.png` files. The launcher frame shows the built-in tools from the isolated fixture. No personal clipboard or Keychain data is used. For these compositor-backed Liquid Glass images, we used `POLKA_NATIVE_SMOKE_WINDOW_CAPTURE=1` and temporarily extended its named-frame filter to the five frames above. That capture-only edit is not shipped. The default bitmap path can omit SwiftUI content; inspect every regenerated frame before replacing an asset. Window capture requires screen capture access.
+
+## Keyboard review
+
+The page has navigation links and a screenshot tablist, with no Create/Save/Edit/Delete commands. Native links activate with Enter; tabs support Left/Right, Home/End, and native Enter/Space. The arrow hints are visible and exposed through `aria-keyshortcuts`. Tab changes share one action handler for pointer and keyboard, skip disabled tabs, and ignore composition, repeated and modified key events. All app shortcuts printed in feature copy describe the desktop app, not global website bindings.
+
+`npm test` uses Playwright with installed Chrome to verify navigation, tab/panel state, focus, keyboard guards, images, and mobile overflow. Run `npm exec playwright install chromium` and set `POLKA_TEST_BROWSER=chromium` if Chrome is unavailable.

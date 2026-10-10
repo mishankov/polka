@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f6f2ea" />
     <meta
       name="description"
-      content="Your apps, clipboard, and quick calculations. One quiet shelf at the top of your Mac. Meet Polka, a free, open-source macOS utility."
+      content="Apps, clipboard, snippets, files, emoji, and quick conversions. Meet Polka, a free, native macOS shelf that keeps everyday essentials close."
     />
     <title>Polka — A little space for everything.</title>
     <link rel="icon" type="image/png" href="./assets/polka-mark.png" />
@@ -34,11 +34,13 @@
     </header>
     <main id="main">
       <section class="hero wrap" aria-labelledby="hero-title">
-        <p class="eyebrow"><span class="status-dot"></span> A little more at home on your Mac</p>
+        <p class="eyebrow">
+          <span class="status-dot"></span> Native to your Mac. Naturally in your flow.
+        </p>
         <h1 id="hero-title">A little space.<br />For <span>everything.</span></h1>
         <p class="hero-copy">
-          Your apps. Your clipboard. Your next thought.<br />All on one quiet shelf, right where you
-          need them.
+          Your apps. Your clipboard. The little things in between.<br />One native Mac shelf, right
+          where you need it.
         </p>
         <div class="hero-actions">
           <a class="button" href="#download"
@@ -51,6 +53,64 @@
           Made for macOS 27+ <span>·</span> Apple silicon <span>·</span> Free & open source
         </p>
         <div class="product-stage" id="experience">
+          <div
+            class="preview-controls"
+            role="tablist"
+            aria-label="Explore Polka screenshots"
+            aria-describedby="gallery-help"
+          >
+            <button
+              id="tab-apps"
+              role="tab"
+              aria-controls="panel-apps"
+              aria-selected="true"
+              tabindex="0"
+              aria-keyshortcuts="ArrowLeft ArrowRight Home End"
+              class="active"
+            >
+              Apps
+            </button>
+            <button
+              id="tab-clipboard"
+              role="tab"
+              aria-controls="panel-clipboard"
+              aria-selected="false"
+              tabindex="-1"
+              aria-keyshortcuts="ArrowLeft ArrowRight Home End"
+            >
+              Clipboard
+            </button>
+            <button
+              id="tab-snippets"
+              role="tab"
+              aria-controls="panel-snippets"
+              aria-selected="false"
+              tabindex="-1"
+              aria-keyshortcuts="ArrowLeft ArrowRight Home End"
+            >
+              Snippets
+            </button>
+            <button
+              id="tab-emoji"
+              role="tab"
+              aria-controls="panel-emoji"
+              aria-selected="false"
+              tabindex="-1"
+              aria-keyshortcuts="ArrowLeft ArrowRight Home End"
+            >
+              Emoji
+            </button>
+            <button
+              id="tab-files"
+              role="tab"
+              aria-controls="panel-files"
+              aria-selected="false"
+              tabindex="-1"
+              aria-keyshortcuts="ArrowLeft ArrowRight Home End"
+            >
+              Files
+            </button>
+          </div>
           <div class="desktop">
             <div class="desktop-grain"></div>
             <div class="menu-bar" aria-hidden="true">
@@ -62,34 +122,73 @@
             <div class="landscape landscape-one"></div>
             <div class="landscape landscape-two"></div>
             <div class="landscape landscape-three"></div>
-            <div class="app-captures" aria-label="Actual Polka app screenshots">
-              <img
-                class="app-capture"
-                data-capture="apps"
-                src="./assets/polka-apps.png"
-                width="1120"
-                height="1020"
-                alt="Polka running on macOS, showing its search field, installed applications, and clipboard history shortcut."
-              />
-              <img
-                class="app-capture"
-                data-capture="calculator"
-                src="./assets/polka-calculator.png"
-                width="1120"
-                height="1020"
-                alt="Polka’s calculator showing (450 + 180) / 2 and the result 315."
+            <div class="app-captures">
+              <div id="panel-apps" role="tabpanel" aria-labelledby="tab-apps" tabindex="0">
+                <img
+                  class="app-capture"
+                  src="./assets/polka-apps.png"
+                  width="1120"
+                  height="1088"
+                  alt="Polka’s native launcher showing clipboard history, snippets, files, and emoji."
+                />
+              </div>
+              <div
+                id="panel-clipboard"
+                role="tabpanel"
+                aria-labelledby="tab-clipboard"
+                tabindex="0"
                 hidden
-              />
+              >
+                <img
+                  class="app-capture"
+                  src="./assets/polka-clipboard.png"
+                  width="1120"
+                  height="1088"
+                  alt="Polka’s native clipboard history with color swatches and copy controls."
+                />
+              </div>
+              <div
+                id="panel-snippets"
+                role="tabpanel"
+                aria-labelledby="tab-snippets"
+                tabindex="0"
+                hidden
+              >
+                <img
+                  class="app-capture"
+                  src="./assets/polka-snippets.png"
+                  width="1120"
+                  height="1428"
+                  alt="Polka’s native snippet editor with a title, text, and save controls."
+                />
+              </div>
+              <div id="panel-emoji" role="tabpanel" aria-labelledby="tab-emoji" tabindex="0" hidden>
+                <img
+                  class="app-capture"
+                  src="./assets/polka-emoji.png"
+                  width="1120"
+                  height="1088"
+                  alt="Polka’s native emoji picker with categories, search, and a grid of emoji."
+                />
+              </div>
+              <div id="panel-files" role="tabpanel" aria-labelledby="tab-files" tabindex="0" hidden>
+                <img
+                  class="app-capture"
+                  src="./assets/polka-files.png"
+                  width="1120"
+                  height="1088"
+                  alt="Polka’s native file shelf showing selected files and file actions."
+                />
+              </div>
             </div>
             <div class="desktop-caption"><span>Less searching.</span><br />More doing.</div>
             <span class="desktop-label">A place for what’s next.</span>
           </div>
-          <div class="preview-controls" role="group" aria-label="View actual app screenshots">
-            <button class="active" data-demo="apps" aria-pressed="true">Apps</button
-            ><button data-demo="calculator" aria-pressed="false">Calculator</button>
-          </div>
-          <p class="preview-note" id="preview-note" aria-live="polite">
-            Actual Polka app, captured on macOS. Desktop background is illustrative.
+          <p class="gallery-help" id="gallery-help">
+            Choose a view · Use ← → when the tabs are focused.
+          </p>
+          <p class="preview-note">
+            Captured from the native Mac app with example data. Background is illustrative.
           </p>
         </div>
       </section>
@@ -109,8 +208,8 @@
             <p class="eyebrow">YOUR NEXT MOVE, ONE SEARCH AWAY</p>
             <h3>Less looking.<br />More launching.</h3>
             <p>
-              Find and open your Mac apps with a few keystrokes. Your hands stay on the keyboard.
-              Your mind stays on the task.
+              A few letters, a small typo, even the wrong keyboard layout. Polka finds your apps and
+              learns which ones you reach for most.
             </p>
           </div>
           <div class="keys-art" aria-hidden="true">
@@ -125,8 +224,8 @@
             <p class="eyebrow">A SECOND CHANCE FOR EVERY COPY</p>
             <h3>Copied. Kept.<br />Found again.</h3>
             <p>
-              Text, images, that link from earlier. Search your clipboard history and pin the things
-              you keep coming back to.
+              Find text, images, and even words inside screenshots. Pin the things you need again.
+              Copied colors appear as swatches, ready to reuse.
             </p>
           </div>
           <div class="clipboard-art" aria-hidden="true">
@@ -144,21 +243,64 @@
           <p class="eyebrow">SKIP THE EXTRA APP</p>
           <h3>A quick thought.<br />A quicker answer.</h3>
           <div class="equation" aria-hidden="true">
-            <span>(450 + 180) / 2</span><strong>315<span>↵</span></strong>
+            <span>10 inches in cm</span><strong>25.4 cm<span>↵</span></strong>
           </div>
-          <p>Calculate right in search. Press Enter to copy the result and keep going.</p>
+          <p>
+            Calculate, convert units, or check the time in another city—all in search. Press Enter
+            to copy the answer.
+          </p>
         </article>
         <article class="feature feature-local">
           <div class="local-icon" aria-hidden="true">⌂</div>
           <p class="eyebrow">RIGHT HERE. ON YOUR MAC.</p>
           <h3>Your clipboard.<br />Your business.</h3>
           <p>
-            Clipboard history stays in an encrypted file on your Mac. No account to create. No API
-            key to bring.
+            History is encrypted on your Mac. Image text is recognized locally with Apple Vision. No
+            cloud account or API key required.
           </p>
           <a class="text-link" href="https://github.com/mishankov/polka/blob/master/docs/data.md"
             >A closer look at your data <span aria-hidden="true">↗</span></a
           >
+        </article>
+        <article class="feature feature-snippets">
+          <p class="eyebrow">THE WORDS YOU REACH FOR</p>
+          <h3>Write it once.<br />Have it on hand.</h3>
+          <p>
+            Addresses, ready-made replies, the details you always look up. Keep them as searchable
+            snippets, separate from your clipboard history.
+          </p>
+          <p class="feature-shortcuts">
+            In Polka: <kbd>⌘ N</kbd> new snippet · <kbd>⌘ Enter</kbd> save
+          </p>
+        </article>
+        <article class="feature feature-files">
+          <p class="eyebrow">A STOP ALONG THE WAY</p>
+          <h3>Drop here.<br />Take anywhere.</h3>
+          <p>
+            Drag files from Finder to the top of your screen. Collect them on the shelf, then drag
+            them into another app, together or one at a time.
+          </p>
+          <p class="feature-note">
+            A temporary home for file references. Removing one leaves the original file untouched.
+          </p>
+        </article>
+        <article class="feature feature-emoji">
+          <p class="eyebrow">JUST THE RIGHT EXPRESSION</p>
+          <h3>A little more<br />you.</h3>
+          <div class="emoji-art" aria-hidden="true">✌️ 🍊 ✨</div>
+          <p>
+            Find emoji in English or Russian. Browse categories, choose a skin tone, and copy or
+            paste—all without going online.
+          </p>
+        </article>
+        <article class="feature feature-sync">
+          <p class="eyebrow">ANOTHER MAC. THE SAME LITTLE THINGS.</p>
+          <h3>Pick up where<br />you copied.</h3>
+          <p>
+            Optionally pair your Macs on the same local network. Clipboard history and snippets sync
+            directly between them over an encrypted connection.
+          </p>
+          <p class="feature-note">Both Macs need Polka running. No server or cloud account.</p>
         </article>
       </section>
       <section class="quiet wrap">
@@ -171,8 +313,8 @@
             <span class="detail-icon" aria-hidden="true">◉</span>
             <h3>A little awareness.</h3>
             <p>
-              A subtle indicator shows detected camera and microphone activity, even with the shelf
-              closed.
+              Choose camera and microphone indicators separately. A quiet outline shows detected
+              activity, even with the shelf closed.
             </p>
           </div>
           <div>
@@ -184,7 +326,8 @@
             <span class="detail-icon" aria-hidden="true">⌘</span>
             <h3>Make yourself at home.</h3>
             <p>
-              Choose your shortcuts, adjust clipboard retention, and make the shelf feel like yours.
+              Choose which built-in tools appear, set your shortcuts, and adjust clipboard
+              retention. Reopen within a minute to return to your place.
             </p>
           </div>
         </div>
@@ -200,7 +343,7 @@
               loading="lazy"
             />
           </div>
-          <p class="eyebrow">A LITTLE UTILITY. A LOVELIER MAC.</p>
+          <p class="eyebrow">BUILT WITH SWIFT, SWIFTUI & APPKIT.</p>
           <h2>Make room for Polka.</h2>
           <p>Your everyday essentials, a little closer.</p>
           <a class="button" href="https://github.com/mishankov/polka/releases/latest"
@@ -213,12 +356,12 @@
           <details>
             <summary>Installing for the first time?</summary>
             <p>
-              Open the DMG and drag Polka into Applications. Current builds are ad-hoc signed and
-              aren’t notarized by Apple. See the
-              <a href="https://github.com/mishankov/polka/blob/master/docs/macos.md"
+              Open the DMG and drag Polka into Applications. Releases use a self-signed certificate
+              and aren’t notarized by Apple. Follow the
+              <a href="https://github.com/mishankov/polka/blob/master/docs/installation.md"
                 >installation guide</a
               >
-              for details.
+              for the first launch, or choose the installer script described there.
             </p>
           </details>
         </div>

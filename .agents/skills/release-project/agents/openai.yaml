@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Release Polka'
+  short_description: 'Review docs, write bilingual notes, and release Polka'
+  default_prompt: 'Use $release-project to prepare and publish a patch release of Polka.'

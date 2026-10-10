@@ -3,7 +3,19 @@ name: build
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'docs/**/*.md'
+      - '.agents/**'
+      - 'release-notes/**'
   pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'docs/**/*.md'
+      - '.agents/**'
+      - 'release-notes/**'
   workflow_dispatch:
 
 permissions:
@@ -14,65 +26,99 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  macos-arm64:
-    name: Verify and package macOS arm64
-    # This app requires macOS 27; xcode-27 is the hosted Apple silicon image.
+  verify:
+    name: Verify native macOS source
     runs-on: xcode-27
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/prepare-macos
         with:
-          node-version: '24.18.0'
-          cache: npm
-
-      - name: Check Apple silicon and macOS version
-        run: |
-          test "$(uname -m)" = arm64
-          test "$(sw_vers -productVersion | cut -d. -f1)" -ge 27
-          node -e 'if (process.platform !== "darwin" || process.arch !== "arm64") process.exit(1)'
-          xcodebuild -version
-
-      - run: npm ci
-      - name: Prepare Electron binary
-        # Electron downloads lazily; finish before Playwright resolves its executable.
-        run: node -e 'console.log(require("electron"))'
-      - name: Verify types, build, native helpers, unit tests and desktop workflows
-        timeout-minutes: 10
-        run: npm run verify
-
-      - name: Package arm64 DMG and ZIP
-        env:
-          # electron-builder skips even ad-hoc signing for pull requests by default.
-          # Force the certificate-free identity below; no release secrets are used.
-          CSC_FOR_PULL_REQUEST: 'true'
-        run: npm run package -- --publish never -c.mac.identity=-
-
-      - name: Verify packaged app signature and disk image
-        run: |
-          codesign --verify --deep --strict --verbose=2 "release/mac-arm64/Polka.app"
-          for image in release/*.dmg; do
-            hdiutil verify "$image"
-          done
-
-      - name: Test packaged app
-        timeout-minutes: 5
-        run: npm run test:packaged
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: Polka-macos-arm64
-          path: |
-            release/*.dmg
-            release/*.zip
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload desktop screenshots
+          build-cache: source-native
+          tools-configuration: debug
+      - name: Verify Swift services, UI models, coverage and regression fixtures
+        run: ./polka verify --no-desktop --no-tools
+      - name: Upload native coverage reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: macos-arm64-smoke-screenshots
-          path: /tmp/everything-*.png
+          name: macos-arm64-source-coverage
+          path: artifacts/coverage/
+          if-no-files-found: error
+          retention-days: 7
+
+  tooling:
+    name: Verify Swift tooling
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: tooling
+          tools-configuration: debug
+          tools-only: 'true'
+      - name: Verify automation, signing, release gates and cancellation
+        run: swift test --package-path tools --jobs "$POLKA_SWIFT_BUILD_JOBS"
+
+  package:
+    name: Package and test native macOS arm64
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: optimized-native
+          tools-configuration: debug
+      - name: Build optimized app, package ZIP and DMG and smoke-test the relocated app
+        run: ./polka package --desktop
+      - name: Verify authenticated native update, held installation and relaunch
+        run: ./polka desktop updates --prebuilt --release
+      - name: Report desktop coverage
+        run: |
+          echo 'Hosted CI verifies native window, keyboard, scroll, startup, shutdown and relocated-bundle workflows.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'CGEvent sessionTap file drags require pre-existing Accessibility approval and are not covered by this hosted job.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload native packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: Polka-macos-arm64
+          path: |
+            release/native-dev/*.zip
+            release/native-dev/*.dmg
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Upload native desktop diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-arm64-smoke-diagnostics
+          path: artifacts/desktop/
           if-no-files-found: ignore
           retention-days: 7
+          compression-level: 0
+
+  macos-arm64:
+    # Preserve the existing branch-protection check name.
+    name: Verify and package macOS arm64
+    needs: [verify, tooling, package]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Report five-minute target and enforce ten-minute execution limit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" > "$RUNNER_TEMP/ci-jobs.json"
+          bash scripts/check-ci-budget.sh "$RUNNER_TEMP/ci-jobs.json" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Require all hosted macOS checks to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'all(.[]; .result == "success")' <<< "$RESULTS"
