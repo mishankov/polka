@@ -251,6 +251,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
           mediaPreviewWindow = nativeMediaGlassPreviewWindow()
         }
         if CommandLine.arguments.contains("--native-smoke") { await smoke() }
+        if CommandLine.arguments.contains("--native-preview-smoke") {
+          await smoke(previewsOnly: true)
+        }
         if CommandLine.arguments.contains("--native-settings-smoke") {
           await smoke(settingsOnly: true)
         }
@@ -885,7 +888,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
     nativeSmokePostQuit(shelf)
   }
-  private func smoke(settingsOnly: Bool = false) async {
+  private func smoke(settingsOnly: Bool = false, previewsOnly: Bool = false) async {
     guard fixture, let path = ProcessInfo.processInfo.environment["POLKA_NATIVE_SMOKE_RESULT"]
     else { return }
     for _ in 0..<100 where model.storageStatus == "starting" {
@@ -930,14 +933,15 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       }
     }
     await show("clipboard")
-    if !settingsOnly {
+    if !settingsOnly && !previewsOnly {
       if let media {
         failures += await nativeMediaSmokeOverlay(application: self, shelf: shelf, monitor: media)
       }
       failures += nativeMediaSmokeScreenshots(shelf: shelf)
     }
     failures += await nativeSmokeAdditionalFlows(
-      application: self, shelf: shelf, model: model, platform: platform, settingsOnly: settingsOnly)
+      application: self, shelf: shelf, model: model, platform: platform, settingsOnly: settingsOnly,
+      previewsOnly: previewsOnly)
     _ = media?.showFixture(.init(camera: "inactive", microphone: "inactive"))
     let result: [String: Any] = [
       "ok": failures.isEmpty, "failures": failures, "nativeVisible": shelf.isVisible,
