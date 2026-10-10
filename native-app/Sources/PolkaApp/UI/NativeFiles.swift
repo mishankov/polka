@@ -58,7 +58,7 @@ struct NativeFileShelfView: View {
           disabled: model.busy || model.selectedFiles.isEmpty
         ) { model.removeSelectedFiles() }.accessibilityIdentifier("files-remove")
       }.font(.system(size: 11)).foregroundStyle(.secondary)
-      NativeKeyboardHint(text: "⌘ / ⇧ выбрать несколько · ⌘A все · esc закрыть")
+      NativeKeyboardHint(text: "⌘ / ⇧ выбрать несколько · ⌘A все")
       Text("Очистка и удаление с полки убирают только ссылки. Файлы не синхронизируются.").font(
         .system(size: 10)
       ).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.bottom, 10)

@@ -130,7 +130,6 @@ struct NativeLauncherView: View {
           model.busy
             ? "Выполняем…" : model.catalogLoading ? "Ищем…" : "Результаты · \(results.count)")
         Spacer()
-        Text("↑ ↓ выбрать   ↵ открыть   esc закрыть")
       }.font(.system(size: 11)).foregroundStyle(.secondary).padding(12)
     }
   }
@@ -246,7 +245,6 @@ struct NativeClipboardView: View {
             prominent: true
           ) { model.saveSnippet() }.accessibilityIdentifier("snippet-save")
         }
-        NativeKeyboardHint(text: "⌘↵ сохранить   esc отменить")
       } else if model.confirmClear {
         NativeToolbar {
           Spacer(minLength: 0)
@@ -258,7 +256,6 @@ struct NativeClipboardView: View {
             disabled: model.busy || !model.writable, destructive: true
           ) { model.clearHistory() }
         }
-        NativeKeyboardHint(text: "⌫ / esc вернуться к списку")
       } else {
         NativeToolbar {
           if model.previewID == nil {
@@ -278,10 +275,6 @@ struct NativeClipboardView: View {
             }
           }
         }
-        NativeKeyboardHint(
-          text: model.previewID != nil
-            ? "⌫ / esc вернуться к списку"
-            : "↑ ↓ выбрать   ↵ \(model.canPaste ? "вставить" : "копировать")   esc закрыть")
       }
     }.accessibilityElement(children: .contain).accessibilityIdentifier(
       isSnippets ? "native-snippets" : "native-clipboard")
