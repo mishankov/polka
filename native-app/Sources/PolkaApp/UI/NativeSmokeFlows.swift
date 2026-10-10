@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import PolkaCore
 import SwiftUI
@@ -734,6 +735,9 @@ import SwiftUI
     if model.settingsPane != "builtin-apps" {
       failures.append("ArrowDown could not reach Built-in apps Settings")
     }
+    let settingsFrame = settings.frame
+    settings.setContentSize(NSSize(width: 660, height: 480))
+    await settle()
     var focused: NativeBuiltinAppSwitch?
     for _ in 0..<20 {
       post(48, window: settings)
@@ -744,6 +748,87 @@ import SwiftUI
       }
     }
     if focused == nil { failures.append("Tab did not reach a built-in app switch") }
+    if let scroll = await nativeSmokeWaitForView(in: settings, ofType: NSScrollView.self),
+      let document = scroll.documentView
+    {
+      document.scroll(NSPoint(x: 0, y: 24))
+      await settle()
+      if scroll.contentView.bounds.origin.y == 0 {
+        failures.append("Settings stability fixture did not establish a nonzero scroll position")
+      }
+    } else {
+      failures.append("Settings stability fixture is missing its scroll view")
+    }
+    // Track intermediate busy publications as well as final geometry: a brief
+    // disable/re-enable flash can leave an identical final screenshot.
+    var settingsBusyTransitions = 0
+    let busyObservation = model.$busy.dropFirst().sink {
+      if $0 { settingsBusyTransitions += 1 }
+    }
+    defer { busyObservation.cancel() }
+    func settingsStability(excluding button: NativeBuiltinAppSwitch) -> () -> Void {
+      let content = settings.contentView
+      let row = sidebar.selectedRow
+      let cells = nativeSettingsPanes.indices.compactMap { index in
+        sidebar.view(atColumn: 0, row: index, makeIfNecessary: false).map { (index, $0) }
+      }
+      func descendants(_ view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap(descendants)
+      }
+      let views = content.map(descendants) ?? []
+      let switches = views.compactMap { $0 as? NativeBuiltinAppSwitch }.filter { $0 !== button }
+      let states = switches.map(\.state)
+      let scrolls = views.compactMap { $0 as? NSScrollView }
+      let origins = scrolls.map { $0.contentView.bounds.origin }
+      let busyBefore = settingsBusyTransitions
+      let pairingCode = model.pairingCode
+      return {
+        if settingsBusyTransitions != busyBefore {
+          failures.append("Settings toggle flashed window-wide busy feedback")
+        }
+        if settings.contentView !== content || sidebar.selectedRow != row
+          || model.settingsPane != "builtin-apps"
+        {
+          failures.append("Settings toggle reconstructed content or changed the selected pane")
+        }
+        for (index, cell) in cells {
+          if sidebar.view(atColumn: 0, row: index, makeIfNecessary: false) !== cell {
+            failures.append("Settings toggle reconstructed unrelated sidebar cells")
+          }
+        }
+        for (index, control) in switches.enumerated() {
+          if control.window !== settings || !control.isEnabled || control.state != states[index] {
+            failures.append("Settings toggle changed an unrelated switch")
+          }
+        }
+        for (index, scroll) in scrolls.enumerated() {
+          if scroll.window !== settings || scroll.contentView.bounds.origin != origins[index] {
+            failures.append("Settings toggle lost its scroll position")
+          }
+        }
+        if model.pairingCode != pairingCode {
+          failures.append("Settings toggle lost unsaved pairing text")
+        }
+      }
+    }
+    model.pairingCode = "Unsaved synthetic pairing draft"
+    if let button = focused {
+      let action = model.action
+      let verifyStability = settingsStability(excluding: button)
+      model.action = { _ in throw PolkaCoreError.invalid("Synthetic settings write failure") }
+      post(49, [], " ", window: settings)
+      if !(await wait({ !model.commandPending && !model.error.isEmpty })) {
+        failures.append("Failed settings write did not show its error")
+      }
+      await settle()
+      if button.state != .on || settings.firstResponder !== button {
+        failures.append("Failed settings write did not restore the switch value and focus")
+      }
+      verifyStability()
+      model.action = action
+      model.error = ""
+      await settle()
+    }
     var visited = Set<String>()
     for _ in 0..<4 {
       guard let button = settings.firstResponder as? NativeBuiltinAppSwitch else {
@@ -754,9 +839,19 @@ import SwiftUI
       let identifier = button.accessibilityIdentifier()
       let id = String(identifier.dropFirst("builtin-app-toggle-".count))
       visited.insert(id)
+      let verifyStability = settingsStability(excluding: button)
       post(49, [], " ", window: settings)
-      if !(await wait({ !model.settings.builtinApps.isEnabled(id) && !model.busy })) {
+      if !(await wait({ !model.settings.builtinApps.isEnabled(id) && !model.commandPending })) {
         failures.append("Space did not disable \(id)")
+      }
+      // Exercise consecutive Space presses through the same focused action.
+      for enabled in [true, false] {
+        post(49, [], " ", window: settings)
+        if !(await wait({
+          model.settings.builtinApps.isEnabled(id) == enabled && !model.commandPending
+        })) {
+          failures.append("Consecutive Space did not toggle \(id)")
+        }
       }
       // A held Space must not repeatedly flip a focused toggle.
       if let repeatEvent = NSEvent.keyEvent(
@@ -775,6 +870,7 @@ import SwiftUI
           "Switch lost focus after toggling \(id): enabled=\(button.isEnabled), attached=\(button.window === settings); \(keyboardState(settings))"
         )
       }
+      verifyStability()
       post(48, window: settings)
       await settle()
     }
@@ -823,15 +919,24 @@ import SwiftUI
         })
       {
         trace("post pointer events for \(app.id)")
-        click(button)
-        if !(await wait({ model.settings.builtinApps.isEnabled(app.id) && !model.busy })) {
-          failures.append("Switch click did not re-enable \(app.id)")
+        let verifyStability = settingsStability(excluding: button)
+        for enabled in [true, false, true] {
+          click(button)
+          if !(await wait({
+            model.settings.builtinApps.isEnabled(app.id) == enabled && !model.commandPending
+          })) {
+            failures.append("Consecutive pointer clicks did not toggle \(app.id)")
+          }
         }
+        await settle()
+        verifyStability()
         trace("pointer input completed for \(app.id)")
       } else {
         failures.append("Missing built-in app switch: \(app.id)")
       }
     }
+    busyObservation.cancel()
+    settings.setFrame(settingsFrame, display: true)
     trace("render enabled built-in apps")
     await screenshot("settings-builtin-apps", window: settings, includeTitlebar: true)
     trace("restore snippets draft")
