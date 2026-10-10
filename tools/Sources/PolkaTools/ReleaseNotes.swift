@@ -23,6 +23,24 @@ public enum ReleaseVersion {
     }
     return version
   }
+  /// Sparkle ignores everything after a dash. Numeric build versions keep
+  /// successive nightlies above the current stable and below the next patch.
+  public static func buildVersion(_ version: String) throws -> String {
+    let parsed = try parse(version)
+    guard parsed.contains("-nightly.") else { return parsed }
+    let components = parsed.components(separatedBy: "-nightly.")
+    guard components.count == 2,
+      components[1].range(
+        of: #"^[0-9]{14}\.[1-9][0-9]*\.[1-9][0-9]*\z"#, options: .regularExpression) != nil
+    else {
+      throw ReleaseError.invalid("Invalid nightly version.")
+    }
+    let base = components[0].split(separator: ".")
+    guard base.count == 3, let patch = Int(base[2]), patch > 0 else {
+      throw ReleaseError.invalid("Nightly versions must target a positive next patch.")
+    }
+    return "\(base[0]).\(base[1]).\(patch - 1).\(components[1])"
+  }
   public static func repository(_ value: String) throws -> String {
     guard
       value.range(of: #"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\z"#, options: .regularExpression) != nil

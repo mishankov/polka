@@ -98,7 +98,7 @@ public enum PackageTool {
       // and verified while the relocated ZIP runs its desktop checks.
       try Command.parallel([createImage, verifyArchive], limit: 2)
       if options.official {
-        metadata.releaseNotes = try ReleaseNotes.read(version: metadata.version, root: context.root)
+        metadata.releaseNotes = try ReleaseTool.notes(metadata: metadata, context: context)
           .bilingual
         guard let privateKey = context.environment["SPARKLE_PRIVATE_KEY"],
           let release = built.metadata.release

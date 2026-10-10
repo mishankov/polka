@@ -1,9 +1,59 @@
+import AppKit
 import Combine
 import XCTest
 
 @testable import PolkaApp
 
 final class NativeSettingsUpdateTests: XCTestCase {
+  @MainActor func testChannelPickerUsesGuardedActionAndPreservesDrafts() async {
+    let model = NativeUIModel()
+    model.settings.canChangeUpdateChannel = true
+    model.draft = NativeSnippetDraft(name: "unsaved", content: "keep me")
+    model.pairingCode = "unsaved pairing code"
+    var commands: [NativeUICommand] = []
+    model.action = { command in
+      commands.append(command)
+      model.settings.updateChannel =
+        NativeUpdateChannel(rawValue: command.strings["value"] ?? "") ?? .stable
+    }
+    let picker = NativeUpdateChannelPopUp(frame: .zero, pullsDown: false)
+    picker.addItems(withTitles: ["Stable", "Nightly"])
+    picker.changeValue = { model.setUpdateChannel($0) }
+    picker.selectItem(at: 1)
+    picker.change()
+    for _ in 0..<100 where model.commandPending { await Task.yield() }
+    XCTAssertEqual(commands.first?.name, "updates.channel")
+    XCTAssertEqual(model.settings.updateChannel, .nightly)
+    XCTAssertEqual(model.draft?.content, "keep me")
+    XCTAssertEqual(model.pairingCode, "unsaved pairing code")
+    picker.isEnabled = false
+    picker.change()
+    model.settings.canChangeUpdateChannel = false
+    model.setUpdateChannel(.stable)
+    XCTAssertEqual(commands.count, 1)
+  }
+  @MainActor func testUpdateCheckShortcutRespectsDisabledStatesAndComposition() async {
+    let model = NativeUIModel()
+    model.settingsPane = "about"
+    var commands: [String] = []
+    model.action = { commands.append($0.name) }
+    let key = NativeKeyInput(code: 15, characters: "к", modifiers: .command, isSettings: true)
+    for status in ["unavailable", "checking", "downloading", "ready", "installing"] {
+      model.settings.updateStatus = status
+      XCTAssertTrue(model.handleKeyboard(key))
+      XCTAssertFalse(model.commandPending)
+    }
+    model.settings.updateStatus = "idle"
+    var composing = key
+    composing.composing = true
+    XCTAssertFalse(model.handleKeyboard(composing))
+    var repeated = key
+    repeated.repeatKey = true
+    XCTAssertTrue(model.handleKeyboard(repeated))
+    XCTAssertTrue(model.handleKeyboard(key))
+    for _ in 0..<100 where model.commandPending { await Task.yield() }
+    XCTAssertEqual(commands, ["updates.check"])
+  }
   @MainActor func testImmediateSettingsWritesDoNotPublishBusyOrEmptyErrors() async {
     let model = NativeUIModel()
     var busyChanges: [Bool] = []

@@ -74,6 +74,9 @@ public struct BundleMetadata: Codable, Equatable {
     public var repository: String
     public var updater: String = "sparkle"
     public var feedUrl: String
+    public var nightlyFeedUrl: String {
+      "https://github.com/\(repository)/releases/download/nightly/appcast.xml"
+    }
     public var publicKey: String
     public init(repository: String, feedUrl: String, publicKey: String) {
       self.repository = repository

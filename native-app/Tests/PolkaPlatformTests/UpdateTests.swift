@@ -20,6 +20,99 @@ import XCTest
       XCTFail("Expected operation rejection", file: file, line: line)
     } catch {}
   }
+  func testChannelDefaultsPersistenceAndNotificationPreferences() async throws {
+    let feed = "https://github.com/owner/app/releases/download/nightly/appcast.xml"
+    var saved: [String: Any] = [:]
+    let service = NativeUpdates(enabled: true, nightlyFeed: feed, savePreferences: { saved = $0 })
+    XCTAssertEqual(service.channel, .stable)
+    XCTAssertTrue(service.canChangeChannel)
+    await rejects { try await service.setChannel("beta") }
+    try await service.setChannel("nightly")
+    XCTAssertEqual(service.channel, .nightly)
+    XCTAssertEqual(saved["channel"] as? String, "nightly")
+    let restarted = NativeUpdates(enabled: true, preferences: saved, nightlyFeed: feed)
+    XCTAssertEqual(restarted.channel, .nightly)
+    let updater = SPUUpdater(
+      hostBundle: .main, applicationBundle: .main, userDriver: restarted, delegate: restarted)
+    XCTAssertEqual(restarted.feedURLString(for: updater), feed)
+    ready(service)
+    try await service.skip()
+    XCTAssertEqual(saved["channel"] as? String, "nightly")
+    try await service.remind()
+    XCTAssertEqual(saved["channel"] as? String, "nightly")
+    try await service.setChannel("stable")
+    XCTAssertEqual(service.status, "idle")
+    XCTAssertTrue(service.version.isEmpty)
+    XCTAssertNil(saved["skippedVersion"])
+    XCTAssertNil(saved["reminder"])
+    XCTAssertEqual(service.channel, .stable)
+    XCTAssertNil(service.feedURLString(for: updater))
+    XCTAssertEqual(NativeUpdates(preferences: ["channel": "invalid"]).channel, .stable)
+  }
+  func testChannelSwitchCancelsStagedUpdateOnlyAfterPersistence() async throws {
+    var fail = true
+    var replies: [SPUUserUpdateChoice] = []
+    let service = NativeUpdates(
+      enabled: true, nightlyFeed: "https://example.com/nightly.xml",
+      savePreferences: { _ in if fail { throw CocoaError(.fileWriteOutOfSpace) } })
+    ready(service) { replies.append($0) }
+    await rejects { try await service.setChannel("nightly") }
+    XCTAssertEqual(service.channel, .stable)
+    XCTAssertEqual(service.status, "ready")
+    XCTAssertTrue(replies.isEmpty)
+    fail = false
+    try await service.setChannel("nightly")
+    XCTAssertEqual(replies, [.skip])
+    XCTAssertFalse(service.installationAuthorized)
+    await rejects { try await service.install() }
+  }
+  func testChannelSwitchRejectsActiveOperationsAndUnavailableStorage() async throws {
+    let feed = "https://example.com/nightly.xml"
+    let service = NativeUpdates(
+      enabled: true, nightlyFeed: feed, savePreferences: { _ in }, checkAction: {})
+    try service.check()
+    XCTAssertFalse(service.canChangeChannel)
+    await rejects { try await service.setChannel("nightly") }
+    service.receiveAvailable(version: "0.2.0")
+    await rejects { try await service.setChannel("nightly") }
+    ready(service)
+    try await service.install()
+    await rejects { try await service.setChannel("nightly") }
+    await rejects { try await NativeUpdates(nightlyFeed: feed).setChannel("nightly") }
+    await rejects {
+      try await NativeUpdates(enabled: true, nightlyFeed: feed).setChannel("nightly")
+    }
+    XCTAssertFalse(NativeUpdates(enabled: true).canChangeChannel)
+  }
+  func testBackgroundChecksExposeBusyStateAndFinishWithoutUserDriverDialogs() throws {
+    let service = NativeUpdates(
+      enabled: true, nightlyFeed: "https://example.com/nightly.xml", savePreferences: { _ in })
+    let updater = SPUUpdater(
+      hostBundle: .main, applicationBundle: .main, userDriver: service, delegate: service)
+    try service.updater(updater, mayPerform: .updatesInBackground)
+    XCTAssertEqual(service.status, "checking")
+    XCTAssertFalse(service.canChangeChannel)
+    service.updater(
+      updater, didFinishUpdateCycleFor: .updatesInBackground,
+      error: NSError(domain: SUSparkleErrorDomain, code: Int(SUError.noUpdateError.rawValue)))
+    XCTAssertEqual(service.status, "current")
+    XCTAssertTrue(service.canChangeChannel)
+    try service.updater(updater, mayPerform: .updatesInBackground)
+    service.updater(
+      updater, didFinishUpdateCycleFor: .updatesInBackground, error: CocoaError(.fileReadUnknown))
+    XCTAssertEqual(service.status, "error")
+    try service.updater(updater, mayPerform: .updatesInBackground)
+    service.updater(updater, didFinishUpdateCycleFor: .updatesInBackground, error: nil)
+    XCTAssertEqual(service.status, "current")
+  }
+  func testNightlyVersionOrderingUsesSparklesInstallerComparator() {
+    let comparator = SUStandardVersionComparator.default
+    let first = "0.1.15.20261010021700.123.1"
+    let second = "0.1.15.20261011021700.124.1"
+    XCTAssertEqual(comparator.compareVersion("0.1.15", toVersion: first), .orderedAscending)
+    XCTAssertEqual(comparator.compareVersion(first, toVersion: second), .orderedAscending)
+    XCTAssertEqual(comparator.compareVersion(second, toVersion: "0.1.16"), .orderedAscending)
+  }
   func testDownloadProgressAndExplicitInstallFlush() async throws {
     let service = NativeUpdates(enabled: true, checkAction: {})
     var states: [String] = []

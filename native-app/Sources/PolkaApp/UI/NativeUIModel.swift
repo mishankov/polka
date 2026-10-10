@@ -17,6 +17,7 @@ struct NativeUICommand {
     [
       "builtinApps.setEnabled", "clipboardHistory.preferences", "mediaIndicator.setTracking",
       "system.login", "clipboardHistory.syncEnabled", "settings.set", "settings.language",
+      "updates.channel",
     ].contains(name)
   }
   init(
@@ -110,6 +111,8 @@ struct NativeUISettings: Equatable {
   var nearby: [String] = []
   var invitation = ""
   var invitationExpiresAt: Double = 0
+  var updateChannel = NativeUpdateChannel.stable
+  var canChangeUpdateChannel = false
   var updateStatus = "idle"
   var currentVersion = ""
   var updateVersion = ""
@@ -550,12 +553,24 @@ struct NativeBrowseContext {
       NativeUICommand(copyOnly ? "shelf.copyEmoji" : "shelf.selectEmoji", strings: ["id": emoji.id])
     )
   }
+  func checkForUpdates() {
+    guard !busy, !commandPending,
+      ["idle", "current", "error"].contains(settings.updateStatus)
+    else { return }
+    perform(NativeUICommand("updates.check"))
+  }
   func installUpdate() {
     guard !busy, settings.updateStatus == "ready" else { return }
     perform(NativeUICommand("updates.install", strings: ["version": settings.updateVersion]))
   }
   func preference(_ key: String, _ value: Bool) {
     perform(NativeUICommand("clipboardHistory.preferences", bools: [key: value]))
+  }
+  func setUpdateChannel(_ channel: NativeUpdateChannel) {
+    guard !busy, !commandPending, settings.canChangeUpdateChannel,
+      nativeCommandInteractionAllowed
+    else { return }
+    perform(NativeUICommand("updates.channel", strings: ["value": channel.rawValue]))
   }
   func setLanguage(_ preference: AppLanguagePreference) {
     guard !busy, !commandPending, nativeCommandInteractionAllowed else { return }

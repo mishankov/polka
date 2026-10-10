@@ -62,7 +62,7 @@ public enum ReleaseMetadata {
           <item>
             <title>\(escape(metadata.build.productName)) \(escape(metadata.version))</title>
             <pubDate>\(formatter.string(from: date))</pubDate>
-            <sparkle:version>\(escape(metadata.version))</sparkle:version>
+            <sparkle:version>\(escape(try ReleaseVersion.buildVersion(metadata.version)))</sparkle:version>
             <sparkle:shortVersionString>\(escape(metadata.version))</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>\(escape(metadata.build.mac.minimumSystemVersion))</sparkle:minimumSystemVersion>
       \(notes.map { "      <description>\(escape($0))</description>\n" } ?? "")      <enclosure url="\(escape(url))" length="\(size)" type="application/octet-stream" sparkle:edSignature="\(signature)"/>
@@ -92,7 +92,7 @@ public enum ReleaseMetadata {
         throw ReleaseError.invalid("Appcast release notes do not match this release.")
       }
     }
-    guard parsed.fields["sparkle:version"] == metadata.version,
+    guard parsed.fields["sparkle:version"] == (try ReleaseVersion.buildVersion(metadata.version)),
       parsed.fields["sparkle:shortVersionString"] == metadata.version,
       parsed.fields["sparkle:minimumSystemVersion"] == metadata.build.mac.minimumSystemVersion
     else {
@@ -216,6 +216,14 @@ public enum ReleaseTool {
     let tag = environment["RELEASE_TAG"].flatMap { $0.isEmpty ? nil : $0 } ?? "v\(metadata.version)"
     var result = metadata
     result.version = try ReleaseVersion.parse(tag)
+    _ = try ReleaseVersion.buildVersion(result.version)
+    let channel = environment["RELEASE_CHANNEL"] ?? "stable"
+    guard ["stable", "nightly"].contains(channel),
+      (channel == "nightly") == result.version.contains("-nightly.")
+    else {
+      throw ReleaseError.invalid(
+        "Nightly tags require RELEASE_CHANNEL=nightly; stable releases cannot use nightly tags.")
+    }
     return (result, tag)
   }
   public static func configuration(
@@ -263,9 +271,8 @@ extension ReleaseTool {
     var selected = try resolved(original, environment: context.environment)
     let configuration = try self.configuration(
       metadata: selected.metadata, environment: context.environment)
-    selected.metadata.releaseNotes = try ReleaseNotes.read(
-      version: selected.metadata.version, root: context.root
-    ).bilingual
+    selected.metadata.releaseNotes = try notes(metadata: selected.metadata, context: context)
+      .bilingual
     let bundle = context.root.appendingPathComponent(
       "release/native/\(selected.metadata.build.productName).app")
     _ = try SigningTool.verify(
@@ -289,10 +296,13 @@ extension ReleaseTool {
     var selected = try resolved(original, environment: context.environment)
     let configuration = try self.configuration(
       metadata: selected.metadata, environment: context.environment)
-    let notes = try ReleaseNotes.read(version: selected.metadata.version, root: context.root)
+    let notes = try self.notes(metadata: selected.metadata, context: context)
     selected.metadata.releaseNotes = notes.bilingual
     guard !(context.environment["SPARKLE_PRIVATE_KEY"] ?? "").isEmpty else {
       throw ToolError("SPARKLE_PRIVATE_KEY is required to sign update archives.")
+    }
+    if options.publish && context.environment["RELEASE_CHANNEL"] == "nightly" {
+      throw ToolError("Publish nightly builds through nightly.yml so they are always prereleases.")
     }
     if options.publish && (context.environment["GH_TOKEN"] ?? "").isEmpty {
       throw ToolError("GH_TOKEN is required for draft release upload.")

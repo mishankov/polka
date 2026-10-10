@@ -2,15 +2,21 @@ import AppKit
 import PolkaCore
 import Sparkle
 
+enum NativeUpdateChannel: String, CaseIterable {
+  case stable, nightly
+}
+
 /// Sparkle downloads and verifies updates; the shelf grants the final installation reply.
 /// Events and preference persistence are injectable so no update feed or installer is
 /// touched by the state-machine tests.
-@MainActor final class NativeUpdates: NSObject, SPUUserDriver {
+@MainActor final class NativeUpdates: NSObject, SPUUserDriver, SPUUpdaterDelegate {
   private var updater: SPUUpdater?
   private var readyReply: ((SPUUserUpdateChoice) -> Void)?
   private var cancellation: (() -> Void)?
   private let settings: SettingsStore?
   private var enabled: Bool
+  private(set) var channel: NativeUpdateChannel = .stable
+  private let nightlyFeed: String?
   private var skippedVersion: String?
   private var reminder: (version: String, after: Double)?
   private var reminderTimer: Timer?
@@ -43,11 +49,14 @@ import Sparkle
 
   init(
     settings: SettingsStore? = nil, currentVersion: String? = nil, enabled: Bool = false,
-    preferences: Any? = nil,
+    preferences: Any? = nil, nightlyFeed: String? = nil,
     now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
     savePreferences: (([String: Any]) async throws -> Void)? = nil,
     checkAction: (() throws -> Void)? = nil
   ) {
+    self.nightlyFeed =
+      nightlyFeed
+      ?? Bundle.main.object(forInfoDictionaryKey: "PolkaNightlyFeedURL") as? String
     self.settings = settings
     self.enabled = enabled
     self.now = now
@@ -60,6 +69,7 @@ import Sparkle
     messageKey = enabled ? "" : Self.unavailable
     super.init()
     let saved = (preferences ?? (try? settings?.get(key: "updatePreferences"))) as? [String: Any]
+    channel = NativeUpdateChannel(rawValue: saved?["channel"] as? String ?? "") ?? .stable
     skippedVersion = saved?["skippedVersion"] as? String
     if let value = saved?["reminder"] as? [String: Any], let version = value["version"] as? String,
       let after = value["after"] as? Double, after.isFinite
@@ -82,10 +92,11 @@ import Sparkle
       Data(base64Encoded: key)?.count == 32
     else { return }
     let updater = SPUUpdater(
-      hostBundle: .main, applicationBundle: .main, userDriver: self, delegate: nil)
+      hostBundle: .main, applicationBundle: .main, userDriver: self, delegate: self)
     self.updater = updater
     do {
       try updater.start()
+      updater.clearFeedURLFromUserDefaults()
       updater.automaticallyChecksForUpdates = true
       updater.sendsSystemProfile = false
       enabled = true
@@ -98,6 +109,69 @@ import Sparkle
       status = "error"
       messageKey = "Could not start checking for updates."
       changed?()
+    }
+  }
+  var canChangeChannel: Bool {
+    enabled && nightlyFeed != nil && !busy && !preferenceSaving
+      && (updater?.sessionInProgress != true || status == "ready")
+      && ["idle", "current", "error", "ready"].contains(status)
+  }
+  func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
+    try requireIdleOperation()
+    if ["idle", "current", "error"].contains(status) {
+      status = "checking"
+      changed?()
+    }
+  }
+  func updater(
+    _ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?
+  ) {
+    if status == "checking" {
+      let failure = error as NSError?
+      if failure == nil
+        || (failure?.domain == SUSparkleErrorDomain
+          && failure?.code == Int(SUError.noUpdateError.rawValue))
+      {
+        receiveCurrent()
+      } else {
+        receiveError()
+      }
+    }
+    changed?()
+  }
+  func feedURLString(for updater: SPUUpdater) -> String? {
+    channel == .nightly ? nightlyFeed : nil
+  }
+  func setChannel(_ value: String) async throws {
+    guard let selected = NativeUpdateChannel(rawValue: value) else {
+      throw PolkaCoreError.invalid(localized("Invalid update channel"))
+    }
+    guard canChangeChannel else {
+      throw PolkaCoreError.invalid(localized("Wait for the current update operation to finish"))
+    }
+    guard selected != channel else { return }
+    preferenceSaving = true
+    defer {
+      preferenceSaving = false
+      changed?()
+    }
+    let preferences: [String: Any] = ["channel": selected.rawValue]
+    try await persist(preferences)
+    // Persist first; a failed write must leave the staged update and feed intact.
+    cancelForQuit()
+    channel = selected
+    skippedVersion = nil
+    reminder = nil
+    changed?()
+    updater?.resetUpdateCycleAfterShortDelay()
+  }
+  private func persist(_ preferences: [String: Any]) async throws {
+    if let savePreferences {
+      try await savePreferences(preferences)
+    } else if let settings {
+      try settings.set(key: "updatePreferences", value: preferences)
+    } else {
+      throw PolkaCoreError.storage(localized("Settings storage is closed"))
     }
   }
   private func requireEnabled() throws {
@@ -173,17 +247,18 @@ import Sparkle
       throw PolkaCoreError.invalid(localized("Wait for your selection to be saved"))
     }
     preferenceSaving = true
-    defer { preferenceSaving = false }
+    defer {
+      preferenceSaving = false
+      changed?()
+    }
     let after = now() + Self.reminderDelay
-    let preferences: [String: Any] =
+    var preferences: [String: Any] =
       skip
       ? ["skippedVersion": requestedVersion]
       : ["reminder": ["version": requestedVersion, "after": after]]
-    if let savePreferences {
-      try await savePreferences(preferences)
-    } else if let settings {
-      try settings.set(key: "updatePreferences", value: preferences)
-    }
+    preferences["channel"] = channel.rawValue
+    // The injectable state-machine fixture may omit storage for notification tests.
+    if savePreferences != nil || settings != nil { try await persist(preferences) }
     // Commit only after durable persistence. Each choice replaces the previous one,
     // so choosing Tomorrow after Skip makes the selected version visible tomorrow.
     skippedVersion = skip ? requestedVersion : nil

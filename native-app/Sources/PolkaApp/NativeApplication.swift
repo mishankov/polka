@@ -802,6 +802,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       "snippets": snapshot.snippets.map { ["id": $0.id, "content": $0.content] },
       "updates": [
         "status": platform.updates.status, "version": platform.updates.version,
+        "channel": platform.updates.channel.rawValue,
         "message": platform.updates.message,
       ],
       "commandAck": fixtureCommandID,
@@ -823,12 +824,15 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
           let command = try? JSONSerialization.jsonObject(with: data) as? [String: String],
           let id = command["id"], id != self.fixtureCommandID,
           let name = command["name"],
-          ["updates.check", "updates.install", "system.quit"].contains(name)
+          ["updates.check", "updates.install", "updates.channel", "system.quit"].contains(name)
         else { return }
         self.fixtureCommandID = id
         self.fixtureCommandBusy = true
         Task {
-          do { try await self.platform.handle(NativeUICommand(name)) } catch {
+          do {
+            try await self.platform.handle(
+              NativeUICommand(name, strings: command["value"].map { ["value": $0] } ?? [:]))
+          } catch {
             self.model.error = error.localizedDescription
           }
           self.fixtureCommandBusy = false

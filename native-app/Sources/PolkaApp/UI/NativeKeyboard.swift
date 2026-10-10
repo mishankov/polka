@@ -38,7 +38,7 @@ extension NativeUIModel {
     }
     if key.isSettings {
       if cmd, key.code == 15, settingsPane == "about" {
-        perform(NativeUICommand("updates.check"))
+        checkForUpdates()
         return true
       }
       if flags == [.command, .shift], key.code == 32, settings.updateStatus == "ready",
@@ -51,7 +51,7 @@ extension NativeUIModel {
       if cmd, key.code == 15, settingsPane == "general", settings.updateStatus == "error",
         settings.updateNotification == "visible"
       {
-        perform(NativeUICommand("updates.check"))
+        checkForUpdates()
         return true
       }
       if settingsPane == "clipboard", settings.syncEnabled {
@@ -93,7 +93,7 @@ extension NativeUIModel {
         return true
       }
       if cmd, key.code == 15, settings.updateStatus == "error" {
-        perform(NativeUICommand("updates.check"))
+        checkForUpdates()
         return true
       }
     }

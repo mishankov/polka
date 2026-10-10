@@ -479,3 +479,9 @@
 " (today in the source time zone)" = " (сегодня в исходном поясе)";
 "Version {0} Is Available" = "Доступна версия {0}";
 "Version {0} Is Ready to Install" = "Готова к установке {0}";
+"Update Channel" = "Канал обновлений";
+"Stable" = "Стабильный";
+"Nightly" = "Ночной";
+"Stable contains released versions. Nightly contains daily builds from master and may have bugs." = "Стабильный канал содержит выпущенные версии. Ночной — ежедневные сборки из master, в которых могут быть ошибки.";
+"You will receive the next stable version newer than this nightly. Switching channels does not downgrade the app." = "Вы получите следующую стабильную версию новее этой ночной сборки. Смена канала не устанавливает более старую версию приложения.";
+"Invalid update channel" = "Недопустимый канал обновлений";

@@ -152,6 +152,7 @@ public enum BuildTool {
     if let release = metadata.release {
       updates = """
         <key>SUFeedURL</key><string>\(xml(release.feedUrl))</string>
+        <key>PolkaNightlyFeedURL</key><string>\(xml(release.nightlyFeedUrl))</string>
         <key>SUPublicEDKey</key><string>\(xml(release.publicKey))</string>
         <key>SUEnableAutomaticChecks</key><true/>
         <key>SUAutomaticallyUpdate</key><false/>
@@ -179,7 +180,7 @@ public enum BuildTool {
       <key>CFBundleDevelopmentRegion</key><string>en</string>
       <key>CFBundleLocalizations</key><array><string>en</string><string>ru</string></array>
       <key>CFBundleShortVersionString</key><string>\(xml(pkg.version))</string>
-      <key>CFBundleVersion</key><string>\(xml(pkg.version))</string>
+      <key>CFBundleVersion</key><string>\(xml((try? ReleaseVersion.buildVersion(pkg.version)) ?? pkg.version))</string>
       <key>CFBundleIconFile</key><string>Icon.icns</string>
       <key>CFBundleIconName</key><string>Icon</string>
       <key>LSMinimumSystemVersion</key><string>\(xml(pkg.build.mac.minimumSystemVersion))</string>
@@ -420,7 +421,14 @@ public enum BuildTool {
           ? "<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>"
           : "")
       plist = plist.replacingOccurrences(of: "</dict></plist>", with: content + "</dict></plist>")
-      if let feed = fixture.feed, let original = metadata.release?.feedUrl {
+      if let feed = fixture.feed, let release = metadata.release {
+        plist = plist.replacingOccurrences(
+          of:
+            "<key>PolkaNightlyFeedURL</key><string>\(ToolFiles.xml(release.nightlyFeedUrl))</string>",
+          with:
+            "<key>PolkaNightlyFeedURL</key><string>\(ToolFiles.xml(feed.deletingLastPathComponent().appendingPathComponent("nightly.xml").absoluteString))</string>"
+        )
+        let original = release.feedUrl
         plist = plist.replacingOccurrences(
           of: "<key>SUFeedURL</key><string>\(ToolFiles.xml(original))</string>",
           with: "<key>SUFeedURL</key><string>\(ToolFiles.xml(feed.absoluteString))</string>")
