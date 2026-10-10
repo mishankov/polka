@@ -137,3 +137,7 @@ GitHub Actions выполняет три независимых macOS-прове
 Перед выпуском добавьте `release-notes/VERSION.json` с полями `ru` и `en` в выпускаемый commit. [Правила примечаний](docs/release-notes.md). Проверка `./polka release-notes vVERSION /tmp/polka-release-notes.md` работает без ключей подписи. Для подготовки и публикации релиза есть проектный skill [$release-project](.agents/skills/release-project/SKILL.md).
 
 [Архитектура](docs/architecture.md) · [Хранение данных](docs/data.md) · [Ограничения](docs/validation.md) · [MIT](LICENSE)
+
+## Промосайт
+
+Отдельный промосайт находится в [`website/`](website/README.md). Запуск из `website/`: `npm ci` и `npm run dev`; статическая сборка: `npm run build`. Результат — `website/dist`. Инструменты сайта не нужны для сборки Swift-приложения.
