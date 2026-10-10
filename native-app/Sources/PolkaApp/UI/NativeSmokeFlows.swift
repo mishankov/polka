@@ -30,6 +30,11 @@ import SwiftUI
   application: NativeApplication, shelf: NSWindow, model: NativeUIModel, platform: NativePlatform
 ) async -> [String] {
   guard NativeProfile.isolatedFixture else { return ["native smoke requires an isolated profile"] }
+  // Ask this fixture process to materialize SwiftUI's virtual accessibility
+  // elements, as an accessibility client would. This changes no system setting.
+  NSApp.accessibilitySetValue(
+    NSNumber(value: true),
+    forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
   var failures: [String] = []
   if shelf.hasShadow {
     failures.append("system shelf keyline can cross the hardware notch")
@@ -89,6 +94,38 @@ import SwiftUI
       }
     }
   }
+  func accessible(_ identifier: String, in source: Any? = nil) -> NativeSmokeAccessibility? {
+    guard let source = source ?? shelf.contentView as Any? else { return nil }
+    let object = source as AnyObject
+    let element = NativeSmokeAccessibility(object: object)
+    if element.accessibilityIdentifier() == identifier { return element }
+    for child in element.children {
+      if let match = accessible(identifier, in: child) { return match }
+    }
+    // Ignored animation containers can expose no accessibility children.
+    if let view = object as? NSView {
+      for child in view.subviews {
+        if let match = accessible(identifier, in: child) { return match }
+      }
+    }
+    return nil
+  }
+  func clickAccessible(_ identifier: String) {
+    guard let button = accessible(identifier) else {
+      failures.append("missing accessible button \(identifier)")
+      return
+    }
+    let frame = shelf.convertFromScreen(button.accessibilityFrame())
+    for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+      if let event = NSEvent.mouseEvent(
+        with: type, location: NSPoint(x: frame.midX, y: frame.midY), modifierFlags: [],
+        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: shelf.windowNumber,
+        context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)
+      {
+        NSApp.postEvent(event, atStart: false)
+      }
+    }
+  }
   func settle() async { try? await Task.sleep(nanoseconds: 230_000_000) }
   func trace(_ message: String) {
     // stdout is buffered when the harness captures pipes. Keep the last step
@@ -110,6 +147,27 @@ import SwiftUI
     }
     let view = includeTitlebar ? (content.superview ?? content) : content
     view.layoutSubtreeIfNeeded()
+    view.needsDisplay = true
+    view.displayIfNeeded()
+    if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1",
+      name.hasPrefix("controls-") || name == "snippet-editor"
+        || name == "clipboard-clear-confirmation"
+    {
+      // Opt-in, window-only capture includes SwiftUI's compositor-backed glass.
+      // The default bitmap path stays usable on CI without screen permission.
+      let capture = Process()
+      capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+      capture.arguments = [
+        "-x", "-o", "-l", String((window ?? shelf).windowNumber),
+        screenshotDirectory.appendingPathComponent(name + ".png").path,
+      ]
+      do {
+        try capture.run()
+        capture.waitUntilExit()
+        if capture.terminationStatus == 0 { return }
+        failures.append("window capture failed for \(name)")
+      } catch { failures.append("cannot capture window for \(name)") }
+    }
     guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
       failures.append("cannot allocate screenshot \(name)")
       return
@@ -271,6 +329,114 @@ import SwiftUI
     }
   }
   let standardWidth = shelf.frame.width
+  trace("shared built-in controls")
+  var backFrame: NSRect?
+  var selectFrame: NSRect?
+  for destination in ["clipboard", "snippets", "emoji", "files"] {
+    await application.show(destination)
+    if ["clipboard", "snippets"].contains(destination) {
+      model.selectedID = model.clipResults.first(where: { $0.kind == "text" })?.id
+    }
+    await settle()
+    guard let back = accessible("builtin-back"), let close = accessible("builtin-close") else {
+      failures.append("\(destination) is missing accessible shared navigation")
+      continue
+    }
+    let frame = back.accessibilityFrame()
+    if let backFrame,
+      abs(frame.minX - backFrame.minX) > 1
+        || abs(frame.maxY - backFrame.maxY) > 1 || abs(frame.height - backFrame.height) > 1
+    {
+      failures.append("\(destination) shared Back placement or size differs")
+    }
+    backFrame = frame
+    if back.accessibilityRole() != .button || close.accessibilityRole() != .button
+      || frame.width < 28 || frame.height < 28
+      || back.accessibilityHelp()?.contains("⌫") != true
+      || close.accessibilityHelp()?.contains("⌘W") != true
+    {
+      failures.append("\(destination) navigation has no usable target or shortcut metadata")
+    }
+    if destination != "files" {
+      guard let select = accessible("builtin-select") else {
+        failures.append("\(destination) has no shared primary selection command")
+        continue
+      }
+      let frame = select.accessibilityFrame()
+      if let selectFrame,
+        abs(frame.maxX - selectFrame.maxX) > 1
+          || abs(frame.minY - selectFrame.minY) > 1 || abs(frame.height - selectFrame.height) > 1
+      {
+        failures.append("\(destination) primary action placement or size differs")
+      }
+      selectFrame = frame
+      if select.accessibilityHelp()?.contains("↵") != true {
+        failures.append("\(destination) primary action shortcut is inaccessible")
+      }
+      platform.capture.write(text: "Synthetic toolbar sentinel")
+      let expected =
+        destination == "emoji" ? model.selectedEmoji?.value : model.selectedClip?.content
+      clickAccessible("builtin-copy")
+      if !(await wait({ !model.busy && platform.capture.syntheticText == expected })) {
+        failures.append("\(destination) toolbar pointer copy did not use selected-item command")
+      }
+      if !model.visible { await application.show(nil) }
+      await settle()
+    }
+    await screenshot("controls-\(destination)")
+    model.busy = true
+    await settle()
+    if accessible("builtin-back")?.isAccessibilityEnabled() != false
+      || accessible("builtin-close")?.isAccessibilityEnabled() != false
+    {
+      failures.append("\(destination) busy navigation remains accessible as enabled")
+    }
+    clickAccessible("builtin-back")
+    _ = accessible("builtin-close")?.accessibilityPerformPress()
+    post(13, .command, "ц")
+    await settle()
+    if !model.visible || model.destination != destination {
+      failures.append(
+        "\(destination) busy pointer, accessibility or keyboard action escaped its guard")
+    }
+    model.busy = false
+    await settle()
+    clickAccessible("builtin-back")
+    if !(await wait({ model.destination == "apps" && !model.busy })) {
+      failures.append("\(destination) shared pointer Back did not return to apps")
+    }
+  }
+  await application.show("snippets")
+  await settle()
+  _ = accessible("snippet-create")?.accessibilityPerformPress()
+  if !(await wait({ model.draft != nil })) {
+    failures.append("accessible Create did not open a snippet editor")
+  }
+  model.draft?.content = "Synthetic accessible draft"
+  shelf.beginSheet(guardedSheet, completionHandler: nil)
+  _ = accessible("snippet-save")?.accessibilityPerformPress()
+  _ = accessible("builtin-close")?.accessibilityPerformPress()
+  await settle()
+  if model.draft?.content != "Synthetic accessible draft" || !model.visible || model.busy {
+    failures.append("shared accessibility commands acted behind a native sheet")
+  }
+  shelf.endSheet(guardedSheet)
+  guardedSheet.orderOut(nil)
+  shelf.makeKeyAndOrderFront(nil)
+  await settle()
+  _ = accessible("builtin-close")?.accessibilityPerformPress()
+  if !(await wait({ !model.visible && !model.busy })) {
+    failures.append("accessible Close did not dismiss snippet editor")
+  }
+  await application.show(nil)
+  await settle()
+  if model.draft?.content != "Synthetic accessible draft" {
+    failures.append("shared Close discarded an unsaved snippet draft")
+  }
+  post(53)
+  await settle()
+  await application.show("apps")
+  await settle()
   func searchField(in view: NSView) -> NSSearchField? {
     if let field = view as? NSSearchField { return field }
     for child in view.subviews { if let field = searchField(in: child) { return field } }
@@ -1104,4 +1270,19 @@ final class NativeSmokeBlockedEncryption: EncryptionCodec {
     failures.append("startup preflight wrote an encrypted history file")
   }
   return failures
+}
+
+/// SwiftUI's virtual accessibility nodes do not all inherit NSObject or declare
+/// NSAccessibilityProtocol conformance. Query their public Objective-C methods
+/// dynamically, as AppKit does, rather than dropping nodes at a Swift cast.
+private struct NativeSmokeAccessibility {
+  let object: AnyObject
+  var children: [Any] { object.accessibilityChildren?() ?? [] }
+  func accessibilityIdentifier() -> String? { object.accessibilityIdentifier?() }
+  func accessibilityLabel() -> String? { object.accessibilityLabel?() }
+  func accessibilityHelp() -> String? { object.accessibilityHelp?() }
+  func accessibilityRole() -> NSAccessibility.Role? { object.accessibilityRole?() }
+  func accessibilityFrame() -> NSRect { object.accessibilityFrame?() ?? .zero }
+  func isAccessibilityEnabled() -> Bool { object.isAccessibilityEnabled?() ?? false }
+  func accessibilityPerformPress() { _ = object.accessibilityPerformPress?() }
 }

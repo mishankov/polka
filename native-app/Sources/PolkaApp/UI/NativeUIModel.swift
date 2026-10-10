@@ -286,7 +286,7 @@ struct NativeBrowseContext {
       ? text.uppercased() : transformation == "lowerCase" ? text.lowercased() : text
   }
   func perform(_ command: NativeUICommand, completion: (() -> Void)? = nil) {
-    guard !pending else { return }
+    guard !busy, !pending, nativeCommandInteractionAllowed else { return }
     pending = true
     pendingCommand = command.name
     busy = true
@@ -406,7 +406,7 @@ struct NativeBrowseContext {
     perform(NativeUICommand("launcher.show", strings: ["destination": destination]))
   }
   func back() {
-    guard !busy else { return }
+    guard !busy, nativeCommandInteractionAllowed else { return }
     if draft != nil {
       draft = nil
       contexts[destination]?.draft = nil
@@ -420,8 +420,13 @@ struct NativeBrowseContext {
       navigate("apps")
     }
   }
+  func closeShelf() {
+    guard visible, !busy, nativeCommandInteractionAllowed else { return }
+    perform(NativeUICommand("launcher.hide"))
+  }
   func edit(_ clip: NativeUIClip) {
-    guard writable, !busy, settings.builtinApps.allows(destination: "snippets"), clip.kind == "text"
+    guard writable, !busy, nativeCommandInteractionAllowed,
+      settings.builtinApps.allows(destination: "snippets"), clip.kind == "text"
     else { return }
     if destination != "snippets" {
       perform(NativeUICommand("shelf.showSnippets", strings: ["sourceClipId": clip.id]))
@@ -432,13 +437,16 @@ struct NativeBrowseContext {
       expectedName: clip.name, expectedContent: clip.content)
   }
   func createSnippet() {
-    guard writable, !busy, settings.builtinApps.allows(destination: "snippets"), draft == nil else {
+    guard writable, !busy, nativeCommandInteractionAllowed,
+      settings.builtinApps.allows(destination: "snippets"), draft == nil
+    else {
       return
     }
     draft = NativeSnippetDraft()
   }
   func saveSnippet() {
-    guard writable, !busy, settings.builtinApps.allows(destination: "snippets"), let draft,
+    guard writable, !busy, nativeCommandInteractionAllowed,
+      settings.builtinApps.allows(destination: "snippets"), let draft,
       !draft.content.isEmpty
     else { return }
     let method = draft.id.isEmpty ? "clipboardHistory.createSnippet" : "clipboardHistory.edit"
@@ -455,7 +463,7 @@ struct NativeBrowseContext {
     }
   }
   func openPreview(_ clip: NativeUIClip) {
-    guard !busy else { return }
+    guard !busy, nativeCommandInteractionAllowed else { return }
     previewID = clip.id
     transformation = nil
     previewImage = nil

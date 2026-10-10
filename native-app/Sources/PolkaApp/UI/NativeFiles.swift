@@ -6,22 +6,14 @@ struct NativeFileShelfView: View {
   @ObservedObject var model: NativeUIModel
   var body: some View {
     VStack(spacing: 0) {
-      HStack {
-        NativeIconButton(
-          label: "Назад к приложениям", symbol: "arrow.left", shortcut: "⌫", disabled: model.busy
-        ) { model.back() }
-        Text("Файлы на полке").font(.system(size: 17, weight: .semibold))
-        Spacer()
+      NativeBuiltinHeader(model: model, title: "Файлы на полке") {
         NativeCommandButton(
           title: "Очистить полку", shortcut: "⌘⇧⌫", disabled: model.busy || model.files.isEmpty
-        ) { model.removeSelectedFiles(clear: true) }
-        NativeIconButton(
-          label: "Закрыть полку", symbol: "xmark", shortcut: "esc", disabled: model.busy
-        ) { model.perform(NativeUICommand("launcher.hide")) }
-      }.padding(12)
+        ) { model.removeSelectedFiles(clear: true) }.accessibilityIdentifier("files-clear")
+      }
       Text("Перетащите сюда файлы, затем заберите их в другую программу.").font(.system(size: 12))
         .foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(
-          .horizontal, 14
+          .horizontal, 12
         ).padding(.bottom, 10)
       Divider()
       NativeErrorNotice(text: model.error).padding(.horizontal, 10)
@@ -40,7 +32,7 @@ struct NativeFileShelfView: View {
             HStack(spacing: 0) {
               NativeDraggableFileRow(model: model, file: file).frame(height: 62)
               NativeIconButton(
-                label: "Убрать \(file.name) с полки", symbol: "xmark", shortcut: "⌘⌫",
+                label: "Убрать \(file.name) с полки", symbol: "trash", shortcut: "⌘⌫",
                 disabled: model.busy
               ) {
                 model.selectedFiles = [file.id]
@@ -56,17 +48,22 @@ struct NativeFileShelfView: View {
             offset: $model.listScrollOffset, token: "files-list-\(model.visible)"))
       }
       Divider()
-      HStack {
+      NativeToolbar {
         Text(
           model.selectedFiles.isEmpty
             ? "Файлов: \(model.files.count)" : "Выбрано: \(model.selectedFiles.count)")
         Spacer()
-        Text("⌘ / ⇧ выбрать несколько · ⌘A все")
-      }.font(.system(size: 11)).foregroundStyle(.secondary).padding(12)
+        NativeCommandButton(
+          title: "Убрать с полки", symbol: "trash", shortcut: "⌘⌫",
+          disabled: model.busy || model.selectedFiles.isEmpty
+        ) { model.removeSelectedFiles() }.accessibilityIdentifier("files-remove")
+      }.font(.system(size: 11)).foregroundStyle(.secondary)
+      NativeKeyboardHint(text: "⌘ / ⇧ выбрать несколько · ⌘A все · esc закрыть")
       Text("Очистка и удаление с полки убирают только ссылки. Файлы не синхронизируются.").font(
         .system(size: 10)
       ).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.bottom, 10)
     }
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("native-files")
   }
 }
