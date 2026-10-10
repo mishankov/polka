@@ -14,6 +14,7 @@ final class SmokeReportTests: XCTestCase {
     XCTAssertNoThrow(try Desktop.validateSmoke(report, phase: "notice"))
     XCTAssertNoThrow(try Desktop.validateSmoke(report, phase: "startup"))
     XCTAssertThrowsError(try Desktop.validateSmoke(report, phase: "core"))
+    XCTAssertThrowsError(try Desktop.validateSmoke(report, phase: "settings"))
     var openedStorage = report
     openedStorage["storageStatus"] = "ready"
     XCTAssertThrowsError(try Desktop.validateSmoke(openedStorage, phase: "notice"))
@@ -26,9 +27,11 @@ final class SmokeReportTests: XCTestCase {
       "ok": true, "failures": [], "nativeVisible": true, "destination": "clipboard", "snippets": 2,
     ]
     XCTAssertNoThrow(try Desktop.validateSmoke(core, phase: "core"))
+    XCTAssertNoThrow(try Desktop.validateSmoke(core, phase: "settings"))
     var missing = core
     missing["snippets"] = 0
     XCTAssertThrowsError(try Desktop.validateSmoke(missing, phase: "core"))
+    XCTAssertThrowsError(try Desktop.validateSmoke(missing, phase: "settings"))
     let scroll: [String: Any] = [
       "ok": true, "failures": [], "nativeVisible": true, "destination": "apps",
     ]

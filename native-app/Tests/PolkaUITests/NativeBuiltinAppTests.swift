@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import PolkaCore
 import XCTest
 
@@ -277,6 +278,33 @@ final class NativeBuiltinAppTests: XCTestCase {
       XCTAssertTrue(platform.builtinApps.allows(destination: "snippets"))
       XCTAssertEqual(platform.model.destination, "snippets")
       XCTAssertEqual(platform.model.draft?.content, "saved locally")
+    }
+  }
+  @MainActor func testSettingsActionsPersistAndReportWriteFailuresWithoutBusyFlashes() async throws
+  {
+    try await withPlatform { platform, root in
+      let model = platform.model
+      var busyChanges: [Bool] = []
+      let observation = model.$busy.dropFirst().sink { busyChanges.append($0) }
+      defer { observation.cancel() }
+      model.setBuiltinApp("builtin:emoji", enabled: false)
+      for _ in 0..<100 where model.commandPending { await Task.yield() }
+      XCTAssertFalse(model.commandPending)
+      XCTAssertFalse(model.settings.builtinApps.isEnabled("builtin:emoji"))
+      let persisted = try SettingsStore(root: root)
+      defer { persisted.close() }
+      let overrides = try persisted.get(key: BuiltinAppAvailability.settingsKey) as? [String: Bool]
+      XCTAssertEqual(overrides?["builtin:emoji"], false)
+
+      model.draft = NativeSnippetDraft(content: "keep this draft")
+      platform.settings.close()
+      model.setBuiltinApp("builtin:snippets", enabled: false)
+      for _ in 0..<100 where model.commandPending { await Task.yield() }
+      XCTAssertFalse(model.commandPending)
+      XCTAssertFalse(model.error.isEmpty)
+      XCTAssertTrue(model.settings.builtinApps.isEnabled("builtin:snippets"))
+      XCTAssertEqual(model.draft?.content, "keep this draft")
+      XCTAssertTrue(busyChanges.isEmpty)
     }
   }
   @MainActor func testBusyDropAndDialogPreventChangesAndPreserveDraft() async throws {

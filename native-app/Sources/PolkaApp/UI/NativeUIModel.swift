@@ -11,6 +11,14 @@ struct NativeUICommand {
   var bools: [String: Bool] = [:]
   var ints: [String: Int] = [:]
   var ids: [String] = []
+  /// These writes usually finish in one main-actor turn. Publishing a window-wide
+  /// busy state for that turn makes every unrelated Settings control flash.
+  var defersBusyFeedback: Bool {
+    [
+      "builtinApps.setEnabled", "clipboardHistory.preferences", "mediaIndicator.setTracking",
+      "system.login", "clipboardHistory.syncEnabled", "settings.set",
+    ].contains(name)
+  }
   init(
     _ name: String, strings: [String: String] = [:], bools: [String: Bool] = [:],
     ints: [String: Int] = [:], ids: [String] = []
@@ -210,6 +218,7 @@ struct NativeBrowseContext {
   private var suspendedContexts = Set<String>()
   private var contexts: [String: NativeBrowseContext] = [:]
   private var pending = false
+  var commandPending: Bool { pending }
   private(set) var pendingCommand: String?
   private var presentationRevision = 0
   var sessionRevision: Int { presentationRevision }
@@ -289,14 +298,28 @@ struct NativeBrowseContext {
     guard !busy, !pending, nativeCommandInteractionAllowed else { return }
     pending = true
     pendingCommand = command.name
-    busy = true
-    error = ""
+    // Serialize immediately, but show busy feedback only if a settings write
+    // actually takes time. Cancellation prevents a completed write (or its
+    // successor) from receiving stale feedback.
+    let busyFeedback: Task<Void, Never>?
+    if command.defersBusyFeedback {
+      busyFeedback = Task { @MainActor in
+        do { try await Task.sleep(nanoseconds: 150_000_000) } catch { return }
+        guard !Task.isCancelled else { return }
+        busy = true
+      }
+    } else {
+      busy = true
+      busyFeedback = nil
+    }
+    if !error.isEmpty { error = "" }
     let revision = presentationRevision
     Task { @MainActor in
       defer {
+        busyFeedback?.cancel()
         pending = false
         pendingCommand = nil
-        busy = false
+        if busy { busy = false }
       }
       do {
         guard let action else {

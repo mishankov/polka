@@ -215,10 +215,16 @@ public enum Desktop {
   }
   public static func smoke(
     release: Bool = false, app: URL? = nil, scrollOnly: Bool = false,
+    settingsOnly: Bool = false,
     context: ToolContext = ToolContext()
   ) async throws {
     let only = scrollOnly || context.environment["POLKA_NATIVE_SCROLL_ONLY"] == "1"
-    for phase in only ? ["scroll"] : ["scroll", "core", "startup", "notice"] {
+    // Each mandatory surface gets its own locked process/profile and deadline.
+    // Settings regressions must not consume the core fixture's 60-second limit.
+    let phases =
+      settingsOnly
+      ? ["settings"] : only ? ["scroll"] : ["scroll", "core", "settings", "startup", "notice"]
+    for phase in phases {
       try await smokePhase(
         phase, app: appURL(app, release: release, context: context), context: context)
     }
@@ -255,6 +261,7 @@ public enum Desktop {
       try FileManager.default.createDirectory(at: artifacts, withIntermediateDirectories: true)
       let flag = [
         "scroll": "--native-scroll-smoke", "core": "--native-smoke",
+        "settings": "--native-settings-smoke",
         "startup": "--native-startup-close-smoke", "notice": "--native-notice-quit-smoke",
       ][phase]!
       var env = environment(context.environment)
@@ -313,15 +320,17 @@ public enum Desktop {
 
   static func validateSmoke(_ result: [String: Any], phase: String) throws {
     try require(
-      ["core", "scroll", "startup", "notice"].contains(phase), "Unknown native smoke phase")
+      ["core", "settings", "scroll", "startup", "notice"].contains(phase),
+      "Unknown native smoke phase")
     try require(
       result["ok"] as? Bool == true, (result["failures"] as? [String] ?? []).joined(separator: "\n")
     )
     try require(result["nativeVisible"] as? Bool == true, "Native shelf is not visible")
     try require(
-      result["destination"] as? String == (phase == "core" ? "clipboard" : "apps"),
+      result["destination"] as? String
+        == (["core", "settings"].contains(phase) ? "clipboard" : "apps"),
       "Unexpected native destination")
-    if phase == "core" {
+    if ["core", "settings"].contains(phase) {
       try require((result["snippets"] as? Int ?? 0) > 0, "Missing synthetic snippets")
     } else if phase == "startup" || phase == "notice" {
       try require(

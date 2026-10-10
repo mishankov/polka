@@ -40,9 +40,9 @@ public struct ToolRequest {
     }
     if command == "desktop",
       positionals.count > 1
-        || !["core", "all", "updates", "files"].contains(positionals.first ?? "core")
+        || !["core", "settings", "all", "updates", "files"].contains(positionals.first ?? "core")
     {
-      throw ToolError("Usage: ./polka desktop [core|all|updates|files]")
+      throw ToolError("Usage: ./polka desktop [core|settings|all|updates|files]")
     }
     if flags.contains("debug") && flags.contains("release") {
       throw ToolError("Choose --debug or --release.")
@@ -69,7 +69,7 @@ public enum Automation {
       test [all|app|tools]           Run Swift tests (default: all)
       coverage                      Run app tests and enforce LLVM coverage gates
       search-test                   Verify the native search regression corpus
-      desktop [core|all|updates|files] [--release --prebuilt --external]
+      desktop [core|settings|all|updates|files] [--release --prebuilt --external]
       verify [--no-desktop --no-updates --no-tools --prebuilt --release --external-drops]
       package [--prebuilt --desktop --official --debug --dir]
       release [--prebuilt --desktop --publish]
@@ -212,6 +212,9 @@ public enum Automation {
       }
       if selected == "core" || selected == "all" {
         try await Desktop.smoke(release: release, app: app, context: context)
+      }
+      if selected == "settings" {
+        try await Desktop.smoke(release: release, app: app, settingsOnly: true, context: context)
       }
       if selected == "updates" || selected == "all" {
         try await UpdateSmoke.run(

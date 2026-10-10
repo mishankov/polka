@@ -602,7 +602,8 @@ struct NativeSettingsSidebar: NSViewRepresentable {
       context.coordinator.table?.selectRowIndexes(
         IndexSet(integer: index), byExtendingSelection: false)
     }
-    context.coordinator.synchronizeCells()
+    // Selection notifications style the changed rows. Unrelated model updates
+    // must not rewrite every label's font/color and invalidate the whole sidebar.
   }
   @MainActor final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var model: NativeUIModel
@@ -736,11 +737,15 @@ struct NativeBuiltinAppToggle: NSViewRepresentable {
     nsView.intrinsicContentSize
   }
   func updateNSView(_ button: NativeBuiltinAppSwitch, context: Context) {
-    button.controlSize = .small
-    button.setAccessibilityLabel(title)
-    button.state = enabled ? .on : .off
+    if button.controlSize != .small { button.controlSize = .small }
+    if button.accessibilityLabel() != title { button.setAccessibilityLabel(title) }
+    let state: NSControl.StateValue = enabled ? .on : .off
+    if button.state != state { button.state = state }
     button.setAvailable(model.canChangeBuiltinApps, focusRevision: model.settingsFocusRevision)
-    button.setAccessibilityIdentifier("builtin-app-toggle-" + appID)
+    let identifier = "builtin-app-toggle-" + appID
+    if button.accessibilityIdentifier() != identifier {
+      button.setAccessibilityIdentifier(identifier)
+    }
     button.focusRevision = { model.settingsFocusRevision }
     button.changeValue = { value in model.setBuiltinApp(appID, enabled: value) }
   }
