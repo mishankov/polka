@@ -333,6 +333,7 @@ import SwiftUI
       }
     }
     let standardWidth = shelf.frame.width
+    let standardHeight = shelf.frame.height
     trace("shared built-in controls")
     var backFrame: NSRect?
     var selectFrame: NSRect?
@@ -687,6 +688,9 @@ import SwiftUI
       if abs(shelf.frame.width - standardWidth) > 1 {
         failures.append("existing snippet editor is wider than launcher")
       }
+      if abs(shelf.frame.height - standardHeight) > 1 {
+        failures.append("existing snippet editor height differs from launcher")
+      }
       post(53)
       if !(await wait({ model.draft == nil })) {
         failures.append("posted Escape did not cancel existing snippet editor")
@@ -703,6 +707,17 @@ import SwiftUI
     await screenshot("snippet-editor")
     if abs(shelf.frame.width - standardWidth) > 1 {
       failures.append("new snippet editor is wider than launcher")
+    }
+    if abs(shelf.frame.height - standardHeight) > 1 {
+      failures.append("new snippet editor height differs from launcher")
+    }
+    if let save = accessible("snippet-save") {
+      let frame = save.accessibilityFrame()
+      if !shelf.frame.contains(frame) || frame.height < 20 {
+        failures.append("snippet save control is clipped at standard shelf height")
+      }
+    } else {
+      failures.append("snippet save control is missing at standard shelf height")
     }
     post(53)
     if !(await wait({ model.draft == nil })) {
