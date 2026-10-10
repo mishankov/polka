@@ -89,7 +89,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       lockFD = open(
         root.appendingPathComponent("native-instance.lock").path, O_CREAT | O_RDWR, 0o600)
       guard lockFD >= 0 else {
-        throw PolkaCoreError.storage("Не удалось открыть блокировку профиля")
+        throw PolkaCoreError.storage(localized("Could not open the profile lock"))
       }
       let instanceName = Notification.Name(
         "app.polka.native.open."
@@ -120,6 +120,17 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       }
       platform.hide = { [weak self] cancel in self?.hide(cancelPaste: cancel, force: true) }
       platform.openSettings = { [weak self] pane in self?.openSettings(pane) }
+      platform.languageChanged = { [weak self] in self?.refreshLanguage() }
+      let localeNotifications = NotificationCenter.default
+      notifications.append(
+        (
+          localeNotifications,
+          localeNotifications.addObserver(
+            forName: NSLocale.currentLocaleDidChangeNotification, object: nil, queue: .main
+          ) { [weak self] _ in
+            Task { @MainActor in self?.platform?.updateSystemLanguage() }
+          }
+        ))
       platform.currentPanel = { [weak self] in self?.shelf }
       platform.showIncomingFiles = { [weak self] in
         guard let self, platform.builtinApps.allows(destination: "files") else { return }
@@ -274,7 +285,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       }
     } catch {
       let alert = NSAlert()
-      alert.messageText = "Не удалось запустить Полку"
+      alert.messageText = localized("Could not start Polka")
       alert.informativeText = error.localizedDescription
       alert.runModal()
       NSApp.terminate(nil)
@@ -288,7 +299,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     // Destinations create their native controls after the panel is already
     // open. Keep Tab navigation current as SwiftUI changes the view tree.
     shelf.autorecalculatesKeyViewLoop = true
-    shelf.title = "Полка"
+    shelf.title = localized("Polka")
     shelf.delegate = self
     shelf.isReleasedWhenClosed = false
     shelf.hidesOnDeactivate = false
@@ -314,72 +325,90 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   // platform services. Tests can inspect its native responder-chain contracts.
   func makeMainMenu() -> NSMenu {
     let menu = NSMenu()
-    let appItem = NSMenuItem(title: "Полка", action: nil, keyEquivalent: "")
-    let appMenu = NSMenu(title: "Полка")
-    appMenu.addItem(withTitle: "Настройки…", action: #selector(settingsAction), keyEquivalent: ",")
-      .target = self
+    let appItem = NSMenuItem(title: localized("Polka"), action: nil, keyEquivalent: "")
+    let appMenu = NSMenu(title: localized("Polka"))
+    appMenu.addItem(
+      withTitle: localized("Settings…"), action: #selector(settingsAction), keyEquivalent: ","
+    )
+    .target = self
     appMenu.addItem(.separator())
     appMenu.addItem(
-      withTitle: "Скрыть Полку", action: #selector(hideApplicationAction(_:)), keyEquivalent: "h"
+      withTitle: localized("Hide Polka"), action: #selector(hideApplicationAction(_:)),
+      keyEquivalent: "h"
     ).target = self
     let hideOthers = appMenu.addItem(
-      withTitle: "Скрыть остальные", action: #selector(NSApplication.hideOtherApplications(_:)),
+      withTitle: localized("Hide Others"),
+      action: #selector(NSApplication.hideOtherApplications(_:)),
       keyEquivalent: "h")
     hideOthers.keyEquivalentModifierMask = [.command, .option]
     hideOthers.target = NSApp
     appMenu.addItem(
-      withTitle: "Показать все", action: #selector(NSApplication.unhideAllApplications(_:)),
+      withTitle: localized("Show All"), action: #selector(NSApplication.unhideAllApplications(_:)),
       keyEquivalent: ""
     ).target = NSApp
     appMenu.addItem(.separator())
-    appMenu.addItem(withTitle: "Выйти из Полки", action: #selector(quitAction), keyEquivalent: "q")
-      .target = self
+    appMenu.addItem(
+      withTitle: localized("Quit Polka"), action: #selector(quitAction), keyEquivalent: "q"
+    )
+    .target = self
     appItem.submenu = appMenu
     menu.addItem(appItem)
-    let editItem = NSMenuItem(title: "Правка", action: nil, keyEquivalent: "")
-    let edit = NSMenu(title: "Правка")
+    let editItem = NSMenuItem(title: localized("Edit"), action: nil, keyEquivalent: "")
+    let edit = NSMenu(title: localized("Edit"))
     for (title, action, key) in [
-      ("Отменить", Selector(("undo:")), "z"),
-      ("Повторить", Selector(("redo:")), "Z"), ("Вырезать", #selector(NSText.cut(_:)), "x"),
-      ("Копировать", #selector(NSText.copy(_:)), "c"),
-      ("Вставить", #selector(NSText.paste(_:)), "v"),
-      ("Выбрать всё", #selector(NSText.selectAll(_:)), "a"),
+      (localized("Undo"), Selector(("undo:")), "z"),
+      (localized("Redo"), Selector(("redo:")), "Z"),
+      (localized("Cut"), #selector(NSText.cut(_:)), "x"),
+      (localized("Copy"), #selector(NSText.copy(_:)), "c"),
+      (localized("Paste"), #selector(NSText.paste(_:)), "v"),
+      (localized("Select All"), #selector(NSText.selectAll(_:)), "a"),
     ] {
       let item = edit.addItem(withTitle: title, action: action, keyEquivalent: key)
       if action == Selector(("redo:")) { item.keyEquivalentModifierMask = [.command, .shift] }
     }
     editItem.submenu = edit
     menu.addItem(editItem)
-    let windowItem = NSMenuItem(title: "Окно", action: nil, keyEquivalent: "")
-    let windowMenu = NSMenu(title: "Окно")
+    let windowItem = NSMenuItem(title: localized("Window"), action: nil, keyEquivalent: "")
+    let windowMenu = NSMenu(title: localized("Window"))
     windowMenu.addItem(
-      withTitle: "Закрыть окно", action: #selector(closeWindowAction(_:)), keyEquivalent: "w"
+      withTitle: localized("Close Window"), action: #selector(closeWindowAction(_:)),
+      keyEquivalent: "w"
     ).target = self
     windowItem.submenu = windowMenu
     menu.addItem(windowItem)
     return menu
   }
   private func installTrayMenu() {
-    tray = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    if tray == nil { tray = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength) }
     if let url = Bundle.main.url(forResource: "polkaTemplate", withExtension: "png"),
       let image = NSImage(contentsOf: url)
     {
       image.isTemplate = true
       tray?.button?.image = image
     } else {
-      tray?.button?.title = "П"
+      tray?.button?.title = localized("P")
     }
     let trayMenu = NSMenu()
     for (title, action) in [
-      ("Открыть полку", #selector(shelfAction)),
-      ("История буфера обмена", #selector(historyAction)), ("Сниппеты", #selector(snippetsAction)),
-      ("Файлы на полке", #selector(filesAction)), ("Настройки…", #selector(settingsAction)),
-      ("О приложении и обновления", #selector(aboutAction)),
+      (localized("Open Shelf"), #selector(shelfAction)),
+      (localized("Clipboard History"), #selector(historyAction)),
+      (localized("Snippets"), #selector(snippetsAction)),
+      (localized("Files on the Shelf"), #selector(filesAction)),
+      (localized("Settings…"), #selector(settingsAction)),
+      (localized("About and Updates"), #selector(aboutAction)),
     ] { trayMenu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self }
     trayMenu.addItem(.separator())
-    trayMenu.addItem(withTitle: "Выйти из Полки", action: #selector(quitAction), keyEquivalent: "q")
-      .target = self
+    trayMenu.addItem(
+      withTitle: localized("Quit Polka"), action: #selector(quitAction), keyEquivalent: "q"
+    )
+    .target = self
     tray?.menu = trayMenu
+  }
+  private func refreshLanguage() {
+    NSApp.mainMenu = makeMainMenu()
+    installTrayMenu()
+    shelf?.title = localized("Polka")
+    settingsWindow?.title = localized("Settings — Polka")
   }
   @objc private func shelfAction() { Task { await show(nil) } }
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool
@@ -589,7 +618,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
         styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered,
         defer: false)
       window.identifier = NSUserInterfaceItemIdentifier("polka-settings")
-      window.title = "Настройки — Полка"
+      window.title = localized("Settings — Polka")
       window.titleVisibility = .hidden
       window.titlebarAppearsTransparent = true
       window.titlebarSeparatorStyle = .none

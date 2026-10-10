@@ -13,32 +13,32 @@ public enum TimeConversions {
         result[name] = Zone(id: id, label: label, offset: nil)
       }
     }
-    add("Europe/Moscow", "Москва", "moscow|москва|москве|msk|мск")
-    add("Europe/London", "Лондон", "london|лондон|лондоне")
-    add("Europe/Paris", "Париж", "paris|париж|париже")
-    add("Europe/Berlin", "Берлин", "berlin|берлин|берлине")
-    add("Europe/Rome", "Рим", "rome|рим|риме")
-    add("Europe/Madrid", "Мадрид", "madrid|мадрид|мадриде")
-    add("Europe/Helsinki", "Хельсинки", "helsinki|хельсинки")
-    add("Europe/Istanbul", "Стамбул", "istanbul|стамбул|стамбуле")
-    add("Asia/Dubai", "Дубай", "dubai|дубай|дубае")
-    add("Asia/Tbilisi", "Тбилиси", "tbilisi|тбилиси")
-    add("Asia/Yerevan", "Ереван", "yerevan|ереван|ереване")
-    add("Asia/Yekaterinburg", "Екатеринбург", "yekaterinburg|екатеринбург|екатеринбурге")
-    add("Asia/Novosibirsk", "Новосибирск", "novosibirsk|новосибирск|новосибирске")
-    add("Asia/Vladivostok", "Владивосток", "vladivostok|владивосток|владивостоке")
-    add("America/New_York", "Нью-Йорк", "new york|new-york|nyc|нью-йорк|нью-йорке")
-    add("America/Los_Angeles", "Лос-Анджелес", "los angeles|los-angeles|лос-анджелес|лос-анджелесе")
-    add("America/Chicago", "Чикаго", "chicago|чикаго")
-    add("America/Toronto", "Торонто", "toronto|торонто")
-    add("America/Sao_Paulo", "Сан-Паулу", "sao paulo|são paulo|сан-паулу")
-    add("Asia/Tokyo", "Токио", "tokyo|токио")
-    add("Asia/Shanghai", "Шанхай", "shanghai|шанхай|шанхае")
-    add("Asia/Hong_Kong", "Гонконг", "hong kong|гонконг|гонконге")
-    add("Asia/Singapore", "Сингапур", "singapore|сингапур|сингапуре")
-    add("Asia/Kolkata", "Калькутта", "kolkata|калькутта|калькутте")
-    add("Australia/Sydney", "Сидней", "sydney|сидней|сиднее")
-    add("Pacific/Auckland", "Окленд", "auckland|окленд|окленде")
+    add("Europe/Moscow", "Moscow", "moscow|москва|москве|msk|мск")
+    add("Europe/London", "London", "london|лондон|лондоне")
+    add("Europe/Paris", "Paris", "paris|париж|париже")
+    add("Europe/Berlin", "Berlin", "berlin|берлин|берлине")
+    add("Europe/Rome", "Rome", "rome|рим|риме")
+    add("Europe/Madrid", "Madrid", "madrid|мадрид|мадриде")
+    add("Europe/Helsinki", "Helsinki", "helsinki|хельсинки")
+    add("Europe/Istanbul", "Istanbul", "istanbul|стамбул|стамбуле")
+    add("Asia/Dubai", "Dubai", "dubai|дубай|дубае")
+    add("Asia/Tbilisi", "Tbilisi", "tbilisi|тбилиси")
+    add("Asia/Yerevan", "Yerevan", "yerevan|ереван|ереване")
+    add("Asia/Yekaterinburg", "Yekaterinburg", "yekaterinburg|екатеринбург|екатеринбурге")
+    add("Asia/Novosibirsk", "Novosibirsk", "novosibirsk|новосибирск|новосибирске")
+    add("Asia/Vladivostok", "Vladivostok", "vladivostok|владивосток|владивостоке")
+    add("America/New_York", "New York", "new york|new-york|nyc|нью-йорк|нью-йорке")
+    add("America/Los_Angeles", "Los Angeles", "los angeles|los-angeles|лос-анджелес|лос-анджелесе")
+    add("America/Chicago", "Chicago", "chicago|чикаго")
+    add("America/Toronto", "Toronto", "toronto|торонто")
+    add("America/Sao_Paulo", "São Paulo", "sao paulo|são paulo|сан-паулу")
+    add("Asia/Tokyo", "Tokyo", "tokyo|токио")
+    add("Asia/Shanghai", "Shanghai", "shanghai|шанхай|шанхае")
+    add("Asia/Hong_Kong", "Hong Kong", "hong kong|гонконг|гонконге")
+    add("Asia/Singapore", "Singapore", "singapore|сингапур|сингапуре")
+    add("Asia/Kolkata", "Kolkata", "kolkata|калькутта|калькутте")
+    add("Australia/Sydney", "Sydney", "sydney|сидней|сиднее")
+    add("Pacific/Auckland", "Auckland", "auckland|окленд|окленде")
     return result
   }()
   private static func offsetLabel(_ offset: Int) -> String {
@@ -109,7 +109,7 @@ public enum TimeConversions {
       if hours > 14 || minutes > 59 || seconds > 59
         || (hours == 14 && (minutes != 0 || seconds != 0))
       {
-        return .error("Укажите смещение от UTC−14:00 до UTC+14:00")
+        return .error(localized("Enter an offset from UTC−14:00 to UTC+14:00"))
       }
       let offset = (match[1] == "-" ? -1 : 1) * (hours * 3600 + minutes * 60 + seconds)
       let label = offsetLabel(offset)
@@ -117,13 +117,18 @@ public enum TimeConversions {
     }
     if regexGroups("^[a-zа-я]{2,5}$", name, insensitive: true) != nil {
       return .error(
-        "Неоднозначный или неизвестный часовой пояс «\(name)». Укажите город, например London, Europe/London или UTC+01:00."
+        localized(
+          "Ambiguous or unknown time zone “{0}”. Enter a city, such as London, Europe/London, or UTC+01:00.",
+          String(describing: name))
       )
     }
     if name.contains("/"), let zone = TimeZone(identifier: name) {
       return .zone(Zone(id: zone.identifier, label: name, offset: nil))
     }
-    return .error("Неизвестный часовой пояс «\(name)». Укажите город, IANA-пояс или UTC±HH:MM.")
+    return .error(
+      localized(
+        "Unknown time zone “{0}”. Enter a city, an IANA time zone, or UTC±HH:MM.",
+        String(describing: name)))
   }
   private static func instants(_ wall: [Int], _ zone: Zone) -> [Date] {
     let wanted = stamp(wall)
@@ -151,21 +156,22 @@ public enum TimeConversions {
     func incomplete(_ message: String) -> Calculation {
       Calculation(status: .incomplete, expression: expression, message: message)
     }
-    guard expression.count <= 512 else { return error("Слишком длинное выражение") }
+    guard expression.count <= 512 else { return error(localized("Expression is too long")) }
     let prefixDate = match[1]
     let rawSource = match[4]
     let rawDestination = match[5]
     guard !rawDestination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      return incomplete("Укажите часовой пояс результата, например: 18:00 Moscow in London")
+      return incomplete(
+        localized("Enter the result time zone, for example: 18:00 Moscow in London"))
     }
     let suffixPattern = "\\s+(?:(?:on|на)\\s+)?(" + datePattern + ")$"
     let suffix = regexGroups(suffixPattern, rawDestination, insensitive: true)
     let destination = regexReplace(suffixPattern, rawDestination, "", insensitive: true)
       .trimmingCharacters(in: .whitespacesAndNewlines)
     if !prefixDate.isEmpty && suffix != nil {
-      return error("Укажите дату один раз: перед временем или в конце запроса")
+      return error(localized("Enter the date once: before the time or at the end of the query"))
     }
-    guard !destination.isEmpty else { return incomplete("Укажите часовой пояс результата") }
+    guard !destination.isEmpty else { return incomplete(localized("Enter the result time zone")) }
     let source: Zone
     let target: Zone
     switch resolve(rawSource.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -178,54 +184,65 @@ public enum TimeConversions {
     }
     let hour = Int(match[2])!
     let minute = Int(match[3])!
-    guard hour <= 23 && minute <= 59 else { return error("Укажите время от 00:00 до 23:59") }
+    guard hour <= 23 && minute <= 59 else {
+      return error(localized("Enter a time from 00:00 to 23:59"))
+    }
     let explicitDate = !prefixDate.isEmpty ? prefixDate : suffix?[1]
     let requestedDate = explicitDate ?? context.sourceDate
     let date: [Int]
     if let requestedDate {
       guard let parsed = parseDate(requestedDate) else {
-        return error("Укажите существующую дату с 1900 по 9999 год: YYYY-MM-DD или DD.MM.YYYY")
+        return error(localized("Enter a valid date from 1900 to 9999: YYYY-MM-DD or DD.MM.YYYY"))
       }
       date = parsed
     } else {
       guard context.now.timeIntervalSince1970.isFinite else {
-        return error("Не удалось определить сегодняшнюю дату")
+        return error(localized("Could not determine today's date"))
       }
       date = Array(parts(context.now, source).prefix(3))
       guard (1900...9999).contains(date[0]) else {
-        return error("Дата вне поддерживаемого диапазона: 1900–9999")
+        return error(localized("Date is outside the supported range: 1900–9999"))
       }
     }
     let wall = date + [hour, minute, 0]
     let matches = instants(date + [hour, minute, 0], source)
     guard !matches.isEmpty else {
-      return error("Такого местного времени нет из-за перевода часов. Выберите другое время.")
+      return error(
+        localized("This local time does not exist because of a clock change. Choose another time."))
     }
     if matches.count > 1 {
       let offsets = matches.map { offsetLabel(Int(stamp(wall).timeIntervalSince($0))) }.joined(
-        separator: " или ")
+        separator: localized(" or "))
       return error(
-        "Это местное время встречается дважды из-за перевода часов. Вместо \(source.label) укажите \(offsets)."
+        localized(
+          "This local time occurs twice because of a clock change. Use {1} instead of {0}.",
+          localized(source.label), String(describing: offsets))
       )
     }
     let instant = matches[0]
     let converted = parts(matches[0], target)
     guard (1900...9999).contains(converted[0]) else {
-      return error("Дата результата вне поддерживаемого диапазона: 1900–9999")
+      return error(localized("Result date is outside the supported range: 1900–9999"))
     }
     let days = Int(
       (stamp(Array(converted.prefix(3))).timeIntervalSince(stamp(date)) / 86400).rounded())
-    let dayOffset = days == 0 ? " · тот же день" : " · \(days > 0 ? "+" : "−")\(abs(days)) дн."
+    let dayOffset =
+      days == 0
+      ? localized(" · same day")
+      : localized(" · {0} days", (days > 0 ? "+" : "−") + String(abs(days)))
     let sourceDate = dateLabel(date)
     let targetOffset = target.offset ?? Int(stamp(converted).timeIntervalSince(instant))
     return Calculation(
       status: .result, expression: expression,
-      value: timeLabel(converted) + " · " + dateLabel(converted) + " · " + target.label + " ("
+      value: timeLabel(converted) + " · " + dateLabel(converted) + " · " + localized(target.label)
+        + " ("
         + offsetLabel(targetOffset) + ")",
       conversion: "time-zone",
-      interpretation: sourceDate + (explicitDate == nil ? " (сегодня в исходном поясе)" : "")
-        + " · " + pad(hour) + ":" + pad(minute) + " " + source.label + " → " + dateLabel(converted)
-        + " " + target.label + " (" + offsetLabel(targetOffset) + ")" + dayOffset,
-      displayValue: timeLabel(converted) + " " + target.label, sourceDate: sourceDate)
+      interpretation: sourceDate
+        + (explicitDate == nil ? localized(" (today in the source time zone)") : "")
+        + " · " + pad(hour) + ":" + pad(minute) + " " + localized(source.label) + " → "
+        + dateLabel(converted)
+        + " " + localized(target.label) + " (" + offsetLabel(targetOffset) + ")" + dayOffset,
+      displayValue: timeLabel(converted) + " " + localized(target.label), sourceDate: sourceDate)
   }
 }

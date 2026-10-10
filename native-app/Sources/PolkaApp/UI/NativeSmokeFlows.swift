@@ -1196,6 +1196,66 @@ import SwiftUI
         failures.append("native settings sidebar ArrowUp did not return to general")
       }
       await screenshot("settings-general", window: settings, includeTitlebar: true)
+      // Language changes use the real Tab/Space/arrow/Enter flow, preserving
+      // the native control, settings navigation, and the hidden shelf's draft.
+      let originalLanguage = model.settings.languagePreference
+      let originalDraft = model.draft
+      let originalPairingCode = model.pairingCode
+      do {
+        try await platform.handle(NativeUICommand("settings.language", strings: ["value": "en"]))
+        await settle()
+        settings.makeFirstResponder(sidebar)
+        var picker: NativeLanguagePopUp?
+        for _ in 0..<20 {
+          post(48, window: settings)
+          await settle()
+          if let control = settings.firstResponder as? NativeLanguagePopUp {
+            picker = control
+            break
+          }
+        }
+        if let picker {
+          post(49, [], " ", window: settings)
+          // Queue the complete native menu interaction before yielding: AppKit
+          // may enter its tracking loop while opening the pop-up.
+          post(125, window: settings)
+          post(36, [], "\r", window: settings)
+          if !(await wait({ model.settings.language == .russian && !model.commandPending })) {
+            failures.append("language pop-up keyboard flow did not select Russian")
+            post(53, window: settings)
+          }
+          await settle()
+          if settings.firstResponder !== picker {
+            failures.append("language change lost focused settings pop-up")
+          }
+          if picker.titleOfSelectedItem != "Русский"
+            || nativeSettingsPanes.first?.label != "Основные"
+          {
+            failures.append("language choice did not update selected value and sidebar")
+          }
+          await screenshot("settings-general-ru", window: settings, includeTitlebar: true)
+          try await platform.handle(NativeUICommand("settings.language", strings: ["value": "en"]))
+          await settle()
+          if let cell = sidebar.view(atColumn: 0, row: 0, makeIfNecessary: true)
+            as? NSTableCellView,
+            cell.textField?.stringValue != "General"
+          {
+            failures.append("existing settings sidebar did not translate to English")
+          }
+          if NSApp.mainMenu?.items.first?.submenu?.items.first?.title != "Settings…" {
+            failures.append("existing app menu did not translate to English")
+          }
+          await screenshot("settings-general-en", window: settings, includeTitlebar: true)
+        } else {
+          failures.append("Tab did not reach the language pop-up")
+        }
+        if model.draft != originalDraft || model.pairingCode != originalPairingCode {
+          failures.append("language change modified an unsaved draft")
+        }
+        try await platform.handle(
+          NativeUICommand("settings.language", strings: ["value": originalLanguage.rawValue]))
+      } catch { failures.append("language settings fixture failed: " + error.localizedDescription) }
+      settings.makeFirstResponder(sidebar)
       post(125, window: settings)
       if !(await wait({ model.settingsPane == "shelf" })) {
         failures.append("native settings sidebar ArrowDown did not select shelf")

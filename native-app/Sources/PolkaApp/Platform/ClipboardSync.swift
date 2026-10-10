@@ -41,7 +41,7 @@ private struct TrustedPeer: Codable, Equatable {
   func validate() throws {
     guard validDeviceID(id), !name.isEmpty, name.utf16.count <= 100, validToken(token),
       validFingerprint(fingerprint)
-    else { throw PolkaCoreError.invalid("Некорректные данные связанного Mac") }
+    else { throw PolkaCoreError.invalid(localized("Invalid linked Mac data")) }
   }
 }
 private struct SyncCredentials: Codable {
@@ -50,7 +50,7 @@ private struct SyncCredentials: Codable {
   var cert: String
   var peers: [TrustedPeer]
   func validate() throws {
-    guard peers.count <= 32 else { throw PolkaCoreError.invalid("Слишком много устройств") }
+    guard peers.count <= 32 else { throw PolkaCoreError.invalid(localized("Too many devices")) }
     for peer in peers { try peer.validate() }
     _ = try NIOSSLCertificate(bytes: Array(cert.utf8), format: .pem)
     _ = try NIOSSLPrivateKey(bytes: Array(key.utf8), format: .pem)
@@ -64,7 +64,7 @@ private struct PairCode: Codable {
   func validate() throws {
     guard version == 1, validDeviceID(id), validFingerprint(fingerprint),
       validToken(secret)
-    else { throw PolkaCoreError.invalid("Некорректный код подключения") }
+    else { throw PolkaCoreError.invalid(localized("Invalid pairing code")) }
   }
 }
 private struct PairRequest: Codable {
@@ -136,7 +136,7 @@ final class NativeSyncRequestResponse: @unchecked Sendable {
     install: () throws -> EventLoopFuture<Void>
   ) -> EventLoopFuture<Void> {
     guard accepted else {
-      let error = PolkaCoreError.invalid("Синхронизация остановлена")
+      let error = PolkaCoreError.invalid(localized("Sync has stopped"))
       fail(error)
       return loop.makeFailedFuture(error)
     }
@@ -288,7 +288,7 @@ final class NativeClipboardSync: @unchecked Sendable {
     try synchronized {
       try requireReady()
       guard var next = credentials else {
-        throw PolkaCoreError.invalid("Синхронизация ещё не готова")
+        throw PolkaCoreError.invalid(localized("Sync is not ready yet"))
       }
       try block(&next)
       try next.validate()
@@ -334,10 +334,10 @@ final class NativeClipboardSync: @unchecked Sendable {
     try synchronized {
       try requireReady()
       guard server != nil, credentials?.enabled == true else {
-        throw PolkaCoreError.invalid("Сначала включите синхронизацию")
+        throw PolkaCoreError.invalid(localized("Enable sync first"))
       }
       guard credentials!.peers.count < 32 else {
-        throw PolkaCoreError.invalid("Можно связать не больше 32 устройств")
+        throw PolkaCoreError.invalid(localized("You can link up to 32 devices"))
       }
       invitation = (
         base64URL(Data((0..<32).map { _ in UInt8.random(in: 0...255) })),
@@ -508,24 +508,26 @@ final class NativeClipboardSync: @unchecked Sendable {
     try synchronized {
       try requireReady()
       guard !stopped, credentials?.enabled == true, validFingerprint(fingerprint) else {
-        throw PolkaCoreError.invalid("Синхронизация отключена")
+        throw PolkaCoreError.invalid(localized("Sync is disabled"))
       }
       let id = head.headers.first(name: "x-polka-id") ?? ""
       let token = head.headers.first(name: "x-polka-token") ?? ""
       if head.method == .POST && head.uri == "/pair" {
         guard let invite = invitation, invite.expiresAt > Date().timeIntervalSince1970 * 1000,
           timingSafeEqual(token, invite.secret)
-        else { throw PolkaCoreError.invalid("Код недействителен") }
+        else { throw PolkaCoreError.invalid(localized("Invalid code")) }
         invitation = nil
         notify()
         let body = try decodeClipboardJSON(PairRequest.self, from: data)
         let incoming = TrustedPeer(
           id: id, name: body.name, token: body.token, fingerprint: fingerprint)
         try incoming.validate()
-        guard id != history.deviceId else { throw PolkaCoreError.invalid("Это тот же Mac") }
+        guard id != history.deviceId else {
+          throw PolkaCoreError.invalid(localized("This is the same Mac"))
+        }
         try mutate { next in
           guard next.peers.count < 32 else {
-            throw PolkaCoreError.invalid("Слишком много устройств")
+            throw PolkaCoreError.invalid(localized("Too many devices"))
           }
           next.peers.removeAll { $0.id == id }
           next.peers.append(incoming)
@@ -535,7 +537,9 @@ final class NativeClipboardSync: @unchecked Sendable {
       guard let peer = credentials?.peers.first(where: { $0.id == id }),
         timingSafeEqual(peer.token, token), timingSafeEqual(peer.fingerprint, fingerprint),
         !history.getPreferences().paused
-      else { throw PolkaCoreError.invalid("Устройство не связано или история на паузе") }
+      else {
+        throw PolkaCoreError.invalid(localized("The device is not linked or history is paused"))
+      }
       let snippets = head.headers.first(name: "x-polka-snippets") == "1"
       if head.method == .GET && head.uri == "/manifest" {
         try history.prune()
@@ -543,7 +547,7 @@ final class NativeClipboardSync: @unchecked Sendable {
       }
       if head.method == .GET && head.uri.hasPrefix("/clip/") {
         let id = String(head.uri.dropFirst(6))
-        guard validClipID(id) else { throw PolkaCoreError.invalid("Некорректный идентификатор") }
+        guard validClipID(id) else { throw PolkaCoreError.invalid(localized("Invalid identifier")) }
         if let clip = transfer(id, snippets: snippets) { return try JSONEncoder().encode(clip) }
         return Data("null".utf8)
       }
@@ -556,14 +560,14 @@ final class NativeClipboardSync: @unchecked Sendable {
         try history.receive(input, sourceDevice: peer.name)
         return Data("{\"ok\":true}".utf8)
       }
-      throw PolkaCoreError.invalid("Неизвестная операция")
+      throw PolkaCoreError.invalid(localized("Unknown operation"))
     }
   }
   private func request(peer: TrustedPeer, route: String, body: Data? = nil) async throws -> Data {
     let (endpoint, creds, epoch): (SyncEndpoint, SyncCredentials, Int) = try synchronized {
       try requireReady()
       guard !stopped, let endpoint = nearby[peer.id], let credentials else {
-        throw PolkaCoreError.invalid("Mac не найден в локальной сети")
+        throw PolkaCoreError.invalid(localized("Mac not found on the local network"))
       }
       return (endpoint, credentials, lifecycleGeneration)
     }
@@ -607,9 +611,9 @@ final class NativeClipboardSync: @unchecked Sendable {
         return loop.makeFailedFuture(error)
       }.get()
     guard track(channel, generation: epoch) else {
-      response.fail(PolkaCoreError.invalid("Синхронизация остановлена"))
+      response.fail(PolkaCoreError.invalid(localized("Sync has stopped")))
       try? await channel.close().get()
-      throw PolkaCoreError.invalid("Синхронизация остановлена")
+      throw PolkaCoreError.invalid(localized("Sync has stopped"))
     }
     let timeout = channel.eventLoop.scheduleTask(in: .seconds(30)) { channel.close(promise: nil) }
     defer {
@@ -622,20 +626,20 @@ final class NativeClipboardSync: @unchecked Sendable {
     try synchronized {
       try requireReady()
       guard server != nil, credentials?.enabled == true else {
-        throw PolkaCoreError.invalid("Сначала включите синхронизацию")
+        throw PolkaCoreError.invalid(localized("Enable sync first"))
       }
       guard credentials!.peers.count < 32 else {
-        throw PolkaCoreError.invalid("Можно связать не больше 32 устройств")
+        throw PolkaCoreError.invalid(localized("You can link up to 32 devices"))
       }
     }
     let code = code.trimmingCharacters(in: .whitespacesAndNewlines)
     guard code.utf16.count <= 2048, let bytes = decodeBase64URL(code) else {
-      throw PolkaCoreError.invalid("Некорректный код подключения")
+      throw PolkaCoreError.invalid(localized("Invalid pairing code"))
     }
     let invite = try decodeClipboardJSON(PairCode.self, from: bytes)
     try invite.validate()
     guard invite.id != history.deviceId else {
-      throw PolkaCoreError.invalid("Введите код с другого Mac")
+      throw PolkaCoreError.invalid(localized("Enter the code from another Mac"))
     }
     let token = base64URL(Data((0..<32).map { _ in UInt8.random(in: 0...255) }))
     let response = try decodeClipboardJSON(
@@ -644,11 +648,11 @@ final class NativeClipboardSync: @unchecked Sendable {
         peer: TrustedPeer(
           id: invite.id, name: "Mac", token: invite.secret, fingerprint: invite.fingerprint),
         route: "/pair", body: JSONEncoder().encode(PairRequest(name: deviceName, token: token))))
-    guard response.id == invite.id else { throw PolkaCoreError.invalid("Неверное устройство") }
+    guard response.id == invite.id else { throw PolkaCoreError.invalid(localized("Wrong device")) }
     do {
       try synchronized {
         guard !stopped, credentials?.enabled == true else {
-          throw PolkaCoreError.invalid("Синхронизация отключена")
+          throw PolkaCoreError.invalid(localized("Sync is disabled"))
         }
         try mutate { next in
           next.peers.removeAll { $0.id == response.id }
@@ -725,7 +729,7 @@ final class NativeClipboardSync: @unchecked Sendable {
               peer: peer, route: "/manifest",
               body: JSONEncoder().encode(history.manifest(snippets: manifest.snippets == true))))
           guard response.missing.count <= 400, response.missing.allSatisfy(validClipID) else {
-            throw PolkaCoreError.invalid("Некорректный ответ синхронизации")
+            throw PolkaCoreError.invalid(localized("Invalid sync response"))
           }
           for id in response.missing {
             guard active(peer) else { break }
@@ -834,7 +838,7 @@ private final class SyncServerHandler: ChannelInboundHandler {
       let result: Data
       let status: HTTPResponseStatus
       do {
-        guard let owner else { throw PolkaCoreError.invalid("Синхронизация отключена") }
+        guard let owner else { throw PolkaCoreError.invalid(localized("Sync is disabled")) }
         result = try owner.serve(head: head, data: bytes, fingerprint: fingerprint.value)
         status = .ok
       } catch {
@@ -895,13 +899,14 @@ private final class SyncClientHandler: ChannelInboundHandler {
       guard head.status == .ok else {
         fail(
           PolkaCoreError.invalid(
-            "Mac отклонил соединение. Проверьте синхронизацию и паузу истории."))
+            localized("The Mac rejected the connection. Check sync and whether history is paused."))
+        )
         context.close(promise: nil)
         return
       }
     case .body(var buffer):
       guard bytes.count + buffer.readableBytes <= limit else {
-        fail(PolkaCoreError.invalid("Слишком большой ответ синхронизации"))
+        fail(PolkaCoreError.invalid(localized("Sync response is too large")))
         context.close(promise: nil)
         return
       }
@@ -918,7 +923,7 @@ private final class SyncClientHandler: ChannelInboundHandler {
     context.close(promise: nil)
   }
   func channelInactive(context: ChannelHandlerContext) {
-    fail(PolkaCoreError.invalid("Mac не отвечает"))
+    fail(PolkaCoreError.invalid(localized("The Mac is not responding")))
     context.fireChannelInactive()
   }
 }
@@ -1009,12 +1014,13 @@ private final class NativeSyncDiscovery: NSObject, NetServiceDelegate, NetServic
   }
   func netService(_ sender: NetService, didNotPublish errorDict: [String: NSNumber]) {
     failed(
-      "Не удалось объявить Mac в локальной сети. Проверьте разрешение macOS на доступ к локальной сети."
+      localized(
+        "Could not announce this Mac on the local network. Check macOS local network permission.")
     )
   }
   func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
     failed(
-      "Не удалось найти Mac в локальной сети. Проверьте разрешение macOS на доступ к локальной сети."
+      localized("Could not find Macs on the local network. Check macOS local network permission.")
     )
   }
 }

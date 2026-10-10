@@ -39,7 +39,7 @@ private struct SavedHistory: Codable, Equatable {
   }
   func validate() throws {
     guard version == 1, clips.count <= ClipboardLimits.maxHistoryItems else {
-      throw PolkaCoreError.invalid("Некорректный формат истории")
+      throw PolkaCoreError.invalid(localized("Invalid history format"))
     }
     try preferences.validate()
     for clip in clips { try clip.validate() }
@@ -48,19 +48,19 @@ private struct SavedHistory: Codable, Equatable {
     if let sync {
       guard validDeviceID(sync.device), sync.counter >= 0, sync.counter <= 9_007_199_253_740_991,
         sync.entries.keys.allSatisfy(validClipID)
-      else { throw PolkaCoreError.invalid("Некорректные данные синхронизации") }
+      else { throw PolkaCoreError.invalid(localized("Invalid sync data")) }
       try sync.clear?.validate()
       for entry in sync.entries.values { try entry.validate() }
     }
   }
   func validateSnippets() throws {
     guard snippets.count <= ClipboardLimits.maxSnippetItems else {
-      throw PolkaCoreError.invalid("Можно сохранить не больше 200 сниппетов")
+      throw PolkaCoreError.invalid(localized("You can save up to 200 snippets"))
     }
     guard
       snippets.reduce(0, { $0 + $1.content.utf8.count + $1.preview.utf8.count })
         <= ClipboardLimits.maxSnippetsBytes
-    else { throw PolkaCoreError.invalid("Хранилище сниппетов не должно превышать 128 МБ") }
+    else { throw PolkaCoreError.invalid(localized("Snippet storage must not exceed 128 MB")) }
   }
   var records: [ClipboardClip] { clips + snippets }
 }
@@ -236,16 +236,16 @@ public final class ClipboardHistory {
   private func snippetText(_ content: String, _ name: String) throws -> String {
     guard !content.isEmpty, content.utf16.count <= ClipboardLimits.maxSnippetTextBytes,
       content.utf8.count <= ClipboardLimits.maxSnippetTextBytes
-    else { throw PolkaCoreError.invalid("Текст сниппета не должен превышать 1 МБ") }
+    else { throw PolkaCoreError.invalid(localized("Snippet text must not exceed 1 MB")) }
     guard name.utf16.count <= 120 else {
-      throw PolkaCoreError.invalid("Название не должно превышать 120 символов")
+      throw PolkaCoreError.invalid(localized("The name must not exceed 120 characters"))
     }
     return name.trimmingCharacters(in: .whitespacesAndNewlines)
   }
   private func randomID() throws -> String {
     var bytes = [UInt8](repeating: 0, count: 32)
     guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-      throw PolkaCoreError.invalid("Не удалось создать идентификатор")
+      throw PolkaCoreError.invalid(localized("Could not create an identifier"))
     }
     return bytes.map { String(format: "%02x", $0) }.joined()
   }
@@ -275,17 +275,17 @@ public final class ClipboardHistory {
     var editedID = id
     try update { next in
       guard var clip = next.records.first(where: { $0.id == id }) else {
-        throw PolkaCoreError.invalid("Запись уже удалена")
+        throw PolkaCoreError.invalid(localized("This item has already been deleted"))
       }
       guard clip.kind == .text else {
-        throw PolkaCoreError.invalid("Редактирование доступно только для текста")
+        throw PolkaCoreError.invalid(localized("Only text can be edited"))
       }
       if let expected,
         !clipboardTextEqual(clip.content, expected.content)
           || !clipboardTextEqual(clip.name, expected.name)
       {
         throw PolkaCoreError.invalid(
-          "Сниппет изменился на другом Mac. Откройте его заново перед сохранением.")
+          localized("This snippet changed on another Mac. Open it again before saving."))
       }
       if clip.isSnippet && clipboardTextEqual(clip.content, content)
         && clipboardTextEqual(clip.name ?? "", name)
@@ -321,7 +321,7 @@ public final class ClipboardHistory {
   public func pin(_ id: String, pinned: Bool) throws {
     try update { next in
       guard next.records.contains(where: { $0.id == id }) else {
-        throw PolkaCoreError.invalid("Запись уже удалена")
+        throw PolkaCoreError.invalid(localized("This item has already been deleted"))
       }
       if let index = next.clips.firstIndex(where: { $0.id == id }) {
         next.clips[index].pinned = pinned
@@ -452,15 +452,15 @@ public final class ClipboardHistory {
       try clip.validate()
       try transfer.stamp.validate()
       guard !clip.content.isEmpty, clip.content.utf8.count <= ClipboardLimits.maxClipBytes else {
-        throw PolkaCoreError.invalid("Некорректная запись буфера")
+        throw PolkaCoreError.invalid(localized("Invalid clipboard item"))
       }
       if clip.isSnippet {
         guard clip.kind == .text, clip.content.utf8.count <= ClipboardLimits.maxSnippetTextBytes,
           state.sync?.entries[clip.id]?.snippet == true
-        else { throw PolkaCoreError.invalid("Некорректный сниппет") }
+        else { throw PolkaCoreError.invalid(localized("Invalid snippet")) }
       } else {
         guard clipId(clip.kind, clip.content) == clip.id else {
-          throw PolkaCoreError.invalid("Некорректная запись буфера")
+          throw PolkaCoreError.invalid(localized("Invalid clipboard item"))
         }
       }
       if clip.kind == .image {
@@ -469,7 +469,7 @@ public final class ClipboardHistory {
           png.prefix(8) == Data([137, 80, 78, 71, 13, 10, 26, 10]),
           clip.preview.range(
             of: "^data:image/png;base64,[A-Za-z0-9+/]+={0,2}$", options: .regularExpression) != nil
-        else { throw PolkaCoreError.invalid("Некорректное изображение буфера") }
+        else { throw PolkaCoreError.invalid(localized("Invalid clipboard image")) }
       } else {
         clip.preview = prefix(clip.content, 400)
       }
@@ -510,10 +510,10 @@ public final class ClipboardHistory {
   public func retryImageText(_ id: String) throws {
     try update { next in
       guard let index = next.clips.firstIndex(where: { $0.id == id && $0.kind == .image }) else {
-        throw PolkaCoreError.invalid("Запись уже удалена")
+        throw PolkaCoreError.invalid(localized("This item has already been deleted"))
       }
       guard next.clips[index].ocr?.status == .failed else {
-        throw PolkaCoreError.invalid("Распознавание не требует повтора")
+        throw PolkaCoreError.invalid(localized("Text recognition does not need to be retried"))
       }
       next.clips[index].ocr = nil
     }

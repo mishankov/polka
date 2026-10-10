@@ -1,3 +1,4 @@
+import PolkaCore
 import Sparkle
 import XCTest
 
@@ -78,7 +79,9 @@ import XCTest
     XCTAssertFalse(disabled)
     XCTAssertTrue(replies.isEmpty)
     XCTAssertEqual(service.status, "ready")
-    XCTAssertTrue(service.message.contains("сохранить историю"))
+    XCTAssertTrue(
+      service.message
+        == localized("Could not save clipboard history or start installation. Try again."))
     service.beforeInstall = {}
     try await service.install()
     XCTAssertEqual(replies, [.install])

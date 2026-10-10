@@ -16,7 +16,7 @@ struct NativeUICommand {
   var defersBusyFeedback: Bool {
     [
       "builtinApps.setEnabled", "clipboardHistory.preferences", "mediaIndicator.setTracking",
-      "system.login", "clipboardHistory.syncEnabled", "settings.set",
+      "system.login", "clipboardHistory.syncEnabled", "settings.set", "settings.language",
     ].contains(name)
   }
   init(
@@ -82,6 +82,8 @@ struct NativeUIPeer: Identifiable, Equatable {
   var error: String = ""
 }
 struct NativeUISettings: Equatable {
+  var languagePreference = AppLanguagePreference.system
+  var language = AppLocalization.language
   var builtinApps = BuiltinAppAvailability()
   var clipboardShortcutError = ""
   var login = false
@@ -171,6 +173,14 @@ struct NativeBrowseContext {
   var incomingFileDropToken: UUID?
   @Published var apps: [NativeUIApp] = [] { didSet { if apps != oldValue { cachedSearch = nil } } }
   @Published var settings = NativeUISettings()
+  {
+    didSet {
+      if settings.language != oldValue.language {
+        cachedEmoji = nil
+        cachedClips = nil
+      }
+    }
+  }
   @Published var storageStatus = "starting"
   @Published var preferencesAvailable = false
   @Published var storageDiagnosticStage = ""
@@ -233,7 +243,8 @@ struct NativeBrowseContext {
     let terms = query.lowercased().split(whereSeparator: \.isWhitespace)
     let rows = (destination == "snippets" ? snippets : clips).filter { clip in
       let text =
-        (clip.name + " " + (clip.kind == "image" ? "Изображение " + clip.ocrText : clip.content))
+        (clip.name + " "
+        + (clip.kind == "image" ? localized("Image ") + clip.ocrText : clip.content))
         .lowercased()
       return terms.allSatisfy { text.contains($0) }
     }.sorted { $0.pinned != $1.pinned ? $0.pinned : $0.createdAt > $1.createdAt }
@@ -325,7 +336,9 @@ struct NativeBrowseContext {
         guard let action else {
           throw NSError(
             domain: "Polka", code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "Действие пока недоступно."])
+            userInfo: [
+              NSLocalizedDescriptionKey: localized("This action is currently unavailable.")
+            ])
         }
         try await action(command)
         if revision == presentationRevision { completion?() }
@@ -523,7 +536,7 @@ struct NativeBrowseContext {
         NativeUICommand(
           "shelf.copyCalculation",
           strings: ["expression": row.expression, "sourceDate": row.sourceDate])
-      ) { [weak self] in self?.notice = "Результат скопирован" }
+      ) { [weak self] in self?.notice = localized("Result Copied") }
     case "more-clips", "more-snippets":
       perform(
         NativeUICommand(
@@ -543,6 +556,10 @@ struct NativeBrowseContext {
   }
   func preference(_ key: String, _ value: Bool) {
     perform(NativeUICommand("clipboardHistory.preferences", bools: [key: value]))
+  }
+  func setLanguage(_ preference: AppLanguagePreference) {
+    guard !busy, !commandPending, nativeCommandInteractionAllowed else { return }
+    perform(NativeUICommand("settings.language", strings: ["value": preference.rawValue]))
   }
   func selectFile(_ id: String, modifiers: NSEvent.ModifierFlags) {
     guard !busy else { return }
@@ -571,16 +588,17 @@ func nativeShortcutLabel(_ value: String) -> String {
   value.replacingOccurrences(of: "CommandOrControl+", with: "⌘").replacingOccurrences(
     of: "Command+", with: "⌘"
   ).replacingOccurrences(of: "Control+", with: "⌃").replacingOccurrences(of: "Alt+", with: "⌥")
-    .replacingOccurrences(of: "Shift+", with: "⇧").replacingOccurrences(of: "Space", with: "Пробел")
+    .replacingOccurrences(of: "Shift+", with: "⇧").replacingOccurrences(
+      of: "Space", with: localized("Space"))
 }
 func nativeClipDate(_ milliseconds: Double) -> String {
   let date = Date(timeIntervalSince1970: milliseconds / 1000)
   let formatter = DateFormatter()
-  formatter.locale = Locale(identifier: "ru_RU")
+  formatter.locale = AppLocalization.language.locale
   formatter.dateFormat =
     Calendar.current.isDateInToday(date)
-    ? "'Сегодня,' HH:mm"
-    : Calendar.current.isDateInYesterday(date) ? "'Вчера,' HH:mm" : "d MMM, HH:mm"
+    ? localized("'Today,' HH:mm")
+    : Calendar.current.isDateInYesterday(date) ? localized("'Yesterday,' HH:mm") : "d MMM, HH:mm"
   return formatter.string(from: date)
 }
 func nativeWebURL(_ text: String) -> URL? {
@@ -596,7 +614,7 @@ func nativeWebURL(_ text: String) -> URL? {
 }
 
 func nativeClipboardSnippet(_ clip: NativeUIClip, query: String) -> String {
-  if clip.kind == "image", clip.ocrText.isEmpty { return "Изображение" }
+  if clip.kind == "image", clip.ocrText.isEmpty { return localized("Image") }
   let source = clip.kind == "image" ? clip.ocrText : clip.content
   let text = source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
   let term = query.lowercased().split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""

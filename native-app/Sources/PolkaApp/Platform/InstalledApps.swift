@@ -18,18 +18,18 @@ import PolkaCore
       let info = NSDictionary(contentsOf: url.appendingPathComponent("Contents/Info.plist"))
         as? [String: Any],
       info["CFBundlePackageType"] as? String == "APPL"
-    else { throw PolkaCoreError.invalid("Это не пользовательское приложение") }
+    else { throw PolkaCoreError.invalid(localized("This is not a user application")) }
     let background = String(describing: info["LSBackgroundOnly"] ?? "").lowercased()
     guard !["1", "true", "yes"].contains(background),
       let executable = info["CFBundleExecutable"] as? String,
       !executable.isEmpty, ![".", ".."].contains(executable), !executable.contains("/")
-    else { throw PolkaCoreError.invalid("Исполняемый файл приложения не найден") }
+    else { throw PolkaCoreError.invalid(localized("App executable not found")) }
     let target = url.appendingPathComponent("Contents/MacOS").appendingPathComponent(executable)
       .path
     var directory: ObjCBool = false
     guard FileManager.default.fileExists(atPath: target, isDirectory: &directory),
       !directory.boolValue, FileManager.default.isExecutableFile(atPath: target)
-    else { throw PolkaCoreError.invalid("Исполняемый файл приложения не найден") }
+    else { throw PolkaCoreError.invalid(localized("App executable not found")) }
     return info
   }
   static func displayName(
@@ -172,11 +172,11 @@ import PolkaCore
   func open(_ id: String) async throws {
     guard let entry = entries[id] else {
       throw PolkaCoreError.invalid(
-        "Приложение не найдено. Откройте быстрый запуск снова, чтобы обновить список.")
+        localized("App not found. Open the launcher again to refresh the list."))
     }
     let info = try Self.validate(entry.path)
     guard entry.bundleID == nil || info["CFBundleIdentifier"] as? String == entry.bundleID else {
-      throw PolkaCoreError.invalid("Приложение изменилось")
+      throw PolkaCoreError.invalid(localized("The app has changed"))
     }
     _ = try await NSWorkspace.shared.openApplication(
       at: URL(fileURLWithPath: entry.path), configuration: NSWorkspace.OpenConfiguration())

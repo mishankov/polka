@@ -23,6 +23,11 @@ final class BuildSigningTests: XCTestCase {
     let parsed = try XCTUnwrap(
       PropertyListSerialization.propertyList(from: Data(plist.utf8), format: nil) as? [String: Any])
     XCTAssertEqual(parsed["CFBundleDisplayName"] as? String, "Polka")
+    XCTAssertEqual(parsed["CFBundleDevelopmentRegion"] as? String, "en")
+    XCTAssertEqual(parsed["CFBundleLocalizations"] as? [String], ["en", "ru"])
+    XCTAssertEqual(
+      parsed["NSLocalNetworkUsageDescription"] as? String,
+      "Polka syncs clipboard history between linked Macs on your local network.")
     XCTAssertEqual(parsed["SUAutomaticallyUpdate"] as? Bool, false)
     XCTAssertEqual(parsed["SUVerifyUpdateBeforeExtraction"] as? Bool, true)
     XCTAssertEqual(parsed["SUScheduledCheckInterval"] as? Int, 21600)

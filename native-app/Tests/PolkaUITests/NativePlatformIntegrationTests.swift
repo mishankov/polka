@@ -60,20 +60,20 @@ final class NativePlatformIntegrationTests: XCTestCase {
   func testImageSaveFailuresExplainRecoveryWithoutFilesystemSideEffects() {
     XCTAssertTrue(
       nativeImageSaveError(NSError(domain: NSPOSIXErrorDomain, code: Int(ENOENT))).contains(
-        "Папка больше не существует"))
+        localized("The folder no longer exists. Choose another folder.")))
     XCTAssertTrue(
       nativeImageSaveError(NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError))
-        .contains("Нет доступа к файлу"))
+        .contains(localized("No access to the file. Choose another folder or name.")))
     let underlying = NSError(domain: NSPOSIXErrorDomain, code: Int(ENOSPC))
     XCTAssertTrue(
       nativeImageSaveError(
         NSError(
           domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError,
           userInfo: [NSUnderlyingErrorKey: underlying])
-      ).contains("нет свободного места"))
+      ).contains(localized("There is no free disk space.")))
     XCTAssertTrue(
       nativeImageSaveError(NSError(domain: "other", code: 123)).contains(
-        "Выберите другую папку и попробуйте ещё раз"))
+        localized("Choose another folder and try again.")))
   }
   @MainActor private func withPlatform(_ body: (NativePlatform) async throws -> Void) async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(

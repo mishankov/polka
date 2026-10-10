@@ -132,17 +132,17 @@ struct NativeClipboardSnapshot {
       if let type = Self.imageTypes.first(where: item.types.contains) {
         guard let bytes = item.images[type] else {
           throw PolkaCoreError.invalid(
-            "Не удалось прочитать скопированное изображение. Попробуйте скопировать его ещё раз.")
+            localized("Could not read the copied image. Try copying it again."))
         }
         guard bytes.count <= ClipboardLimits.maxImageBytes else {
           throw PolkaCoreError.invalid(
-            "Изображение не сохранено: размер превышает 32 МБ. Скопируйте меньшую область.")
+            localized("The image was not saved: its size exceeds 32 MB. Copy a smaller area."))
         }
         guard let image = NSBitmapImageRep(data: bytes), image.pixelsWide > 0, image.pixelsHigh > 0,
           let source = image.cgImage
         else {
           throw PolkaCoreError.invalid(
-            "Не удалось прочитать скопированное изображение. Попробуйте скопировать его ещё раз.")
+            localized("Could not read the copied image. Try copying it again."))
         }
         let png: Data
         if ["public.png", "image/png"].contains(type) {
@@ -150,13 +150,13 @@ struct NativeClipboardSnapshot {
         } else {
           guard let converted = image.representation(using: .png, properties: [:]) else {
             throw PolkaCoreError.invalid(
-              "Не удалось прочитать скопированное изображение. Попробуйте скопировать его ещё раз.")
+              localized("Could not read the copied image. Try copying it again."))
           }
           png = converted
         }
         guard png.count <= ClipboardLimits.maxImageBytes else {
           throw PolkaCoreError.invalid(
-            "Изображение не сохранено: размер PNG превышает 32 МБ. Скопируйте меньшую область.")
+            localized("The image was not saved: the PNG size exceeds 32 MB. Copy a smaller area."))
         }
         let scale = min(1, 240 / Double(image.pixelsWide), 100 / Double(image.pixelsHigh))
         let width = max(1, Int((Double(image.pixelsWide) * scale).rounded()))
@@ -166,13 +166,13 @@ struct NativeClipboardSnapshot {
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { throw PolkaCoreError.invalid("Не удалось создать миниатюру изображения") }
+        else { throw PolkaCoreError.invalid(localized("Could not create an image thumbnail")) }
         context.interpolationQuality = .high
         context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
         guard let thumbnail = context.makeImage(),
           let preview = NSBitmapImageRep(cgImage: thumbnail).representation(
             using: .png, properties: [:])
-        else { throw PolkaCoreError.invalid("Не удалось создать миниатюру изображения") }
+        else { throw PolkaCoreError.invalid(localized("Could not create an image thumbnail")) }
         guard epoch == generation, enabled, !stopped, history.storage.ready,
           !history.getPreferences().paused
         else { return }
@@ -190,7 +190,7 @@ struct NativeClipboardSnapshot {
       }
       if let text = item.text {
         guard text.utf8.count <= 1024 * 1024 else {
-          throw PolkaCoreError.invalid("Текст не сохранён: размер превышает 1 МБ.")
+          throw PolkaCoreError.invalid(localized("The text was not saved: its size exceeds 1 MB."))
         }
         guard epoch == generation, enabled, !stopped, history.storage.ready,
           !history.getPreferences().paused
@@ -264,7 +264,7 @@ struct NativeClipboardSnapshot {
           let raw = object["text"] as? String, raw.utf16.count <= 1024 * 1024,
           let languages = object["languages"] as? [String], languages.count <= 20,
           languages.allSatisfy({ $0.utf16.count <= 40 })
-        else { throw PolkaCoreError.invalid("Некорректный результат OCR") }
+        else { throw PolkaCoreError.invalid(localized("Invalid OCR result")) }
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         result = ImageText(
           version: ocrVersion, status: text.isEmpty ? .empty : .ready, text: text,

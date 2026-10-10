@@ -150,7 +150,8 @@ public enum UnitConversions {
     if expression.count > 512 {
       return regexGroups("^[+−-]?(?:\\d|[.,]\\d)", expression) != nil
         && regexGroups("\\s(?:in|to|в)(?:\\s|$)", expression, insensitive: true) != nil
-        ? Calculation(status: .error, expression: expression, message: "Слишком длинное выражение")
+        ? Calculation(
+          status: .error, expression: expression, message: localized("Expression is too long"))
         : nil
     }
     guard
@@ -175,7 +176,7 @@ public enum UnitConversions {
     if targetName.isEmpty {
       return Calculation(
         status: .incomplete, expression: expression,
-        message: "Укажите единицу результата, например: 10 inches in cm")
+        message: localized("Enter the result unit, for example: 10 inches in cm"))
     }
     if let from = source, let to = target {
       let pairs = from.flatMap { a in
@@ -190,18 +191,22 @@ public enum UnitConversions {
       || (target?.count ?? 0) > 1
     {
       return error(
-        "Неоднозначная единица. Уточните: m — метры, s — секунды, °C — температура, tonne — метрическая тонна. Месяцы не имеют постоянной длительности."
+        localized(
+          "Ambiguous unit. Specify: m for meters, s for seconds, °C for temperature, tonne for metric tons. Months do not have a fixed duration."
+        )
       )
     }
     guard let fromIndex = source?.first, let toIndex = target?.first else {
       return error(
-        "Неизвестная единица: \(source == nil ? rawSource : rawTarget). Поддерживаются длина, масса, температура и длительность."
+        localized(
+          "Unknown unit: {0}. Length, mass, temperature, and duration are supported.",
+          String(describing: source == nil ? rawSource : rawTarget))
       )
     }
     let from = units[fromIndex]
     let to = units[toIndex]
     guard from.dimension == to.dimension else {
-      return error("Выберите единицы одной величины: например, длину в длину.")
+      return error(localized("Choose units of the same quantity, such as length to length."))
     }
     let amount =
       Double(
@@ -210,12 +215,12 @@ public enum UnitConversions {
     let absoluteZero = from.symbol == "°C" ? -273.15 : from.symbol == "°F" ? -459.67 : 0
     var base = amount * from.scale + from.offset
     if from.dimension == "temperature" && amount < absoluteZero {
-      return error("Температура ниже абсолютного нуля")
+      return error(localized("Temperature is below absolute zero"))
     }
     if from.dimension == "temperature" && base < 0 { base = 0 }
     let converted = fromIndex == toIndex ? amount : (base - to.offset) / to.scale
     guard amount.isFinite && converted.isFinite else {
-      return error("Результат вне допустимого диапазона")
+      return error(localized("Result is out of range"))
     }
     return Calculation(
       status: .result, expression: expression,

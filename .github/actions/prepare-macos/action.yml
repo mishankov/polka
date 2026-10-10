@@ -76,11 +76,14 @@ runs:
         path: |
           native-app/.build
         # SwiftPM validates inputs on every invocation. Reuse unchanged dependencies
-        # across source revisions and host OS patches, but never cross compilers,
-        # SDK builds, paths or build profiles.
-        key: swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('native-app/Sources/**', 'native-app/Tests/**') }}
+        # across source and manifest revisions with identical resolved dependencies,
+        # but never cross compilers, SDK builds, paths or build profiles. Manifest
+        # resource changes must not discard compiled third-party dependencies.
+        key: swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('native-app/Package.swift', 'native-app/Sources/**', 'native-app/Tests/**') }}
         restore-keys: |
+          swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-
           swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-
+          swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-
           swift-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.legacy_build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved') }}-
 
     - name: Restore dependency downloads for the first native-engine build
@@ -88,9 +91,11 @@ runs:
       uses: actions/cache/restore@v6
       with:
         path: native-app/.build
-        key: swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fallback_profile }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('native-app/Sources/**', 'native-app/Tests/**') }}
+        key: swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fallback_profile }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('native-app/Package.swift', 'native-app/Sources/**', 'native-app/Tests/**') }}
         restore-keys: |
+          swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fallback_profile }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-
           swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fallback_profile }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-
+          swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fallback_profile }}-${{ steps.toolchain.outputs.build_key }}-
 
     - name: Discard incompatible engine outputs while retaining dependency downloads
       if: endsWith(inputs.build-cache, '-native') && hashFiles('native-app/.build/build.db') == ''

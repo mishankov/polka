@@ -36,11 +36,12 @@ public final class NativeKeychainCodec: EncryptionCodec {
     if status == errSecSuccess, let data = result as? Data, !data.isEmpty { return data }
     guard status == errSecItemNotFound && allowCreate else {
       throw PolkaCoreError.storage(
-        "Не удалось получить ключ шифрования из Связки ключей (\(status))")
+        localized(
+          "Could not retrieve the encryption key from Keychain ({0})", String(describing: status)))
     }
     var bytes = [UInt8](repeating: 0, count: 16)
     guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-      throw PolkaCoreError.storage("Не удалось создать ключ шифрования")
+      throw PolkaCoreError.storage(localized("Could not create the encryption key"))
     }
     let data = Data(Data(bytes).base64EncodedString().utf8)
     let add: [String: Any] = [
@@ -52,14 +53,17 @@ public final class NativeKeychainCodec: EncryptionCodec {
       return try keychainPassword(service: service, account: account, allowCreate: false)
     }
     guard saved == errSecSuccess else {
-      throw PolkaCoreError.storage("Не удалось сохранить ключ шифрования (\(saved))")
+      throw PolkaCoreError.storage(
+        localized("Could not save the encryption key ({0})", String(describing: saved)))
     }
     return data
   }
   private func key() throws -> Data {
     if let cachedKey { return cachedKey }
     let password = try password()
-    guard !password.isEmpty else { throw PolkaCoreError.storage("Ключ шифрования недоступен") }
+    guard !password.isEmpty else {
+      throw PolkaCoreError.storage(localized("The encryption key is unavailable"))
+    }
     let salt = Data("saltysalt".utf8)
     var bytes = [UInt8](repeating: 0, count: 16)
     let status = password.withUnsafeBytes { passwordBytes in
@@ -72,7 +76,7 @@ public final class NativeKeychainCodec: EncryptionCodec {
       }
     }
     guard status == kCCSuccess else {
-      throw PolkaCoreError.storage("Не удалось получить ключ шифрования")
+      throw PolkaCoreError.storage(localized("Could not retrieve the encryption key"))
     }
     let key = Data(bytes)
     cachedKey = key
@@ -93,7 +97,7 @@ public final class NativeKeychainCodec: EncryptionCodec {
       }
     }
     guard status == kCCSuccess else {
-      throw PolkaCoreError.storage("Не удалось расшифровать данные")
+      throw PolkaCoreError.storage(localized("Could not decrypt the data"))
     }
     return Data(output.prefix(count))
   }
@@ -107,10 +111,10 @@ public final class NativeKeychainCodec: EncryptionCodec {
     defer { lock.unlock() }
     guard ciphertext.prefix(3) == Data("v10".utf8), ciphertext.count > 3,
       (ciphertext.count - 3) % 16 == 0
-    else { throw PolkaCoreError.storage("Неизвестный формат зашифрованного файла") }
+    else { throw PolkaCoreError.storage(localized("Unknown encrypted file format")) }
     let plaintext = try crypt(Data(ciphertext.dropFirst(3)), operation: CCOperation(kCCDecrypt))
     guard String(data: plaintext, encoding: .utf8) != nil else {
-      throw PolkaCoreError.storage("Некорректные зашифрованные данные")
+      throw PolkaCoreError.storage(localized("Invalid encrypted data"))
     }
     return plaintext
   }
@@ -136,7 +140,7 @@ public func readEncryptedFile(_ path: URL, maximumBytes: Int) throws -> Data? {
     throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
   }
   guard info.st_size >= 0, info.st_size <= Int64(maximumBytes) else {
-    throw PolkaCoreError.invalid("Файл истории слишком большой")
+    throw PolkaCoreError.invalid(localized("The history file is too large"))
   }
   return try Data(contentsOf: path)
 }

@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import PolkaCore
 
 @MainActor final class GlobalShortcuts {
   private var bindings: [String: (EventHotKeyRef, () -> Void, UInt32, UInt32)] = [:]
@@ -65,7 +66,10 @@ import Carbon
   private static func unavailable() -> NSError {
     NSError(
       domain: "Polka.Shortcut", code: 1,
-      userInfo: [NSLocalizedDescriptionKey: "Выберите сочетание с Command, Control или Option"])
+      userInfo: [
+        NSLocalizedDescriptionKey: localized("Choose a shortcut with Command, Control, or Option")
+      ]
+    )
   }
   /// Reserve the replacement first. Persist failure leaves the prior binding intact.
   func set(
@@ -93,7 +97,7 @@ import Carbon
         domain: "Polka.Shortcut", code: Int(status),
         userInfo: [
           NSLocalizedDescriptionKey:
-            "Сочетание недоступно или занято другой программой. Выберите другое."
+            localized("The shortcut is unavailable or used by another app. Choose another.")
         ])
     }
     do { try persist() } catch {

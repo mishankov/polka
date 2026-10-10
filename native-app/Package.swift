@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
   name: "PolkaNative",
+  defaultLocalization: "en",
   platforms: [.macOS("27.0")],
   products: [
     .library(name: "PolkaCore", targets: ["PolkaCore"]),
@@ -21,7 +22,10 @@ let package = Package(
     .systemLibrary(name: "CCommonCrypto"),
     .target(
       name: "PolkaCore", dependencies: ["CSQLite", "CCommonCrypto"],
-      resources: [.copy("Resources/emoji-data.json")]),
+      resources: [
+        .copy("Resources/emoji-data.json"), .process("Resources/en.lproj"),
+        .process("Resources/ru.lproj"),
+      ]),
     .executableTarget(
       name: "PolkaApp",
       dependencies: [

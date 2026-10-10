@@ -30,12 +30,13 @@ public final class FileShelf {
     for input in paths {
       guard input.hasPrefix("/"), !input.contains("\0") else {
         throw NSError(
-          domain: "Polka", code: 1, userInfo: [NSLocalizedDescriptionKey: "Нужен локальный файл"])
+          domain: "Polka", code: 1,
+          userInfo: [NSLocalizedDescriptionKey: localized("A local file is required")])
       }
       let path = URL(fileURLWithPath: input).standardizedFileURL.path
       if items.contains(where: { $0.path == path }) { continue }
       guard items.count < Self.maximum else {
-        error = "На полке может быть до 200 файлов. Уберите ненужные и повторите."
+        error = localized("The shelf can hold up to 200 files. Remove some and try again.")
         break
       }
       do {
@@ -45,7 +46,7 @@ public final class FileShelf {
             id: UUID().uuidString, name: URL(fileURLWithPath: path).lastPathComponent, path: path,
             directory: directory, available: true, identity: identity))
       } catch {
-        self.error = "Некоторые файлы недоступны. Проверьте доступ и перетащите их ещё раз."
+        self.error = localized("Some files are unavailable. Check access and drag them again.")
       }
     }
   }
@@ -66,11 +67,13 @@ public final class FileShelf {
     let unique = Array(Set(ids))
     guard !unique.isEmpty, unique.allSatisfy({ id in items.contains { $0.id == id } }) else {
       throw NSError(
-        domain: "Polka", code: 2, userInfo: [NSLocalizedDescriptionKey: "Выберите файлы на полке"])
+        domain: "Polka", code: 2,
+        userInfo: [NSLocalizedDescriptionKey: localized("Select files on the shelf")])
     }
     refresh()
     guard unique.allSatisfy({ id in items.first { $0.id == id }?.available == true }) else {
-      error = "Файл перемещён, удалён или недоступен. Уберите ссылку и добавьте файл заново."
+      error = localized(
+        "The file was moved, deleted, or is unavailable. Remove the link and add the file again.")
       throw NSError(domain: "Polka", code: 3, userInfo: [NSLocalizedDescriptionKey: error])
     }
     return items.filter { unique.contains($0.id) }.map { URL(fileURLWithPath: $0.path) }

@@ -3,6 +3,14 @@ import XCTest
 @testable import PolkaCore
 
 final class CalculatorTests: XCTestCase {
+  override func setUp() {
+    super.setUp()
+    AppLocalization.configure(.russian)
+  }
+  override func tearDown() {
+    AppLocalization.configure(.system)
+    super.tearDown()
+  }
   private let now = ISO8601DateFormatter().date(from: "2026-07-15T12:00:00Z")!
   func testShippingArithmeticAndUnitExamples() {
     let pairs: [(String, String)] = [

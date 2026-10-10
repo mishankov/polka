@@ -42,7 +42,9 @@ public final class ClipboardStorage {
     try synchronized { guard value.status != .failed else { throw unavailable() } }
   }
   public func unavailable() -> Error {
-    synchronized { PolkaCoreError.storage(value.diagnostic?.message ?? "Хранилище ещё не готово") }
+    synchronized {
+      PolkaCoreError.storage(value.diagnostic?.message ?? localized("Storage is not ready yet"))
+    }
   }
   public func run<T>(_ stage: String, _ operation: () throws -> T) throws -> T {
     try synchronized {
@@ -50,9 +52,11 @@ public final class ClipboardStorage {
       do { return try operation() } catch {
         reason = error
         let messages = [
-          "read": "Не удалось прочитать файл", "decrypt": "Не удалось расшифровать файл",
-          "parse": "Не удалось прочитать формат сохранённых данных",
-          "encrypt": "Не удалось зашифровать данные", "write": "Не удалось сохранить файл",
+          "read": localized("Could not read the file"),
+          "decrypt": localized("Could not decrypt the file"),
+          "parse": localized("Could not read the saved data format"),
+          "encrypt": localized("Could not encrypt the data"),
+          "write": localized("Could not save the file"),
         ]
         value.status = .failed
         let error = error as NSError
@@ -66,7 +70,7 @@ public final class ClipboardStorage {
           ? error : underlying?.domain == NSPOSIXErrorDomain ? underlying : nil
         value.diagnostic = .init(
           stage: stage, code: posix.flatMap { codes[$0.code] },
-          message: messages[stage] ?? "Ошибка хранилища")
+          message: messages[stage] ?? localized("Storage error"))
         changed()
         throw unavailable()
       }

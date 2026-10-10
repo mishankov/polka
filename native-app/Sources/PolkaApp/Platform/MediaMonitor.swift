@@ -34,7 +34,7 @@ import SwiftUI
   }
   func set(_ device: String, enabled: Bool) throws {
     guard ["camera", "microphone"].contains(device) else {
-      throw PolkaCoreError.invalid("Неизвестное устройство")
+      throw PolkaCoreError.invalid(localized("Unknown device"))
     }
     var next = preferences
     next[device + "Enabled"] = enabled
@@ -162,12 +162,12 @@ struct NativeMediaPresentation {
   var label: String {
     func label(_ name: String, _ state: String) -> String {
       let labels = [
-        "active": "используется", "inactive": "не используется",
-        "disabled": "отслеживание выключено", "unknown": "статус недоступен",
+        "active": localized("in use"), "inactive": localized("not in use"),
+        "disabled": localized("tracking off"), "unknown": localized("status unavailable"),
       ]
       return "\(name): \(labels[state] ?? labels["unknown"]!)."
     }
-    return label("Камера", camera) + " " + label("Микрофон", microphone)
+    return label(localized("Camera"), camera) + " " + label(localized("Microphone"), microphone)
   }
 }
 struct NativeMediaIndicatorView: View {
