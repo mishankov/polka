@@ -24,6 +24,7 @@ struct NativeShelfView: View {
       model.searchRevision += 1
     }
     .modifier(NativeFileDropModifier(model: model))
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("native-shelf")
   }
 }
@@ -183,48 +184,37 @@ struct NativeClipboardView: View {
   private var isSnippets: Bool { model.destination == "snippets" }
   var body: some View {
     VStack(spacing: 0) {
-      HStack {
-        NativeIconButton(
-          label: "Назад", symbol: "arrow.left", shortcut: model.draft != nil ? "esc" : "⌫",
-          disabled: model.busy
-        ) { model.back() }
-        Text(
-          model.draft != nil
-            ? (model.draft!.id.isEmpty ? "Создать сниппет" : "Изменить сниппет")
-            : isSnippets ? "Сниппеты" : "Буфер обмена"
-        ).font(.system(size: 17, weight: .semibold))
+      NativeBuiltinHeader(
+        model: model,
+        title: model.draft.map { $0.id.isEmpty ? "Создать сниппет" : "Изменить сниппет" }
+          ?? (isSnippets ? "Сниппеты" : "Буфер обмена")
+      ) {
         if model.settings.paused, !isSnippets {
           Text("Запись на паузе").font(.system(size: 11)).foregroundStyle(.secondary)
         }
-        Spacer()
-        if isSnippets, model.draft == nil {
+        if isSnippets, model.draft == nil, model.previewID == nil {
           NativeCommandButton(
             title: "Создать", symbol: "plus", shortcut: "⌘N",
-            disabled: !model.writable || model.busy
-          ) { model.createSnippet() }
+            disabled: !model.writable || model.busy, prominent: true
+          ) { model.createSnippet() }.accessibilityIdentifier("snippet-create")
         }
-        if !isSnippets, model.draft == nil {
+        if !isSnippets, model.draft == nil, !model.confirmClear {
           Menu {
-            Button("Копировать без вставки · ⇧↵") {
-              if let clip = model.preview ?? model.selectedClip {
-                model.chooseClip(clip, copyOnly: true)
-              }
-            }.disabled(model.selectedClip == nil || model.busy)
             Button("Очистить историю на всех связанных Mac… · ⌘⇧⌫") {
               model.showClearConfirmation()
             }.disabled(!model.writable || model.clips.isEmpty || model.busy)
           } label: {
-            Image(systemName: "ellipsis").frame(width: 24, height: 24)
-          }.menuStyle(.borderlessButton).fixedSize()
+            Image(systemName: "ellipsis").frame(width: 20, height: 20)
+          }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(.glass).buttonBorderShape(.circle)
+            .controlSize(.regular).disabled(model.busy)
+            .help("Действия с историей").accessibilityLabel("Действия с историей")
         }
-      }.padding(12)
+      }
       if model.draft == nil, model.previewID == nil, !model.confirmClear {
-        NativeSearchField(
-          text: $model.query,
+        NativeBuiltinSearch(
+          model: model,
           placeholder: isSnippets
-            ? "Найти текст или название…" : "Найти текст, в том числе на изображениях…",
-          focusToken: "\(model.destination)-\(model.visible)-list-\(model.sessionRevision)"
-        ).frame(maxWidth: .infinity).frame(height: 44).padding(.horizontal, 12).padding(.bottom, 10)
+            ? "Найти текст или название…" : "Найти текст, в том числе на изображениях…")
       }
       Divider()
       NativePasteAccessHint(model: model)
@@ -244,19 +234,57 @@ struct NativeClipboardView: View {
         clipList
       }
       Divider()
-      HStack {
-        if model.draft != nil {
-          Text("⌘↵ сохранить   esc отменить")
-        } else if model.previewID != nil || model.confirmClear {
-          Text("⌫ / esc вернуться к списку")
-        } else {
-          Text("↑ ↓ выбрать   ↵ \(model.canPaste ? "вставить" : "копировать")   esc закрыть")
-          Spacer()
-          Button("⌘↵ просмотр") { if let clip = model.selectedClip { model.openPreview(clip) } }
-            .buttonStyle(.plain).disabled(model.selectedClip == nil || model.busy)
+      if model.draft != nil {
+        NativeToolbar {
+          Spacer(minLength: 0)
+          NativeCommandButton(title: "Отмена", shortcut: "esc", disabled: model.busy) {
+            model.back()
+          }
+          NativeCommandButton(
+            title: "Сохранить", shortcut: "⌘↵",
+            disabled: model.busy || !model.writable || model.draft?.content.isEmpty != false,
+            prominent: true
+          ) { model.saveSnippet() }.accessibilityIdentifier("snippet-save")
         }
-      }.font(.system(size: 11)).foregroundStyle(.secondary).padding(12)
-    }.accessibilityIdentifier(isSnippets ? "native-snippets" : "native-clipboard")
+        NativeKeyboardHint(text: "⌘↵ сохранить   esc отменить")
+      } else if model.confirmClear {
+        NativeToolbar {
+          Spacer(minLength: 0)
+          NativeCommandButton(title: "Отмена", shortcut: "esc", disabled: model.busy) {
+            model.back()
+          }
+          NativeCommandButton(
+            title: "Удалить на всех связанных Mac", shortcut: "⌘↵",
+            disabled: model.busy || !model.writable, destructive: true
+          ) { model.clearHistory() }
+        }
+        NativeKeyboardHint(text: "⌫ / esc вернуться к списку")
+      } else {
+        NativeToolbar {
+          if model.previewID == nil {
+            NativeCommandButton(
+              title: "Просмотр", symbol: "eye", shortcut: "⌘↵",
+              disabled: model.selectedClip == nil || model.busy
+            ) { if let clip = model.selectedClip { model.openPreview(clip) } }
+            .accessibilityIdentifier("builtin-preview")
+          }
+          Spacer(minLength: 0)
+          NativeSelectionActions(
+            canPaste: model.canPaste,
+            disabled: (model.preview ?? model.selectedClip) == nil || model.busy
+          ) { copyOnly in
+            if let clip = model.preview ?? model.selectedClip {
+              model.chooseClip(clip, copyOnly: copyOnly)
+            }
+          }
+        }
+        NativeKeyboardHint(
+          text: model.previewID != nil
+            ? "⌫ / esc вернуться к списку"
+            : "↑ ↓ выбрать   ↵ \(model.canPaste ? "вставить" : "копировать")   esc закрыть")
+      }
+    }.accessibilityElement(children: .contain).accessibilityIdentifier(
+      isSnippets ? "native-snippets" : "native-clipboard")
   }
   private var editor: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -279,16 +307,7 @@ struct NativeClipboardView: View {
           ? "Одинаковый текст может быть у разных сниппетов."
           : "Сниппет будет сохранён отдельно от истории буфера."
       ).font(.system(size: 11)).foregroundStyle(.secondary)
-      HStack {
-        NativeCommandButton(
-          title: "Сохранить", shortcut: "⌘↵",
-          disabled: model.busy || !model.writable || model.draft?.content.isEmpty != false,
-          prominent: true
-        ) { model.saveSnippet() }.accessibilityIdentifier("snippet-save")
-        NativeCommandButton(title: "Отмена", shortcut: "esc", disabled: model.busy) { model.back() }
-        if model.busy { ProgressView().controlSize(.small) }
-      }
-    }.padding(14).onAppear { editorNameFocused = true }
+    }.padding(12).onAppear { editorNameFocused = true }
   }
   private var confirmation: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -296,15 +315,8 @@ struct NativeClipboardView: View {
       Text(
         "Закреплённые записи тоже будут удалены. Удаление передастся связанным Mac, в том числе после их подключения. Сниппеты и текущий буфер обмена останутся на месте."
       ).font(.system(size: 13)).foregroundStyle(.secondary)
-      HStack {
-        NativeCommandButton(
-          title: "Удалить на всех связанных Mac", shortcut: "⌘↵",
-          disabled: model.busy || !model.writable, destructive: true
-        ) { model.clearHistory() }
-        NativeCommandButton(title: "Отмена", shortcut: "esc", disabled: model.busy) { model.back() }
-      }
       Spacer()
-    }.padding(20).accessibilityIdentifier("clear-history-confirmation")
+    }.padding(12).accessibilityIdentifier("clear-history-confirmation")
   }
   private var clipList: some View {
     ScrollViewReader { reader in
@@ -337,7 +349,7 @@ struct NativeClipboardView: View {
             }.padding(32)
           }
           ForEach(Array(model.clipResults.enumerated()), id: \.element.id) { position, clip in
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
               Button {
                 model.selectedID = clip.id
                 model.chooseClip(clip)

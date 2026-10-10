@@ -397,7 +397,11 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     guard !model.busy, NSApp.modalWindow == nil, NSApp.keyWindow?.attachedSheet == nil else {
       return
     }
-    if NSApp.keyWindow === shelf { hide() } else { NSApp.keyWindow?.performClose(sender) }
+    if NSApp.keyWindow === shelf {
+      model.closeShelf()
+    } else {
+      NSApp.keyWindow?.performClose(sender)
+    }
   }
   @objc private func hideApplicationAction(_ sender: Any?) {
     guard !model.busy, NSApp.modalWindow == nil,

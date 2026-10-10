@@ -16,7 +16,7 @@ extension NativeUIModel {
   /// All command buttons and keyboard commands call the same guarded model
   /// actions. Physical key codes keep bindings usable with non-Latin layouts.
   @discardableResult func handleKeyboard(_ key: NativeKeyInput) -> Bool {
-    if key.composing { return false }
+    if key.composing || !nativeCommandInteractionAllowed { return false }
     let flags = key.modifiers.intersection([.command, .option, .control, .shift])
     let command = flags.contains(.command)
     let shift = flags.contains(.shift)
@@ -28,7 +28,7 @@ extension NativeUIModel {
     // Native menus, attached sheets, and shortcut recording own keyboard input.
     let known =
       escape || (enter && (!key.editing || key.searchEditing || command || previewID != nil))
-      || (command && (delete || [45, 1, 14, 35, 0, 43, 15, 32].contains(key.code)))
+      || (command && (delete || [45, 1, 14, 35, 0, 43, 15, 32, 13].contains(key.code)))
       || (command && nativeNumber(key) != nil)
     if busy { return known }
     if key.repeatKey, known { return true }
@@ -69,6 +69,10 @@ extension NativeUIModel {
         }
       }
       return false
+    }
+    if cmd, key.code == 13 {
+      closeShelf()
+      return true
     }
     if draft != nil {
       if enter, cmd {
@@ -261,7 +265,7 @@ extension NativeUIModel {
     }
   }
   func showClearConfirmation() {
-    guard writable, !busy, !clips.isEmpty else { return }
+    guard writable, !busy, nativeCommandInteractionAllowed, !clips.isEmpty else { return }
     previewID = nil
     confirmClear = true
   }

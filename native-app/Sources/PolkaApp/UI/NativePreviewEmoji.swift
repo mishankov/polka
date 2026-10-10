@@ -20,14 +20,18 @@ extension NativeUIModel {
           id: "upperCase", label: "ПРОПИСНЫЕ",
           disabled: busy || clip.content.uppercased() == clip.content,
           run: { [weak self] in
-            guard self?.busy == false, clip.content.uppercased() != clip.content else { return }
+            guard self?.busy == false, nativeCommandInteractionAllowed,
+              clip.content.uppercased() != clip.content
+            else { return }
             self?.transformation = "upperCase"
           }),
         NativePreviewAction(
           id: "lowerCase", label: "строчные",
           disabled: busy || clip.content.lowercased() == clip.content,
           run: { [weak self] in
-            guard self?.busy == false, clip.content.lowercased() != clip.content else { return }
+            guard self?.busy == false, nativeCommandInteractionAllowed,
+              clip.content.lowercased() != clip.content
+            else { return }
             self?.transformation = "lowerCase"
           }),
       ]
@@ -36,7 +40,7 @@ extension NativeUIModel {
           NativePreviewAction(
             id: "original", label: "Показать оригинал", disabled: busy,
             run: { [weak self] in
-              guard self?.busy == false else { return }
+              guard self?.busy == false, nativeCommandInteractionAllowed else { return }
               self?.transformation = nil
             }))
       }
@@ -85,25 +89,16 @@ struct NativeClipboardPreview: View {
               label: clip.snippet ? "Изменить сниппет" : "Создать сниппет", symbol: "pencil",
               shortcut: "⌘E",
               disabled: model.busy || !model.writable
-                || !model.settings.builtinApps.allows(destination: "snippets"), compact: true
+                || !model.settings.builtinApps.allows(destination: "snippets")
             ) { model.edit(clip) }
           }
-          if model.canPaste {
-            NativeCommandButton(title: "Копировать", shortcut: "⇧↵", disabled: model.busy) {
-              model.chooseClip(clip, copyOnly: true)
-            }
-          }
-          NativeCommandButton(
-            title: model.canPaste ? "Вставить" : "Копировать", shortcut: "↵", disabled: model.busy,
-            prominent: true
-          ) { model.chooseClip(clip) }
         }
-      }.padding(10)
+      }.padding(12)
       if clip.kind != "text" {
         HStack(spacing: 8) {
           previewActionButtons
           Spacer(minLength: 0)
-        }.padding(.horizontal, 10).padding(.bottom, 10)
+        }.padding(.horizontal, 12).padding(.bottom, 10)
       }
       if let transformation = model.transformation {
         Text(
@@ -183,7 +178,7 @@ struct NativeClipboardPreview: View {
       if action.id == "original" {
         NativeIconButton(
           label: action.label, symbol: "arrow.uturn.backward", shortcut: "⌘\(index + 1)",
-          disabled: action.disabled, compact: true
+          disabled: action.disabled
         ) { action.run() }
       } else {
         NativeCommandButton(
@@ -218,18 +213,11 @@ struct NativeEmojiView: View {
   @ObservedObject var model: NativeUIModel
   var body: some View {
     VStack(spacing: 0) {
-      HStack {
-        NativeIconButton(
-          label: "Назад к приложениям", symbol: "arrow.left", shortcut: "⌫", disabled: model.busy
-        ) { model.back() }
-        Text("Эмодзи").font(.system(size: 17, weight: .semibold))
-        Spacer()
+      NativeBuiltinHeader(model: model, title: "Эмодзи") {
         Text("Русский / English").font(.system(size: 11)).foregroundStyle(.secondary)
-      }.padding(12)
-      NativeSearchField(
-        text: $model.query, placeholder: "Название или слово: улыбка, heart…", maxLength: 256,
-        focusToken: "emoji-\(model.visible)-\(model.sessionRevision)"
-      ).frame(maxWidth: .infinity).frame(height: 44).padding(.horizontal, 12).padding(.bottom, 10)
+      }
+      NativeBuiltinSearch(
+        model: model, placeholder: "Название или слово: улыбка, heart…", maxLength: 256)
       NativeEmojiCategoryPicker(model: model).frame(maxWidth: .infinity).frame(height: 40)
         .glassEffect(.regular, in: Capsule())
         .padding(.horizontal, 12).padding(.bottom, 10)
@@ -281,7 +269,9 @@ struct NativeEmojiView: View {
               Text("Ничего не найдено").font(.system(size: 15, weight: .semibold))
               Text("Попробуйте другое слово на русском или английском.").foregroundStyle(.secondary)
               if model.emojiCategory != "all" || model.emojiTone != "default" {
-                Button("Искать во всех категориях и оттенках") {
+                NativeCommandButton(
+                  title: "Искать во всех категориях и оттенках", disabled: model.busy
+                ) {
                   model.emojiCategory = "all"
                   model.emojiTone = "all"
                 }
@@ -292,8 +282,8 @@ struct NativeEmojiView: View {
         }
       }
       Divider()
-      HStack(spacing: 12) {
-        Text(model.selectedEmoji?.value ?? "⌕").font(.system(size: 30)).frame(width: 40)
+      NativeToolbar {
+        Text(model.selectedEmoji?.value ?? "⌕").font(.system(size: 30)).frame(width: 40, height: 32)
         VStack(alignment: .leading, spacing: 3) {
           Text(model.selectedEmoji?.name ?? "Выберите эмодзи").font(
             .system(size: 13, weight: .semibold)
@@ -303,18 +293,18 @@ struct NativeEmojiView: View {
           ).foregroundStyle(.secondary).lineLimit(1)
         }
         Spacer()
-        NativeCommandButton(
-          title: "Копировать", shortcut: "⇧↵", disabled: model.selectedEmoji == nil || model.busy
-        ) { if let emoji = model.selectedEmoji { model.chooseEmoji(emoji, copyOnly: true) } }
-      }.padding(12)
-      Text("↑ ↓ ← → выбрать   ↵ \(model.canPaste ? "вставить" : "копировать")   esc закрыть").font(
-        .system(size: 11)
-      ).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(
-        .horizontal, 12
-      ).padding(.bottom, 12)
+        NativeSelectionActions(
+          canPaste: model.canPaste, disabled: model.selectedEmoji == nil || model.busy
+        ) { copyOnly in
+          if let emoji = model.selectedEmoji { model.chooseEmoji(emoji, copyOnly: copyOnly) }
+        }
+      }
+      NativeKeyboardHint(
+        text: "↑ ↓ ← → выбрать   ↵ \(model.canPaste ? "вставить" : "копировать")   esc закрыть")
     }.onChange(of: model.query) { _, _ in model.emojiCategory = "all" }.onChange(
       of: model.emojiTone
-    ) { _, _ in model.selectedID = nil }.accessibilityIdentifier("native-emoji")
+    ) { _, _ in model.selectedID = nil }.accessibilityElement(children: .contain)
+      .accessibilityIdentifier("native-emoji")
   }
 }
 

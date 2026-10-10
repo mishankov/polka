@@ -4,6 +4,37 @@ import XCTest
 @testable import PolkaApp
 
 final class NativeKeyboardTests: XCTestCase {
+  @MainActor func testSharedCloseUsesGuardedCommandAndPreservesDraft() async {
+    let model = NativeUIModel()
+    model.storageStatus = "ready"
+    model.present(destination: "snippets")
+    model.createSnippet()
+    model.draft?.content = "unsaved"
+    var commands: [NativeUICommand] = []
+    model.action = { commands.append($0) }
+    let close = NativeKeyInput(code: 13, characters: "ц", modifiers: .command)
+    model.busy = true
+    model.closeShelf()
+    XCTAssertTrue(model.handleKeyboard(close))
+    model.perform(NativeUICommand("launcher.hide"))
+    model.busy = false
+    var repeated = close
+    repeated.repeatKey = true
+    XCTAssertTrue(model.handleKeyboard(repeated))
+    var composing = close
+    composing.composing = true
+    XCTAssertFalse(model.handleKeyboard(composing))
+    await Task.yield()
+    XCTAssertTrue(commands.isEmpty)
+    XCTAssertTrue(model.handleKeyboard(close))
+    for _ in 0..<20 where model.busy { await Task.yield() }
+    XCTAssertEqual(commands.map(\.name), ["launcher.hide"])
+    XCTAssertEqual(model.draft?.content, "unsaved")
+    model.conceal()
+    model.closeShelf()
+    await Task.yield()
+    XCTAssertEqual(commands.count, 1)
+  }
   @MainActor func testSnippetKeyboardPreservesDraftAndUsesSaveAction() async throws {
     let model = NativeUIModel()
     model.storageStatus = "ready"

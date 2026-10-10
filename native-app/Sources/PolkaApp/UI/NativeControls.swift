@@ -1,14 +1,22 @@
 import AppKit
 import SwiftUI
 
+/// AppKit owns input while a sheet or modal dialog is open. Accessibility
+/// presses must respect the same boundary as pointer and keyboard commands.
+@MainActor var nativeCommandInteractionAllowed: Bool {
+  NSApp?.modalWindow == nil && NSApp?.keyWindow?.attachedSheet == nil
+    && NSApp?.keyWindow?.sheetParent == nil
+    && NSApp?.windows.contains(where: { $0.attachedSheet != nil }) != true
+}
+
 /// Native glass belongs to interactive controls above the opaque shelf.
 private struct NativeCommandStyle: ViewModifier {
   var prominent: Bool = false
   @ViewBuilder func body(content: Content) -> some View {
     if prominent {
-      content.buttonStyle(.glassProminent)
+      content.buttonStyle(.glassProminent).controlSize(.regular).font(.system(size: 13))
     } else {
-      content.buttonStyle(.glass)
+      content.buttonStyle(.glass).controlSize(.regular).font(.system(size: 13))
     }
   }
 }
@@ -22,18 +30,22 @@ struct NativeCommandButton: View {
   var destructive = false
   var action: () -> Void
   var body: some View {
-    Button(action: action) {
+    Button {
+      if !disabled, nativeCommandInteractionAllowed, !NSMenuTrackingState.shared.active { action() }
+    } label: {
       HStack(spacing: 5) {
         if !symbol.isEmpty { Image(systemName: symbol) }
         Text(title)
         if !shortcut.isEmpty { Text(shortcut).font(.system(size: 11)).foregroundStyle(.secondary) }
-      }
+      }.foregroundStyle(.primary).frame(minHeight: 20)
     }
     .modifier(NativeCommandStyle(prominent: prominent))
+    .buttonBorderShape(.capsule)
     .tint(destructive ? .red : prominent ? .accentColor : nil)
     .disabled(disabled)
     .help(title + (shortcut.isEmpty ? "" : " · " + shortcut))
     .accessibilityHint(shortcut.isEmpty ? "" : "Сочетание клавиш: " + shortcut)
+    .accessibilityCustomContent("Сочетание клавиш", Text(shortcut))
   }
 }
 struct NativeIconButton: View {
@@ -41,16 +53,95 @@ struct NativeIconButton: View {
   var symbol: String
   var shortcut = ""
   var disabled = false
-  var compact = false
   var action: () -> Void
   var body: some View {
-    Button(action: action) {
-      Image(systemName: symbol).frame(width: compact ? 14 : 23, height: compact ? 14 : 23)
+    Button {
+      if !disabled, nativeCommandInteractionAllowed, !NSMenuTrackingState.shared.active { action() }
+    } label: {
+      Image(systemName: symbol).foregroundStyle(.primary).frame(width: 20, height: 20)
     }
     .modifier(NativeCommandStyle()).buttonBorderShape(.circle).disabled(disabled)
     .help(label + (shortcut.isEmpty ? "" : " · " + shortcut))
     .accessibilityLabel(label).accessibilityHint(
-      shortcut.isEmpty ? "" : "Сочетание клавиш: " + shortcut)
+      shortcut.isEmpty ? "" : "Сочетание клавиш: " + shortcut
+    )
+    .accessibilityCustomContent("Сочетание клавиш", Text(shortcut))
+  }
+}
+
+/// Shared chrome keeps navigation, command targets and insets stable across
+/// built-in apps. Each surface supplies only its own title and extra actions.
+struct NativeToolbar<Content: View>: View {
+  @ViewBuilder var content: () -> Content
+  var body: some View {
+    HStack(spacing: 8, content: content).frame(minHeight: 32).padding(12)
+  }
+}
+
+struct NativeBuiltinHeader<Actions: View>: View {
+  @ObservedObject var model: NativeUIModel
+  var title: String
+  @ViewBuilder var actions: () -> Actions
+  var body: some View {
+    NativeToolbar {
+      NativeIconButton(
+        label: model.draft != nil
+          ? "Отменить редактирование"
+          : model.previewID != nil || model.confirmClear ? "Назад к списку" : "Назад к приложениям",
+        symbol: "arrow.left", shortcut: model.draft != nil ? "esc" : "⌫", disabled: model.busy
+      ) { model.back() }.accessibilityIdentifier("builtin-back")
+      Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+      Spacer(minLength: 8)
+      if model.busy { ProgressView().controlSize(.small).accessibilityLabel("Выполняем…") }
+      actions()
+      NativeIconButton(
+        label: "Закрыть полку", symbol: "xmark", shortcut: "⌘W", disabled: model.busy
+      ) { model.closeShelf() }.accessibilityIdentifier("builtin-close")
+    }
+  }
+}
+
+struct NativeBuiltinSearch: View {
+  @ObservedObject var model: NativeUIModel
+  var placeholder: String
+  var maxLength = 10000
+  var body: some View {
+    NativeSearchField(
+      text: $model.query, placeholder: placeholder, maxLength: maxLength,
+      focusToken: "\(model.destination)-\(model.visible)-list-\(model.sessionRevision)"
+    ).frame(maxWidth: .infinity).frame(height: NativeLargeSearchField.controlHeight)
+      .padding(.horizontal, 12).padding(.bottom, 10)
+  }
+}
+
+/// Enter and Shift Enter always use the same selected-item handlers as these
+/// buttons. Copy-only is secondary when automatic paste is available.
+struct NativeSelectionActions: View {
+  var canPaste: Bool
+  var disabled: Bool
+  var choose: (Bool) -> Void
+  var body: some View {
+    HStack(spacing: 8) {
+      if canPaste {
+        NativeCommandButton(title: "Копировать", shortcut: "⇧↵", disabled: disabled) {
+          choose(true)
+        }.accessibilityIdentifier("builtin-copy")
+      }
+      NativeCommandButton(
+        title: canPaste ? "Вставить" : "Копировать", shortcut: canPaste ? "↵" : "↵ / ⇧↵",
+        disabled: disabled,
+        prominent: true
+      ) { choose(false) }.accessibilityIdentifier("builtin-select")
+    }
+  }
+}
+
+struct NativeKeyboardHint: View {
+  var text: String
+  var body: some View {
+    Text(text).font(.system(size: 11)).foregroundStyle(.secondary)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 12).padding(.bottom, 12)
   }
 }
 struct NativeErrorNotice: View {
