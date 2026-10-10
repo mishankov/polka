@@ -17,7 +17,8 @@ public struct ToolRequest {
       "verify": ["prebuilt", "release", "no-desktop", "no-updates", "no-tools", "external-drops"],
       "package": ["prebuilt", "desktop", "official", "debug", "dir"],
       "release": ["prebuilt", "desktop", "publish"], "release-verify": [],
-      "release-notes": ["version"], "release-prepare": [], "signing-certificate": [],
+      "release-notes": ["version"], "release-prepare": [], "nightly-prepare": [],
+      "signing-certificate": [],
       "emoji-data": [], "format": ["check"],
     ]
     guard let options = allowed[command] else {
@@ -75,6 +76,7 @@ public enum Automation {
       release [--prebuilt --desktop --publish]
       release-verify                Authenticate release artifacts
       release-notes TAG OUTPUT.md [SOURCE.json] | --version TAG
+      nightly-prepare               Pin the nightly version and source commit
       release-prepare               Pin and validate the CI release source
       signing-certificate DIRECTORY Create a persistent release signing identity
       emoji-data                    Regenerate the pinned Unicode/CLDR catalog
@@ -238,6 +240,7 @@ public enum Automation {
     case "release-verify": _ = try ReleaseTool.verifyRelease(context: context)
     case "release-notes":
       try ReleaseTool.notesCommand(arguments: request.arguments, context: context)
+    case "nightly-prepare": try NightlyPreparation.run(context: context)
     case "release-prepare": _ = try ReleasePreparation.run(context: context)
     case "signing-certificate":
       try ReleaseTool.createSigningCertificate(arguments: request.positionals, context: context)

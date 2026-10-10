@@ -107,9 +107,11 @@ public enum UpdateSmoke {
         let actual = try bundleVersion()
         try Desktop.require(actual == expected, message)
       }
-      func command(_ name: String) throws {
+      func command(_ name: String, value: String? = nil) throws {
+        var command = ["id": UUID().uuidString, "name": name]
+        command["value"] = value
         try Files.writeJSON(
-          ["id": UUID().uuidString, "name": name],
+          command,
           to: profile.appendingPathComponent("command.json"))
       }
       func launch() throws {
@@ -286,11 +288,100 @@ public enum UpdateSmoke {
           "Update lost encrypted snippets")
         try assertBundleVersion(newMetadata.version, "Installed bundle has wrong version")
         _ = try SigningTool.verify(bundle: oldBundle, appId: appID, fingerprint: fingerprint)
+        // Preserve the stable install above, then test an actual numeric nightly
+        // through the second feed, including persistence and a return to stable.
+        var nightlyMetadata = newMetadata
+        nightlyMetadata.version = try NightlyPreparation.version(
+          base: newMetadata.version, date: Date(), runID: "1", attempt: "1")
+        let nightlyBundle = directory.appendingPathComponent("nightly/\(product).app")
+        try SigningTool.withKeychain(env) { publicEnv in
+          var buildEnv = publicEnv
+          buildEnv["RELEASE_CHANNEL"] = "nightly"
+          buildEnv["RELEASE_TAG"] = "v\(nightlyMetadata.version)"
+          _ = try BuildTool.build(
+            options: BuildOptions(
+              release: release, official: true, prebuilt: true, bundlePath: nightlyBundle,
+              sourceMetadata: nightlyMetadata,
+              updateFixture: UpdateFixture(
+                profile: profile, receipt: receipt,
+                password: Data(password.utf8).base64EncodedString(),
+                feed: URL(string: server.origin + "/appcast.xml"))),
+            context: ToolContext(root: context.root, environment: buildEnv))
+        }
+        let nightlyFilename = try ReleaseMetadata.artifactNames(metadata: nightlyMetadata)[1]
+        let nightlyArchive = directory.appendingPathComponent(nightlyFilename)
+        try Command.run(
+          "/usr/bin/ditto",
+          ["-c", "-k", "--sequesterRsrc", "--keepParent", nightlyBundle.path, nightlyArchive.path])
+        let nightlyBytes = try Data(contentsOf: nightlyArchive)
+        let nightlySignature = try Command.capture(
+          context.root.appendingPathComponent(
+            "native-app/.build/artifacts/sparkle/Sparkle/bin/sign_update"
+          ).path,
+          ["--ed-key-file", "-", "-p", nightlyArchive.path], input: Data(privateKey.utf8)
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        let nightlyFeed = try ReleaseMetadata.appcast(
+          metadata: nightlyMetadata, repository: "smoke/native", signature: nightlySignature,
+          size: nightlyBytes.count
+        ).replacingOccurrences(
+          of: try ReleaseMetadata.archiveURL(metadata: nightlyMetadata, repository: "smoke/native"),
+          with: server.origin + "/" + nightlyFilename)
+        server.setNightly(feed: nightlyFeed, archive: nightlyBytes)
+        _ = try await receiptWhere("Stable check finishes before channel selection") {
+          ($0["updates"] as? [String: Any])?["status"] as? String == "current"
+        }
+        try command("updates.channel", value: "nightly")
+        _ = try await receiptWhere("Nightly channel selects and stages a numeric version") {
+          let update = $0["updates"] as? [String: Any]
+          return update?["channel"] as? String == "nightly"
+            && update?["status"] as? String == "ready"
+        }
+        try assertBundleVersion(
+          newMetadata.version, "Channel selection installed without authorization")
+        try command("updates.channel", value: "stable")
+        _ = try await receiptWhere("Switching channels cancels the staged nightly") {
+          let update = $0["updates"] as? [String: Any]
+          return update?["channel"] as? String == "stable"
+            && update?["status"] as? String == "current"
+        }
+        try assertBundleVersion(newMetadata.version, "Canceling the staged nightly installed it")
+        try command("updates.channel", value: "nightly")
+        _ = try await receiptWhere("Canceled nightly can be staged again") {
+          let update = $0["updates"] as? [String: Any]
+          return update?["channel"] as? String == "nightly"
+            && update?["status"] as? String == "ready"
+        }
+        try command("updates.install")
+        let nightlyInstalled = try await receiptWhere("Nightly installs and relaunches") {
+          $0["version"] as? String == nightlyMetadata.version
+        }
+        try Desktop.require(
+          preserves(nightlyInstalled, collection: "clips", id: clipID, content: clipContent),
+          "Nightly update lost encrypted history")
+        try Desktop.require(
+          (nightlyInstalled["updates"] as? [String: Any])?["channel"] as? String == "nightly",
+          "Nightly choice did not survive installation")
+        try assertBundleVersion(
+          ReleaseVersion.buildVersion(nightlyMetadata.version),
+          "Nightly bundle has wrong numeric build version")
+        _ = try SigningTool.verify(bundle: oldBundle, appId: appID, fingerprint: fingerprint)
+        _ = try await receiptWhere("Nightly check finishes before returning to stable") {
+          ($0["updates"] as? [String: Any])?["status"] as? String == "current"
+        }
+        try command("updates.channel", value: "stable")
+        _ = try await receiptWhere("Returning to stable does not downgrade the nightly") {
+          let update = $0["updates"] as? [String: Any]
+          return update?["channel"] as? String == "stable"
+            && update?["status"] as? String == "current"
+        }
+        try assertBundleVersion(
+          ReleaseVersion.buildVersion(nightlyMetadata.version), "Stable feed downgraded a nightly")
         passed = true
         persist()
         try await cleanup()
         print(
-          "Native update smoke passed: tamper rejection, staging, ordinary quit cancellation, explicit install, relaunch, signatures and encrypted data."
+          "Native update smoke passed: tamper rejection, staging, ordinary quit cancellation, explicit install, relaunch, stable/nightly channels, numeric ordering, signatures and encrypted data."
         )
       } catch {
         persist()

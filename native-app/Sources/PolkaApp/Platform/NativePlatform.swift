@@ -14,7 +14,7 @@ import UserNotifications
   let shortcuts: GlobalShortcuts?
   let probe = HelperProcess()
   let fileProbe = HelperProcess()
-  let updates: NativeUpdates
+  private(set) var updates: NativeUpdates
   let sync: NativeClipboardSync
   let fixture: Bool
   private let encryption: EncryptionCodec
@@ -214,6 +214,12 @@ import UserNotifications
       }
     }
     if !fixture { updates.start() }
+    refresh()
+  }
+  func setUpdateServiceForFixture(_ service: NativeUpdates) {
+    precondition(fixture && NativeProfile.isolatedFixture)
+    updates = service
+    updates.changed = { [weak self] in self?.refresh() }
     refresh()
   }
   func refreshCatalog() async throws {
@@ -486,6 +492,8 @@ import UserNotifications
     nextSettings.syncStorageStage = syncState.storage.diagnostic?.stage ?? ""
     nextSettings.syncStorageCode = syncState.storage.diagnostic?.code ?? ""
     nextSettings.currentVersion = updates.currentVersion
+    nextSettings.updateChannel = updates.channel
+    nextSettings.canChangeUpdateChannel = updates.canChangeChannel
     nextSettings.updateStatus = updates.status
     nextSettings.updateVersion = updates.version
     nextSettings.updateNotes = updates.notes
@@ -974,6 +982,7 @@ import UserNotifications
     case "clipboardHistory.syncPair": try await sync.pair(command.strings["code"] ?? "")
     case "clipboardHistory.syncForget": try await sync.forget(id)
     case "clipboardHistory.syncNow": await sync.syncNow()
+    case "updates.channel": try await updates.setChannel(command.strings["value"] ?? "")
     case "updates.check": try updates.check()
     case "updates.install": try await updates.install()
     case "updates.skip": try await updates.skip(version: command.strings["version"])

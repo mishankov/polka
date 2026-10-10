@@ -479,3 +479,9 @@
 " (today in the source time zone)" = " (today in the source time zone)";
 "Version {0} Is Available" = "Version {0} Is Available";
 "Version {0} Is Ready to Install" = "Version {0} Is Ready to Install";
+"Update Channel" = "Update Channel";
+"Stable" = "Stable";
+"Nightly" = "Nightly";
+"Stable contains released versions. Nightly contains daily builds from master and may have bugs." = "Stable contains released versions. Nightly contains daily builds from master and may have bugs.";
+"You will receive the next stable version newer than this nightly. Switching channels does not downgrade the app." = "You will receive the next stable version newer than this nightly. Switching channels does not downgrade the app.";
+"Invalid update channel" = "Invalid update channel";

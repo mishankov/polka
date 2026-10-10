@@ -5,7 +5,8 @@ import Network
 final class UpdateHTTPServer: @unchecked Sendable {
   private let listener: NWListener, queue = DispatchQueue(label: "polka.tools.update-http")
   private let mutex = NSLock()
-  private var feed = Data(), archive = Data(), active: [UUID: NWConnection] = [:]
+  private var feed = Data(), nightlyFeed = Data(), archive = Data(),
+    active: [UUID: NWConnection] = [:]
   private var requests: [[String: Any]] = []
   let port: UInt16
   var origin: String { "http://127.0.0.1:\(port)" }
@@ -73,6 +74,12 @@ final class UpdateHTTPServer: @unchecked Sendable {
     self.archive = archive
     mutex.unlock()
   }
+  func setNightly(feed: String, archive: Data) {
+    mutex.lock()
+    nightlyFeed = Data(feed.utf8)
+    self.archive = archive
+    mutex.unlock()
+  }
   private func remove(_ id: UUID) {
     mutex.lock()
     active.removeValue(forKey: id)
@@ -104,10 +111,15 @@ final class UpdateHTTPServer: @unchecked Sendable {
         self.mutex.lock()
         self.requests.append(["url": path, "at": Date().timeIntervalSince1970 * 1000])
         let body =
-          path == "/appcast.xml" ? self.feed : path.hasSuffix(".zip") ? self.archive : Data()
+          path == "/appcast.xml"
+          ? self.feed
+          : path == "/nightly.xml"
+            ? self.nightlyFeed : path.hasSuffix(".zip") ? self.archive : Data()
         self.mutex.unlock()
-        let status = path == "/appcast.xml" || path.hasSuffix(".zip") ? "200 OK" : "404 Not Found"
-        let type = path == "/appcast.xml" ? "application/xml" : "application/octet-stream"
+        let status =
+          path == "/appcast.xml" || path == "/nightly.xml" || path.hasSuffix(".zip")
+          ? "200 OK" : "404 Not Found"
+        let type = path.hasSuffix(".xml") ? "application/xml" : "application/octet-stream"
         let reply =
           Data(
             "HTTP/1.1 \(status)\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"

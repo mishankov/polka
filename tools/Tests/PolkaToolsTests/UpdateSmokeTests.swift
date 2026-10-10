@@ -47,8 +47,13 @@ final class UpdateSmokeTests: XCTestCase {
     let (archive, _) = try await URLSession.shared.data(
       from: URL(string: server.origin + "/fixture.zip")!)
     XCTAssertEqual(archive, bytes)
+    server.setNightly(feed: "nightly feed", archive: bytes)
+    let (nightly, nightlyResponse) = try await URLSession.shared.data(
+      from: URL(string: server.origin + "/nightly.xml")!)
+    XCTAssertEqual((nightlyResponse as? HTTPURLResponse)?.statusCode, 200)
+    XCTAssertEqual(nightly, Data("nightly feed".utf8))
     XCTAssertEqual(
       server.requestLog.compactMap { $0["url"] as? String },
-      ["/appcast.xml", "/appcast.xml?no-cache", "/appcast.xml", "/fixture.zip"])
+      ["/appcast.xml", "/appcast.xml?no-cache", "/appcast.xml", "/fixture.zip", "/nightly.xml"])
   }
 }

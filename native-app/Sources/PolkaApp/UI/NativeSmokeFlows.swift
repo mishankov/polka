@@ -29,7 +29,7 @@ import SwiftUI
 /// this process's real AppKit event loop, and every copy uses the injected board.
 @MainActor func nativeSmokeAdditionalFlows(
   application: NativeApplication, shelf: NSWindow, model: NativeUIModel, platform: NativePlatform,
-  settingsOnly: Bool = false
+  settingsOnly: Bool = false, previewsOnly: Bool = false
 ) async -> [String] {
   guard NativeProfile.isolatedFixture else { return ["native smoke requires an isolated profile"] }
   // Ask this fixture process to materialize SwiftUI's virtual accessibility
@@ -152,7 +152,7 @@ import SwiftUI
     view.needsDisplay = true
     view.displayIfNeeded()
     if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1",
-      name.hasPrefix("controls-") || name == "snippet-editor"
+      name.hasPrefix("controls-") || name.hasPrefix("settings-update-") || name == "snippet-editor"
         || name == "clipboard-clear-confirmation"
     {
       // Opt-in, window-only capture includes SwiftUI's compositor-backed glass.
@@ -182,6 +182,87 @@ import SwiftUI
     } else {
       failures.append("cannot render screenshot \(name)")
     }
+  }
+  if previewsOnly {
+    let standardWidth = shelf.frame.width
+    model.query = ""
+    // Color/plain-text previews exercise the same real AppKit keyboard route and
+    // synthetic clipboard as the other desktop flows, never the user's board.
+    trace("color and plain-text previews")
+    let previewFixtures: [(String, String)] = [
+      ("color", "rgba(100, 160, 255, 0.5)"),
+      ("plain", "Цвет #64a0ff упоминается в тексте.\nОбычный текст остаётся обычным текстом."),
+      ("large", String(repeating: "x", count: 1_048_500)),
+    ]
+    for (name, content) in previewFixtures {
+      do {
+        try platform.history.add(.text, content: content, preview: String(content.prefix(400)))
+      } catch {
+        failures.append("cannot create \(name) preview fixture: \(error)")
+        continue
+      }
+      platform.refresh()
+      await application.show("clipboard")
+      guard let clip = model.clips.first(where: { Data($0.content.utf8) == Data(content.utf8) })
+      else {
+        failures.append("missing \(name) preview fixture")
+        continue
+      }
+      model.selectedID = clip.id
+      let original = platform.history.snapshot()
+      post(36, .command, "\r")
+      if !(await wait({ model.previewID == clip.id })) {
+        failures.append("Command Enter did not open \(name) preview")
+      }
+      guard
+        let text = await nativeSmokeWaitForView(
+          in: shelf, ofType: NSTextView.self,
+          ready: {
+            $0.accessibilityIdentifier() == "clipboard-preview-text"
+              && Data($0.string.utf8) == Data(content.utf8)
+          })
+      else {
+        failures.append("\(name) preview did not render exact selectable text")
+        model.back()
+        continue
+      }
+      if !text.isSelectable || text.isEditable || text.isAutomaticLinkDetectionEnabled {
+        failures.append("\(name) preview text was not inert and selectable")
+      }
+      await screenshot("clipboard-preview-\(name)")
+      if abs(shelf.frame.width - standardWidth) > 1 {
+        failures.append("\(name) entry preview is wider than launcher")
+      }
+      platform.capture.write(text: "Synthetic preview copy sentinel")
+      post(36, .shift, "\r")
+      if !(await wait({
+        !model.busy && Data(platform.capture.syntheticText.utf8) == Data(content.utf8)
+      })) {
+        failures.append("Shift Enter did not copy exact \(name) preview text")
+      }
+      if !model.visible { await application.show(nil) }
+      platform.capture.write(text: "Synthetic preview select sentinel")
+      post(36, [], "\r")
+      if !(await wait({
+        !model.busy && !model.visible
+          && Data(platform.capture.syntheticText.utf8) == Data(content.utf8)
+      })) {
+        failures.append("Enter did not select exact \(name) preview text for paste")
+      }
+      if platform.history.snapshot() != original {
+        failures.append("opening/copying \(name) preview changed stored history")
+      }
+      // A copy can close the shelf; reopen the preserved preview before returning.
+      if !model.visible { await application.show(nil) }
+      post(53)
+      if !(await wait({ model.previewID == nil })) {
+        failures.append("Escape did not return \(name) preview to history")
+      }
+    }
+    await screenshot("clipboard-color-history")
+    await application.show("clipboard")
+    await settle()
+    return failures
   }
   if !settingsOnly {
     // Real window lifecycle, not just model dispatch: a delayed close must not
@@ -594,80 +675,6 @@ import SwiftUI
     } else {
       failures.append("fixture has no text record for preview keyboard flow")
     }
-    // Color/plain-text previews exercise the same real AppKit keyboard route and
-    // synthetic clipboard as the other desktop flows, never the user's board.
-    trace("color and plain-text previews")
-    let previewFixtures: [(String, String)] = [
-      ("color", "rgba(100, 160, 255, 0.5)"),
-      ("plain", "Цвет #64a0ff упоминается в тексте.\nОбычный текст остаётся обычным текстом."),
-      ("large", String(repeating: "x", count: 1_048_500)),
-    ]
-    for (name, content) in previewFixtures {
-      do {
-        try platform.history.add(.text, content: content, preview: String(content.prefix(400)))
-      } catch {
-        failures.append("cannot create \(name) preview fixture: \(error)")
-        continue
-      }
-      platform.refresh()
-      await application.show("clipboard")
-      guard let clip = model.clips.first(where: { Data($0.content.utf8) == Data(content.utf8) })
-      else {
-        failures.append("missing \(name) preview fixture")
-        continue
-      }
-      model.selectedID = clip.id
-      let original = platform.history.snapshot()
-      post(36, .command, "\r")
-      if !(await wait({ model.previewID == clip.id })) {
-        failures.append("Command Enter did not open \(name) preview")
-      }
-      guard
-        let text = await nativeSmokeWaitForView(
-          in: shelf, ofType: NSTextView.self,
-          ready: {
-            $0.accessibilityIdentifier() == "clipboard-preview-text"
-              && Data($0.string.utf8) == Data(content.utf8)
-          })
-      else {
-        failures.append("\(name) preview did not render exact selectable text")
-        model.back()
-        continue
-      }
-      if !text.isSelectable || text.isEditable || text.isAutomaticLinkDetectionEnabled {
-        failures.append("\(name) preview text was not inert and selectable")
-      }
-      await screenshot("clipboard-preview-\(name)")
-      if abs(shelf.frame.width - standardWidth) > 1 {
-        failures.append("\(name) entry preview is wider than launcher")
-      }
-      platform.capture.write(text: "Synthetic preview copy sentinel")
-      post(36, .shift, "\r")
-      if !(await wait({
-        !model.busy && Data(platform.capture.syntheticText.utf8) == Data(content.utf8)
-      })) {
-        failures.append("Shift Enter did not copy exact \(name) preview text")
-      }
-      if !model.visible { await application.show(nil) }
-      platform.capture.write(text: "Synthetic preview select sentinel")
-      post(36, [], "\r")
-      if !(await wait({
-        !model.busy && !model.visible
-          && Data(platform.capture.syntheticText.utf8) == Data(content.utf8)
-      })) {
-        failures.append("Enter did not select exact \(name) preview text for paste")
-      }
-      if platform.history.snapshot() != original {
-        failures.append("opening/copying \(name) preview changed stored history")
-      }
-      // A copy can close the shelf; reopen the preserved preview before returning.
-      if !model.visible { await application.show(nil) }
-      post(53)
-      if !(await wait({ model.previewID == nil })) {
-        failures.append("Escape did not return \(name) preview to history")
-      }
-    }
-    await screenshot("clipboard-color-history")
     await application.show("snippets")
     await settle()
     if let snippet = model.snippets.first {
@@ -1188,6 +1195,103 @@ import SwiftUI
         )
       }
       await screenshot("settings-about", window: settings)
+      // Use the real channel picker and keyboard events with a synthetic updater.
+      // No network feed, installer, clipboard, or other app instance is touched.
+      let originalUpdateService = platform.updates
+      let originalAction = model.action
+      let channelDraft = model.draft
+      let channelPairingCode = model.pairingCode
+      func russianChannelScreenshot(_ name: String) async {
+        let language = model.settings.languagePreference
+        do {
+          try await platform.handle(NativeUICommand("settings.language", strings: ["value": "ru"]))
+          await screenshot(name, window: settings, includeTitlebar: true)
+          try await platform.handle(
+            NativeUICommand("settings.language", strings: ["value": language.rawValue]))
+          await settle()
+        } catch {
+          failures.append("Russian update channel screenshot failed: \(error)")
+        }
+      }
+      var savedUpdatePreferences: [String: Any] = [:]
+      var updateChecks = 0
+      var installed = false
+      let channelService = NativeUpdates(
+        currentVersion: "0.1.16-nightly.20261010021700.123.1", enabled: true,
+        nightlyFeed: "https://example.invalid/nightly.xml",
+        savePreferences: { savedUpdatePreferences = $0 }, checkAction: { updateChecks += 1 })
+      platform.setUpdateServiceForFixture(channelService)
+      model.action = { command in
+        switch command.name {
+        case "updates.channel": try await channelService.setChannel(command.strings["value"] ?? "")
+        case "updates.check":
+          try channelService.check()
+          channelService.receiveCurrent()
+        case "updates.install": try await channelService.install()
+        default: try await originalAction?(command)
+        }
+      }
+      channelService.changed?()
+      await settle()
+      settings.makeFirstResponder(sidebar)
+      var channelPicker: NativeUpdateChannelPopUp?
+      for _ in 0..<20 {
+        post(48, window: settings)
+        await settle()
+        if let control = settings.firstResponder as? NativeUpdateChannelPopUp {
+          channelPicker = control
+          break
+        }
+      }
+      if let channelPicker {
+        post(49, [], " ", window: settings)
+        post(125, window: settings)
+        post(36, [], "\r", window: settings)
+        if !(await wait({ model.settings.updateChannel == .nightly && !model.commandPending })) {
+          failures.append("channel picker keyboard flow did not select nightly")
+          post(53, window: settings)
+        }
+        if savedUpdatePreferences["channel"] as? String != "nightly" {
+          failures.append("nightly channel keyboard choice was not persisted")
+        }
+        await screenshot("settings-update-nightly", window: settings, includeTitlebar: true)
+        await russianChannelScreenshot("settings-update-nightly-ru")
+        post(15, [.command], "r", window: settings)
+        if !(await wait({ updateChecks == 1 && !model.commandPending })) {
+          failures.append("update check keyboard shortcut did not use the selected channel")
+        }
+        settings.makeFirstResponder(channelPicker)
+        post(49, [], " ", window: settings)
+        post(126, window: settings)
+        post(36, [], "\r", window: settings)
+        if !(await wait({ model.settings.updateChannel == .stable && !model.commandPending })) {
+          failures.append("channel picker keyboard flow did not return to stable")
+          post(53, window: settings)
+        }
+        await screenshot("settings-update-stable", window: settings, includeTitlebar: true)
+        await russianChannelScreenshot("settings-update-stable-ru")
+        channelService.receiveAvailable(version: "0.1.16")
+        channelService.receiveReady(version: "0.1.16") { installed = $0 == .install }
+        await settle()
+        settings.makeFirstResponder(sidebar)
+        post(32, [.command, .shift], "u", window: settings)
+        if !(await wait({ installed && !model.commandPending })) {
+          failures.append(
+            "update install shortcut did not use the same guarded action: status=\(model.settings.updateStatus), pending=\(model.commandPending), error=\(model.error), pane=\(model.settingsPane); \(keyboardState(settings))"
+          )
+        }
+      } else {
+        failures.append("Tab did not reach the update channel picker")
+      }
+      if model.draft != channelDraft || model.pairingCode != channelPairingCode {
+        failures.append("channel choice changed an unsaved draft")
+      }
+      channelService.changed = nil
+      model.action = originalAction
+      platform.setUpdateServiceForFixture(originalUpdateService)
+      await settle()
+      settings.makeFirstResponder(sidebar)
+
       for _ in 0..<nativeSettingsPanes.count where model.settingsPane != "general" {
         post(126, window: settings)
         await settle()

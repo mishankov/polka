@@ -497,6 +497,27 @@ struct NativeUpdatesView: View {
           model.settings.updateStatus == "error" ? .red : .secondary
         ).textSelection(.enabled)
       }
+      HStack {
+        Text(localized("Update Channel")).font(.system(size: 13))
+        Spacer()
+        NativeUpdateChannelPicker(model: model).frame(width: 180)
+      }
+      Text(
+        localized(
+          "Stable contains released versions. Nightly contains daily builds from master and may have bugs."
+        )
+      )
+      .font(.system(size: 12)).foregroundStyle(.secondary)
+      if model.settings.updateChannel == .stable,
+        model.settings.currentVersion.contains("-nightly.")
+      {
+        Text(
+          localized(
+            "You will receive the next stable version newer than this nightly. Switching channels does not downgrade the app."
+          )
+        )
+        .font(.system(size: 12)).foregroundStyle(.secondary)
+      }
       if model.settings.updateStatus != "unavailable" {
         Text(
           localized(
@@ -544,7 +565,7 @@ struct NativeUpdatesView: View {
           title: model.settings.updateStatus == "checking"
             ? localized("Checking…") : localized("Check for Updates"),
           shortcut: "⌘R", disabled: model.busy || model.settings.updateStatus == "checking"
-        ) { model.perform(NativeUICommand("updates.check")) }
+        ) { model.checkForUpdates() }
       }
       if ["ready", "installing"].contains(model.settings.updateStatus) {
         NativeCommandButton(
@@ -587,7 +608,7 @@ struct NativeUpdateNotice: View {
             prominent: true
           ) {
             if model.settings.updateStatus == "error" {
-              model.perform(NativeUICommand("updates.check"))
+              model.checkForUpdates()
             } else {
               model.installUpdate()
             }
@@ -926,6 +947,48 @@ final class NativeLanguagePopUp: NSPopUpButton {
       NSApp?.modalWindow == nil, window?.attachedSheet == nil
     else { return }
     changeValue?(AppLanguagePreference.allCases[indexOfSelectedItem])
+  }
+  override func keyDown(with event: NSEvent) {
+    if event.isARepeat { return }
+    super.keyDown(with: event)
+  }
+}
+
+/// Channel selection uses the same native keyboard flow as the language picker.
+struct NativeUpdateChannelPicker: NSViewRepresentable {
+  @ObservedObject var model: NativeUIModel
+  func makeNSView(context: Context) -> NativeUpdateChannelPopUp {
+    let control = NativeUpdateChannelPopUp(frame: .zero, pullsDown: false)
+    control.target = control
+    control.action = #selector(NativeUpdateChannelPopUp.change)
+    control.setAccessibilityIdentifier("settings-update-channel")
+    return control
+  }
+  func updateNSView(_ control: NativeUpdateChannelPopUp, context: Context) {
+    let labels = [localized("Stable"), localized("Nightly")]
+    if control.itemTitles != labels {
+      control.removeAllItems()
+      control.addItems(withTitles: labels)
+    }
+    control.selectItem(
+      at: NativeUpdateChannel.allCases.firstIndex(of: model.settings.updateChannel) ?? 0)
+    control.setAccessibilityLabel(localized("Update Channel"))
+    control.isEnabled =
+      !model.busy && !model.commandPending && model.settings.canChangeUpdateChannel
+    control.changeValue = { model.setUpdateChannel($0) }
+  }
+}
+final class NativeUpdateChannelPopUp: NSPopUpButton {
+  var changeValue: ((NativeUpdateChannel) -> Void)?
+  override var acceptsFirstResponder: Bool { isEnabled }
+  override var canBecomeKeyView: Bool {
+    acceptsFirstResponder && !isHiddenOrHasHiddenAncestor && window?.canBecomeKey == true
+  }
+  @objc func change() {
+    guard isEnabled, NativeUpdateChannel.allCases.indices.contains(indexOfSelectedItem),
+      NSApp?.modalWindow == nil, window?.attachedSheet == nil
+    else { return }
+    changeValue?(NativeUpdateChannel.allCases[indexOfSelectedItem])
   }
   override func keyDown(with event: NSEvent) {
     if event.isARepeat { return }

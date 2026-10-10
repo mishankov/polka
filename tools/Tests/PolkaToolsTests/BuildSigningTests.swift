@@ -28,6 +28,9 @@ final class BuildSigningTests: XCTestCase {
     XCTAssertEqual(
       parsed["NSLocalNetworkUsageDescription"] as? String,
       "Polka syncs clipboard history between linked Macs on your local network.")
+    XCTAssertEqual(
+      parsed["PolkaNightlyFeedURL"] as? String,
+      "https://github.com/owner/polka/releases/download/nightly/appcast.xml")
     XCTAssertEqual(parsed["SUAutomaticallyUpdate"] as? Bool, false)
     XCTAssertEqual(parsed["SUVerifyUpdateBeforeExtraction"] as? Bool, true)
     XCTAssertEqual(parsed["SUScheduledCheckInterval"] as? Int, 21600)
