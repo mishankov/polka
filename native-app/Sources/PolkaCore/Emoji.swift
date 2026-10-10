@@ -20,24 +20,31 @@ public struct EmojiTone: Equatable, Sendable, Identifiable {
   public var id: String { value }
 }
 public struct EmojiCatalog: Sendable {
-  public static let categories: [EmojiCategory] = [
-    EmojiCategory(id: "all", label: "Все эмодзи", symbol: "⌘"),
-    EmojiCategory(id: "Smileys & Emotion", label: "Смайлы и эмоции", symbol: "😀"),
-    EmojiCategory(id: "People & Body", label: "Люди и жесты", symbol: "👋"),
-    EmojiCategory(id: "Animals & Nature", label: "Животные и природа", symbol: "🌿"),
-    EmojiCategory(id: "Food & Drink", label: "Еда и напитки", symbol: "🍋"),
-    EmojiCategory(id: "Travel & Places", label: "Места и транспорт", symbol: "🚀"),
-    EmojiCategory(id: "Activities", label: "Занятия", symbol: "⚽"),
-    EmojiCategory(id: "Objects", label: "Предметы", symbol: "💡"),
-    EmojiCategory(id: "Symbols", label: "Символы", symbol: "❤️"),
-    EmojiCategory(id: "Flags", label: "Флаги", symbol: "🏳️"),
-  ]
-  public static let tones: [EmojiTone] = [
-    EmojiTone(value: "default", label: "✋ Стандартный"),
-    EmojiTone(value: "🏻", label: "Очень светлый"), EmojiTone(value: "🏼", label: "Светлый"),
-    EmojiTone(value: "🏽", label: "Средний"), EmojiTone(value: "🏾", label: "Тёмный"),
-    EmojiTone(value: "🏿", label: "Очень тёмный"), EmojiTone(value: "all", label: "Все оттенки"),
-  ]
+  public static var categories: [EmojiCategory] {
+    [
+      EmojiCategory(id: "all", label: localized("All emoji"), symbol: "⌘"),
+      EmojiCategory(id: "Smileys & Emotion", label: localized("Smileys & Emotion"), symbol: "😀"),
+      EmojiCategory(id: "People & Body", label: localized("People & Body"), symbol: "👋"),
+      EmojiCategory(id: "Animals & Nature", label: localized("Animals & Nature"), symbol: "🌿"),
+      EmojiCategory(id: "Food & Drink", label: localized("Food & Drink"), symbol: "🍋"),
+      EmojiCategory(id: "Travel & Places", label: localized("Travel & Places"), symbol: "🚀"),
+      EmojiCategory(id: "Activities", label: localized("Activities"), symbol: "⚽"),
+      EmojiCategory(id: "Objects", label: localized("Objects"), symbol: "💡"),
+      EmojiCategory(id: "Symbols", label: localized("Symbols"), symbol: "❤️"),
+      EmojiCategory(id: "Flags", label: localized("Flags"), symbol: "🏳️"),
+    ]
+  }
+  public static var tones: [EmojiTone] {
+    [
+      EmojiTone(value: "default", label: localized("✋ Default")),
+      EmojiTone(value: "🏻", label: localized("Light")),
+      EmojiTone(value: "🏼", label: localized("Medium-light")),
+      EmojiTone(value: "🏽", label: localized("Medium")),
+      EmojiTone(value: "🏾", label: localized("Medium-dark")),
+      EmojiTone(value: "🏿", label: localized("Dark")),
+      EmojiTone(value: "all", label: localized("All skin tones")),
+    ]
+  }
   private static let aliases = [
     "😀": "смайл смайлик улыбка smile happy", "😂": "лол ржу смех lol laughing",
     "🤣": "лол ржу смех lol rofl",

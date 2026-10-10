@@ -129,6 +129,7 @@ final class NativeDevelopmentKeychain {
 
   private func failure() -> PolkaCoreError {
     .storage(
-      "Не удалось получить ключ шифрования из Связки ключей через помощник development-сборки")
+      localized(
+        "Could not retrieve the encryption key from Keychain using the development build helper"))
   }
 }

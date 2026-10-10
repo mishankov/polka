@@ -11,7 +11,7 @@ final class MediaTests: XCTestCase {
     XCTAssertFalse(NativeMediaPresentation(camera: "inactive", microphone: "disabled").visible)
     XCTAssertTrue(
       NativeMediaPresentation(camera: "active", microphone: "inactive").label.contains(
-        "Камера: используется"))
+        localized("Camera") + ": " + localized("in use")))
   }
   @MainActor func testDefaultTrackingAndPartialLegacyPreferences() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

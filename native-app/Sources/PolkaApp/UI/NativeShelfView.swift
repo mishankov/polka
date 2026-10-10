@@ -37,11 +37,11 @@ struct NativeLauncherView: View {
     return VStack(spacing: 0) {
       HStack(spacing: 10) {
         NativeSearchField(
-          text: $model.query, placeholder: "Найти или посчитать…",
+          text: $model.query, placeholder: localized("Find or calculate…"),
           focusToken: "apps-\(model.visible)-\(model.sessionRevision)"
         ).frame(maxWidth: .infinity).frame(height: 44)
         NativeIconButton(
-          label: "Настройки", symbol: "gearshape", shortcut: "⌘,", disabled: model.busy
+          label: localized("Settings"), symbol: "gearshape", shortcut: "⌘,", disabled: model.busy
         ) { model.perform(NativeUICommand("shelf.settings")) }
       }.padding(14)
       Divider()
@@ -55,7 +55,7 @@ struct NativeLauncherView: View {
             NativeErrorNotice(text: model.error.isEmpty ? model.catalogError : model.error).padding(
               .horizontal, 10)
             if !model.error.isEmpty || !model.catalogError.isEmpty {
-              NativeCommandButton(title: "Обновить список", disabled: model.busy) {
+              NativeCommandButton(title: localized("Refresh List"), disabled: model.busy) {
                 model.perform(NativeUICommand("launcher.refresh"))
               }.padding(.horizontal, 12)
             }
@@ -102,7 +102,9 @@ struct NativeLauncherView: View {
               }.buttonStyle(.plain).disabled(model.busy).padding(.horizontal, 6)
                 .id(result.id).accessibilityIdentifier("result-\(result.id)")
                 .accessibilityLabel(result.title).accessibilityHint(
-                  position < 9 ? "Открыть: ⌘\(position + 1)" : "Открыть: Enter"
+                  position < 9
+                    ? localized("Open: ⌘{0}", String(describing: position + 1))
+                    : localized("Open: Enter")
                 )
                 .onHover { if $0, model.selectedID != result.id { model.selectedID = result.id } }
             }
@@ -112,8 +114,8 @@ struct NativeLauncherView: View {
               } else {
                 Text(
                   model.query.isEmpty
-                    ? "Список приложений пока пуст. Попробуйте обновить его."
-                    : "Ничего не найдено. Попробуйте другое слово."
+                    ? localized("The app list is empty. Try refreshing it.")
+                    : localized("Nothing found. Try another word.")
                 ).foregroundStyle(.secondary).font(.system(size: 13)).padding(24)
               }
             }
@@ -128,24 +130,30 @@ struct NativeLauncherView: View {
       HStack {
         Text(
           model.busy
-            ? "Выполняем…" : model.catalogLoading ? "Ищем…" : "Результаты · \(results.count)")
+            ? localized("Working…")
+            : model.catalogLoading
+              ? localized("Searching…")
+              : localized("Results · {0}", String(describing: results.count)))
         Spacer()
       }.font(.system(size: 11)).foregroundStyle(.secondary).padding(12)
     }
   }
   private var welcome: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Всё начинается с полки").font(.system(size: 14, weight: .semibold))
+      Text(localized("It All Starts with the Shelf")).font(.system(size: 14, weight: .semibold))
       Text(
-        "Открывайте приложения и находите скопированное. Вернуться сюда можно через значок в строке меню, наведением к вырезу камеры или \(nativeShortcutLabel(model.settings.launcherShortcut))."
+        localized(
+          "Open apps and find copied items. Return here using the menu bar icon, hovering over the camera notch, or {0}.",
+          String(describing: nativeShortcutLabel(model.settings.launcherShortcut)))
       ).font(.system(size: 12)).foregroundStyle(.secondary)
       HStack {
-        NativeCommandButton(title: "Понятно", disabled: model.busy) {
+        NativeCommandButton(title: localized("Got It"), disabled: model.busy) {
           model.perform(
             NativeUICommand(
               "settings.set", strings: ["key": "shelfIntroduced"], bools: ["value": true]))
         }
-        NativeCommandButton(title: "Настроить полку", shortcut: "⌘,", disabled: model.busy) {
+        NativeCommandButton(title: localized("Set Up Shelf"), shortcut: "⌘,", disabled: model.busy)
+        {
           model.perform(NativeUICommand("shelf.settings"))
         }
       }
@@ -154,10 +162,11 @@ struct NativeLauncherView: View {
   }
   private func group(_ result: NativeUISearchRow) -> String {
     result.kind == "calculation"
-      ? "Калькулятор"
+      ? localized("Calculator")
       : result.kind == "clip" || result.kind == "more-clips" || result.kind == "more-snippets"
-        ? (result.snippet || result.kind == "more-snippets" ? "Сниппеты" : "Буфер обмена")
-        : "Приложения"
+        ? (result.snippet || result.kind == "more-snippets"
+          ? localized("Snippets") : localized("Clipboard"))
+        : localized("Apps")
   }
   @ViewBuilder private func resultIcon(_ result: NativeUISearchRow) -> some View {
     if let image = nativeImage(result.icon) {
@@ -185,35 +194,37 @@ struct NativeClipboardView: View {
     VStack(spacing: 0) {
       NativeBuiltinHeader(
         model: model,
-        title: model.draft.map { $0.id.isEmpty ? "Создать сниппет" : "Изменить сниппет" }
-          ?? (isSnippets ? "Сниппеты" : "Буфер обмена")
+        title: model.draft.map {
+          $0.id.isEmpty ? localized("Create Snippet") : localized("Edit Snippet")
+        }
+          ?? (isSnippets ? localized("Snippets") : localized("Clipboard"))
       ) {
         if model.settings.paused, !isSnippets {
-          Text("Запись на паузе").font(.system(size: 11)).foregroundStyle(.secondary)
+          Text(localized("Recording Paused")).font(.system(size: 11)).foregroundStyle(.secondary)
         }
         if isSnippets, model.draft == nil, model.previewID == nil {
           NativeCommandButton(
-            title: "Создать", symbol: "plus", shortcut: "⌘N",
+            title: localized("Create"), symbol: "plus", shortcut: "⌘N",
             disabled: !model.writable || model.busy, prominent: true
           ) { model.createSnippet() }.accessibilityIdentifier("snippet-create")
         }
         if !isSnippets, model.draft == nil, !model.confirmClear {
           Menu {
-            Button("Очистить историю на всех связанных Mac… · ⌘⇧⌫") {
+            Button(localized("Clear History on All Linked Macs… · ⌘⇧⌫")) {
               model.showClearConfirmation()
             }.disabled(!model.writable || model.clips.isEmpty || model.busy)
           } label: {
             Image(systemName: "ellipsis").frame(width: 20, height: 20)
           }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(.glass).buttonBorderShape(.circle)
             .controlSize(.regular).disabled(model.busy)
-            .help("Действия с историей").accessibilityLabel("Действия с историей")
+            .help(localized("History actions")).accessibilityLabel(localized("History actions"))
         }
       }
       if model.draft == nil, model.previewID == nil, !model.confirmClear {
         NativeBuiltinSearch(
           model: model,
           placeholder: isSnippets
-            ? "Найти текст или название…" : "Найти текст, в том числе на изображениях…")
+            ? localized("Find text or a name…") : localized("Find text, including text in images…"))
       }
       Divider()
       NativePasteAccessHint(model: model)
@@ -236,11 +247,11 @@ struct NativeClipboardView: View {
       if model.draft != nil {
         NativeToolbar {
           Spacer(minLength: 0)
-          NativeCommandButton(title: "Отмена", shortcut: "esc", disabled: model.busy) {
+          NativeCommandButton(title: localized("Cancel"), shortcut: "esc", disabled: model.busy) {
             model.back()
           }
           NativeCommandButton(
-            title: "Сохранить", shortcut: "⌘↵",
+            title: localized("Save"), shortcut: "⌘↵",
             disabled: model.busy || !model.writable || model.draft?.content.isEmpty != false,
             prominent: true
           ) { model.saveSnippet() }.accessibilityIdentifier("snippet-save")
@@ -248,11 +259,11 @@ struct NativeClipboardView: View {
       } else if model.confirmClear {
         NativeToolbar {
           Spacer(minLength: 0)
-          NativeCommandButton(title: "Отмена", shortcut: "esc", disabled: model.busy) {
+          NativeCommandButton(title: localized("Cancel"), shortcut: "esc", disabled: model.busy) {
             model.back()
           }
           NativeCommandButton(
-            title: "Удалить на всех связанных Mac", shortcut: "⌘↵",
+            title: localized("Delete on All Linked Macs"), shortcut: "⌘↵",
             disabled: model.busy || !model.writable, destructive: true
           ) { model.clearHistory() }
         }
@@ -260,7 +271,7 @@ struct NativeClipboardView: View {
         NativeToolbar {
           if model.previewID == nil {
             NativeCommandButton(
-              title: "Просмотр", symbol: "eye", shortcut: "⌘↵",
+              title: localized("Preview"), symbol: "eye", shortcut: "⌘↵",
               disabled: model.selectedClip == nil || model.busy
             ) { if let clip = model.selectedClip { model.openPreview(clip) } }
             .accessibilityIdentifier("builtin-preview")
@@ -281,7 +292,7 @@ struct NativeClipboardView: View {
   }
   private var editor: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("Название (необязательно)").font(.system(size: 12))
+      Text(localized("Name (optional)")).font(.system(size: 12))
       TextField(
         "",
         text: Binding(
@@ -289,7 +300,7 @@ struct NativeClipboardView: View {
           set: { model.draft?.name = nativeLimitedText($0, utf16Limit: 120) })
       ).textFieldStyle(.roundedBorder).focused($editorNameFocused).disabled(model.busy)
         .accessibilityIdentifier("snippet-name")
-      Text("Текст").font(.system(size: 12))
+      Text(localized("Text")).font(.system(size: 12))
       TextEditor(
         text: Binding(get: { model.draft?.content ?? "" }, set: { model.draft?.content = $0 })
       ).font(.system(size: 14)).padding(4).background(
@@ -297,16 +308,19 @@ struct NativeClipboardView: View {
       ).disabled(model.busy).accessibilityIdentifier("snippet-content")
       Text(
         model.draft?.id.isEmpty == false
-          ? "Одинаковый текст может быть у разных сниппетов."
-          : "Сниппет будет сохранён отдельно от истории буфера."
+          ? localized("Different snippets can have the same text.")
+          : localized("The snippet will be saved separately from clipboard history.")
       ).font(.system(size: 11)).foregroundStyle(.secondary)
     }.padding(12).onAppear { editorNameFocused = true }
   }
   private var confirmation: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text("Удалить историю на всех связанных Mac?").font(.system(size: 18, weight: .semibold))
+      Text(localized("Delete History on All Linked Macs?")).font(
+        .system(size: 18, weight: .semibold))
       Text(
-        "Закреплённые записи тоже будут удалены. Удаление передастся связанным Mac, в том числе после их подключения. Сниппеты и текущий буфер обмена останутся на месте."
+        localized(
+          "Pinned items will also be deleted. Deletion will be synced to linked Macs, including when they reconnect. Snippets and the current clipboard will be preserved."
+        )
       ).font(.system(size: 13)).foregroundStyle(.secondary)
       Spacer()
     }.padding(12).accessibilityIdentifier("clear-history-confirmation")
@@ -323,21 +337,22 @@ struct NativeClipboardView: View {
                 .foregroundStyle(.secondary)
               Text(
                 model.storageStatus == "failed"
-                  ? "История недоступна"
+                  ? localized("History Unavailable")
                   : !model.query.isEmpty
-                    ? "Ничего не найдено"
-                    : isSnippets ? "Сохраните готовый текст" : "Здесь появится скопированное"
+                    ? localized("Nothing Found")
+                    : isSnippets
+                      ? localized("Save Ready-to-Use Text") : localized("Copied Items Appear Here")
               ).font(.system(size: 15, weight: .semibold))
               Text(
                 model.storageStatus == "failed"
-                  ? "Восстановите доступ к хранилищу и перезапустите Полку."
+                  ? localized("Restore access to storage and restart Polka.")
                   : !model.query.isEmpty
-                    ? "Попробуйте другое слово."
+                    ? localized("Try another word.")
                     : isSnippets
-                      ? "Создайте сниппет для адреса, реквизитов или стандартного ответа."
+                      ? localized("Create a snippet for an address, details, or a standard reply.")
                       : model.settings.paused
-                        ? "Включите сохранение буфера обмена в настройках приложения."
-                        : "Скопируйте текст или изображение в любой программе."
+                        ? localized("Enable clipboard recording in app settings.")
+                        : localized("Copy text or an image in any app.")
               ).font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }.padding(32)
           }
@@ -362,7 +377,7 @@ struct NativeClipboardView: View {
                     Text(
                       clip.kind == "image"
                         ? (!model.query.isEmpty
-                          ? nativeClipboardSnippet(clip, query: model.query) : "Изображение")
+                          ? nativeClipboardSnippet(clip, query: model.query) : localized("Image"))
                         : clip.name.isEmpty
                           ? (clip.preview.isEmpty ? clip.content : clip.preview) : clip.name
                     ).font(.system(size: 13)).lineLimit(2)
@@ -379,11 +394,15 @@ struct NativeClipboardView: View {
                   }.frame(maxWidth: .infinity, alignment: .leading)
                 }.frame(maxWidth: .infinity, alignment: .leading)
               }.buttonStyle(.plain).disabled(model.busy).accessibilityIdentifier("clip-\(clip.id)")
-                .accessibilityHint(position < 9 ? "Выбрать: ⌘\(position + 1)" : "Выбрать: Enter")
+                .accessibilityHint(
+                  position < 9
+                    ? localized("Select: ⌘{0}", String(describing: position + 1))
+                    : localized("Select: Enter"))
               if model.selectedClip?.id == clip.id {
                 if clip.kind == "text" {
                   NativeIconButton(
-                    label: clip.snippet ? "Изменить сниппет" : "Создать сниппет", symbol: "pencil",
+                    label: clip.snippet ? localized("Edit Snippet") : localized("Create Snippet"),
+                    symbol: "pencil",
                     shortcut: "⌘E",
                     disabled: !model.writable || model.busy
                       || !model.settings.builtinApps.allows(destination: "snippets")
@@ -392,7 +411,7 @@ struct NativeClipboardView: View {
                 if clip.kind == "image" || nativeWebURL(clip.content) != nil {
                   NativeIconButton(
                     label: clip.kind == "image"
-                      ? "Сохранить изображение…" : "Открыть ссылку в браузере",
+                      ? localized("Save Image…") : localized("Open Link in Browser"),
                     symbol: clip.kind == "image" ? "arrow.down.to.line" : "arrow.up.right",
                     shortcut: clip.kind == "image"
                       ? "⌘S" + (position < 9 ? " / ⌘⌥\(position + 1)" : "")
@@ -400,11 +419,12 @@ struct NativeClipboardView: View {
                   ) { model.secondaryClipAction(clip) }
                 }
                 NativeIconButton(
-                  label: "Просмотреть запись", symbol: "eye", shortcut: "⌘↵", disabled: model.busy
+                  label: localized("Preview Item"), symbol: "eye", shortcut: "⌘↵",
+                  disabled: model.busy
                 ) { model.openPreview(clip) }
                 if !isSnippets {
                   NativeIconButton(
-                    label: clip.pinned ? "Открепить" : "Закрепить",
+                    label: clip.pinned ? localized("Unpin") : localized("Pin"),
                     symbol: clip.pinned ? "pin.slash" : "pin", shortcut: "⌘P",
                     disabled: !model.writable || model.busy
                   ) {
@@ -415,7 +435,7 @@ struct NativeClipboardView: View {
                   }
                 }
                 NativeIconButton(
-                  label: "Удалить запись", symbol: "trash", shortcut: "⌘⌫",
+                  label: localized("Delete Item"), symbol: "trash", shortcut: "⌘⌫",
                   disabled: !model.writable || model.busy
                 ) { model.removeClip(clip) }
               }
@@ -441,12 +461,12 @@ struct NativePasteAccessHint: View {
   var body: some View {
     if model.helperStatus == "starting" {
       VStack(alignment: .leading, spacing: 4) {
-        Text("Запускаем наблюдение за буфером обмена…")
+        Text(localized("Starting clipboard monitoring…"))
         if model.settings.pasteOnSelect {
           Text(
             model.destination == "emoji"
-              ? "Пока эмодзи только копируется — вставьте его ⌘V."
-              : "Пока запись только копируется — вставьте её ⌘V.")
+              ? localized("The emoji is only copied for now — paste it with ⌘V.")
+              : localized("The item is only copied for now — paste it with ⌘V."))
         }
       }.font(.system(size: 11)).foregroundStyle(.secondary).frame(
         maxWidth: .infinity, alignment: .leading
@@ -455,11 +475,12 @@ struct NativePasteAccessHint: View {
       HStack(alignment: .top) {
         Text(
           model.pasteAccess == "required"
-            ? "Для автоматической вставки нужен Универсальный доступ. До разрешения используйте ⌘V."
-            : "Автоматическая вставка недоступна. Запись можно скопировать и вставить через ⌘V."
+            ? localized(
+              "Automatic paste requires Accessibility access. Until it is allowed, use ⌘V.")
+            : localized("Automatic paste is unavailable. Copy the item and paste it with ⌘V.")
         ).font(.system(size: 11)).foregroundStyle(.secondary)
         if model.pasteAccess == "required" {
-          Button("Разрешить…") {
+          Button(localized("Allow…")) {
             model.perform(NativeUICommand("clipboardHistory.requestPasteAccess"))
           }.disabled(model.busy).controlSize(.small)
         }
@@ -481,30 +502,39 @@ struct NativeStorageNotice: View {
       VStack(alignment: .leading, spacing: 8) {
         NativeErrorNotice(
           text: sync
-            ? "Хранилище синхронизации недоступно"
-            : model.destination == "snippets" ? "Сниппеты недоступны" : "История буфера недоступна")
+            ? localized("Sync Storage Unavailable")
+            : model.destination == "snippets"
+              ? localized("Snippets Unavailable") : localized("Clipboard History Unavailable"))
         Text(
           sync
-            ? "Синхронизация остановлена. Локальная история и остальные функции Полки остаются доступны."
+            ? localized(
+              "Sync has stopped. Local history and other Polka features remain available.")
             : model.preferencesAvailable
-              ? "Новые записи не сохраняются. Сохранённые записи можно просматривать и копировать. Синхронизация остановлена."
-              : "Не удалось загрузить сохранённую историю и её настройки. Сохранение новых записей, наведение, сочетание истории и автоматическая вставка недоступны. Эмодзи можно копировать."
+              ? localized(
+                "New items are not saved. Saved items can be viewed and copied. Sync has stopped.")
+              : localized(
+                "Could not load saved history and its settings. Recording, hover activation, the history shortcut, and automatic paste are unavailable. Emoji can be copied."
+              )
         ).font(.system(size: 11)).foregroundStyle(.secondary)
         Text(
-          "Файл не сброшен. Восстановите доступ к хранилищу и перезапустите Полку. Перед заменой файла сохраните его зашифрованную копию."
+          localized(
+            "The file has not been reset. Restore access to storage and restart Polka. Before replacing the file, save an encrypted copy."
+          )
         ).font(.system(size: 11)).foregroundStyle(.secondary)
         if ["decrypt", "encrypt"].contains(stage) {
           Text(
-            "Если macOS запросит доступ к «polka Safe Storage», введите пароль связки «Вход» и выберите «Разрешать всегда»."
+            localized(
+              "If macOS requests access to “polka Safe Storage”, enter your “login” keychain password and choose “Always Allow”."
+            )
           ).font(.system(size: 11)).foregroundStyle(.secondary)
         }
-        DisclosureGroup("Подробности ошибки") {
+        DisclosureGroup(localized("Error Details")) {
           Text(diagnostic + (code.isEmpty ? "" : " · " + code)).font(.system(size: 11))
             .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
           Text(path).font(.system(size: 10, design: .monospaced)).textSelection(.enabled).frame(
             maxWidth: .infinity, alignment: .leading)
         }.font(.system(size: 11))
-        NativeCommandButton(title: "Показать файл в Finder", disabled: model.busy) {
+        NativeCommandButton(title: localized("Show File in Finder"), disabled: model.busy) {
           model.perform(
             NativeUICommand("clipboardHistory.revealStorage", strings: ["store": store]))
         }

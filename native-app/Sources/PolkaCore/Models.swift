@@ -49,7 +49,7 @@ public struct ClipboardPreferences: Codable, Equatable {
   }
   public func validate() throws {
     guard [1, 7, 30].contains(retentionDays), accelerator.utf16.count <= 80 else {
-      throw PolkaCoreError.invalid("Некорректные настройки буфера")
+      throw PolkaCoreError.invalid(localized("Invalid clipboard settings"))
     }
   }
 }
@@ -68,7 +68,7 @@ public struct ImageText: Codable, Equatable {
   public func validate() throws {
     guard version.utf16.count <= 100, text.utf16.count <= 1_048_576, languages.count <= 20,
       languages.allSatisfy({ $0.utf16.count <= 40 })
-    else { throw PolkaCoreError.invalid("Некорректные данные распознавания") }
+    else { throw PolkaCoreError.invalid(localized("Invalid text recognition data")) }
   }
 }
 public struct ClipboardClip: Codable, Equatable, Identifiable {
@@ -120,12 +120,12 @@ public struct ClipboardClip: Codable, Equatable, Identifiable {
     guard validClipID(id), content.utf16.count <= ClipboardLimits.maxClipBytes * 2,
       preview.utf16.count <= 200_000, createdAt.isFinite, snippet != false,
       (name?.utf16.count ?? 0) <= 120, (sourceDevice?.utf16.count ?? 0) <= 100
-    else { throw PolkaCoreError.invalid("Некорректная запись буфера") }
+    else { throw PolkaCoreError.invalid(localized("Invalid clipboard item")) }
     if requireSnippet {
       guard isSnippet, kind == .text, !content.isEmpty,
         content.utf16.count <= ClipboardLimits.maxSnippetTextBytes,
         content.utf8.count <= ClipboardLimits.maxSnippetTextBytes
-      else { throw PolkaCoreError.invalid("Некорректный сниппет") }
+      else { throw PolkaCoreError.invalid(localized("Invalid snippet")) }
     }
     try ocr?.validate()
   }
@@ -195,7 +195,8 @@ public func clipboardResults(_ clips: [ClipboardClip], query: String) -> [Clipbo
   return clips.filter { clip in
     let text =
       (clip.kind == .text
-      ? "\(clip.name ?? "") \(clip.content)" : "Изображение \(clip.ocr?.text ?? "")").lowercased()
+      ? "\(clip.name ?? "") \(clip.content)"
+      : localized("Image {0}", String(describing: clip.ocr?.text ?? ""))).lowercased()
     return terms.allSatisfy { text.range(of: $0, options: .literal) != nil }
   }.sorted { $0.pinned != $1.pinned ? $0.pinned : $0.createdAt > $1.createdAt }
 }
@@ -208,7 +209,7 @@ public struct Stamp: Codable, Equatable {
   }
   public func validate() throws {
     guard counter >= 0, counter <= 9_007_199_252_740_991, validDeviceID(device) else {
-      throw PolkaCoreError.invalid("Некорректный штамп синхронизации")
+      throw PolkaCoreError.invalid(localized("Invalid sync timestamp"))
     }
   }
 }
@@ -255,7 +256,7 @@ public struct SyncEntry: Codable, Equatable {
     seen = try c.decodeOptional(Stamp.self, forKey: .seen)
   }
   public func validate() throws {
-    guard snippet != false else { throw PolkaCoreError.invalid("Некорректный тип синхронизации") }
+    guard snippet != false else { throw PolkaCoreError.invalid(localized("Invalid sync type")) }
     try added?.validate()
     try deleted?.validate()
     try seen?.validate()
@@ -311,7 +312,7 @@ public struct SyncManifest: Codable, Equatable {
   public func validate() throws {
     guard version == 1, snippets != false, available.count <= 400,
       available.allSatisfy(validClipID), entries.keys.allSatisfy(validClipID)
-    else { throw PolkaCoreError.invalid("Некорректный манифест") }
+    else { throw PolkaCoreError.invalid(localized("Invalid manifest")) }
     try clear?.validate()
     for entry in entries.values { try entry.validate() }
   }

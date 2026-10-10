@@ -96,7 +96,11 @@ final class NativeBuiltinAppTests: XCTestCase {
         do {
           try await platform.handle(command)
           XCTFail("Allowed disabled action: \(command.name)")
-        } catch { XCTAssertTrue(error.localizedDescription.contains("отключено")) }
+        } catch {
+          XCTAssertTrue(
+            error.localizedDescription
+              == localized("This app is disabled. Enable it in “Built-in Apps” settings."))
+        }
       }
       XCTAssertEqual(platform.model.destination, "apps")
       platform.model.present(destination: "clipboard")

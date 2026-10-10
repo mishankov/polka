@@ -21,7 +21,8 @@ struct NativeColorSwatch: View {
           Color(.sRGB, red: color.red, green: color.green, blue: color.blue, opacity: color.alpha)))
     }.clipShape(RoundedRectangle(cornerRadius: 5)).overlay {
       RoundedRectangle(cornerRadius: 5).stroke(.white.opacity(0.2), lineWidth: 1)
-    }.accessibilityLabel("Цвет · непрозрачность \(Int((color.alpha * 100).rounded()))%")
+    }.accessibilityLabel(
+      localized("Color · opacity {0}%", String(describing: Int((color.alpha * 100).rounded()))))
   }
 }
 
@@ -53,7 +54,7 @@ struct NativePlainTextPreview: NSViewRepresentable {
     view.textContainer?.widthTracksTextView = false
     view.textContainer?.containerSize = view.maxSize
     view.setAccessibilityIdentifier("clipboard-preview-text")
-    view.setAccessibilityLabel("Текст записи")
+    view.setAccessibilityLabel(localized("Item text"))
     scroll.documentView = view
     view.autoresizingMask = []
     return scroll
@@ -79,7 +80,7 @@ struct NativePlainTextPreview: NSViewRepresentable {
     let styled = NSAttributedString(string: text, attributes: attributes)
     view.textStorage?.setAttributedString(styled)
     (scroll as? NativePreviewTextScrollView)?.sizeDocument()
-    view.setAccessibilityHelp("Выделите текст для копирования")
+    view.setAccessibilityHelp(localized("Select text to copy"))
     view.setSelectedRange(NSRange(location: 0, length: 0))
     scroll.contentView.scroll(to: .zero)
     scroll.reflectScrolledClipView(scroll.contentView)

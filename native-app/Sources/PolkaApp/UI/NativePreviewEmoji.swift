@@ -17,7 +17,7 @@ extension NativeUIModel {
     if clip.kind == "text" {
       var actions = [
         NativePreviewAction(
-          id: "upperCase", label: "ПРОПИСНЫЕ",
+          id: "upperCase", label: localized("UPPERCASE"),
           disabled: busy || clip.content.uppercased() == clip.content,
           run: { [weak self] in
             guard self?.busy == false, nativeCommandInteractionAllowed,
@@ -26,7 +26,7 @@ extension NativeUIModel {
             self?.transformation = "upperCase"
           }),
         NativePreviewAction(
-          id: "lowerCase", label: "строчные",
+          id: "lowerCase", label: localized("lowercase"),
           disabled: busy || clip.content.lowercased() == clip.content,
           run: { [weak self] in
             guard self?.busy == false, nativeCommandInteractionAllowed,
@@ -38,7 +38,7 @@ extension NativeUIModel {
       if transformation != nil {
         actions.append(
           NativePreviewAction(
-            id: "original", label: "Показать оригинал", disabled: busy,
+            id: "original", label: localized("Show Original"), disabled: busy,
             run: { [weak self] in
               guard self?.busy == false, nativeCommandInteractionAllowed else { return }
               self?.transformation = nil
@@ -48,13 +48,13 @@ extension NativeUIModel {
     }
     var actions = [
       NativePreviewAction(
-        id: "saveImage", label: "Сохранить изображение…", disabled: busy,
+        id: "saveImage", label: localized("Save Image…"), disabled: busy,
         run: { [weak self] in self?.secondaryClipAction(clip) })
     ]
     if clip.ocrStatus == "ready" {
       actions.append(
         NativePreviewAction(
-          id: "copyImageText", label: "Копировать текст", disabled: busy,
+          id: "copyImageText", label: localized("Copy Text"), disabled: busy,
           run: { [weak self] in
             self?.perform(
               NativeUICommand("clipboardHistory.copyImageText", strings: ["id": clip.id]))
@@ -62,7 +62,8 @@ extension NativeUIModel {
     } else if clip.ocrStatus == "failed" {
       actions.append(
         NativePreviewAction(
-          id: "retryImageText", label: "Повторить распознавание", disabled: busy || !writable,
+          id: "retryImageText", label: localized("Retry Text Recognition"),
+          disabled: busy || !writable,
           run: { [weak self] in
             guard self?.writable == true else { return }
             self?.perform(
@@ -86,7 +87,8 @@ struct NativeClipboardPreview: View {
           Spacer(minLength: 8)
           if clip.kind == "text" {
             NativeIconButton(
-              label: clip.snippet ? "Изменить сниппет" : "Создать сниппет", symbol: "pencil",
+              label: clip.snippet ? localized("Edit Snippet") : localized("Create Snippet"),
+              symbol: "pencil",
               shortcut: "⌘E",
               disabled: model.busy || !model.writable
                 || !model.settings.builtinApps.allows(destination: "snippets")
@@ -102,7 +104,11 @@ struct NativeClipboardPreview: View {
       }
       if let transformation = model.transformation {
         Text(
-          "Результат: \(transformation == "upperCase" ? "ПРОПИСНЫЕ" : "строчные"). Оригинал сохранён."
+          localized(
+            "Result: {0}. The original is preserved.",
+            String(
+              describing: transformation == "upperCase"
+                ? localized("UPPERCASE") : localized("lowercase")))
         ).font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 10).padding(
           .bottom, 8)
       }
@@ -124,34 +130,35 @@ struct NativeClipboardPreview: View {
           VStack(alignment: .leading, spacing: 16) {
             if let image = model.previewImage ?? nativeImage(clip.content) {
               Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: .infinity)
-                .accessibilityLabel("Просмотр скопированного изображения")
+                .accessibilityLabel(localized("Copied image preview"))
             } else if model.busy {
               ProgressView().frame(maxWidth: .infinity)
             } else {
               NativeCommandButton(
-                title: "Повторить загрузку изображения", shortcut: "⌘R", disabled: model.busy
+                title: localized("Retry Loading Image"), shortcut: "⌘R", disabled: model.busy
               ) { model.reloadPreviewImage() }
             }
-            Text("Текст на изображении").font(.system(size: 14, weight: .semibold))
+            Text(localized("Text in the Image")).font(.system(size: 14, weight: .semibold))
             if clip.ocrStatus.isEmpty {
-              Text("Распознаём текст на этом Mac… Изображение уже можно копировать.")
+              Text(localized("Recognizing text on this Mac… You can already copy the image."))
                 .foregroundStyle(.secondary)
             } else if clip.ocrStatus == "failed" {
-              Text("Не удалось распознать текст. Повторите распознавание.").foregroundStyle(
+              Text(localized("Could not recognize text. Retry text recognition.")).foregroundStyle(
                 .secondary)
             } else if clip.ocrStatus == "empty" {
-              Text("Текст на изображении не найден.").foregroundStyle(.secondary)
+              Text(localized("No text found in the image.")).foregroundStyle(.secondary)
             } else {
               Text(clip.ocrText).font(.system(size: 14, design: .monospaced)).textSelection(
                 .enabled
-              ).accessibilityLabel("Распознанный текст")
+              ).accessibilityLabel(localized("Recognized text"))
             }
             if !clip.ocrStatus.isEmpty, clip.ocrStatus != "failed",
               !clip.ocrLanguages.contains("ru-RU")
             {
-              Text("Эта версия macOS не поддерживает распознавание русского текста.").font(
-                .system(size: 11)
-              ).foregroundStyle(.secondary)
+              Text(localized("This version of macOS does not support Russian text recognition."))
+                .font(
+                  .system(size: 11)
+                ).foregroundStyle(.secondary)
             }
           }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(
             NativeScrollPositionBridge(
@@ -187,7 +194,7 @@ struct NativeClipboardPreview: View {
         ) { action.run() }
         .help(
           action.disabled && !model.busy && clip.kind == "text"
-            ? "Исходный текст уже в этом виде"
+            ? localized("The original text is already in this form")
             : "\(action.label) · " + (action.id == "saveImage" ? "⌘S / " : "")
               + "⌘\(index + 1)"
         )
@@ -197,27 +204,37 @@ struct NativeClipboardPreview: View {
 
 }
 
-let nativeEmojiCategories: [(id: String, label: String, symbol: String)] = [
-  ("all", "Все эмодзи", ""), ("Smileys & Emotion", "Смайлы и эмоции", "😀"),
-  ("People & Body", "Люди и жесты", "👋"), ("Animals & Nature", "Животные и природа", "🌿"),
-  ("Food & Drink", "Еда и напитки", "🍋"), ("Travel & Places", "Места и транспорт", "🚀"),
-  ("Activities", "Занятия", "⚽"), ("Objects", "Предметы", "💡"), ("Symbols", "Символы", "❤️"),
-  ("Flags", "Флаги", "🏳️"),
-]
-let nativeEmojiTones: [(String, String)] = [
-  ("default", "✋ Стандартный"), ("🏻", "🏻 Очень светлый"), ("🏼", "🏼 Светлый"), ("🏽", "🏽 Средний"),
-  ("🏾", "🏾 Тёмный"), ("🏿", "🏿 Очень тёмный"), ("all", "Все оттенки"),
-]
+var nativeEmojiCategories: [(id: String, label: String, symbol: String)] {
+  [
+    ("all", localized("All emoji"), ""), ("Smileys & Emotion", localized("Smileys & Emotion"), "😀"),
+    ("People & Body", localized("People & Body"), "👋"),
+    ("Animals & Nature", localized("Animals & Nature"), "🌿"),
+    ("Food & Drink", localized("Food & Drink"), "🍋"),
+    ("Travel & Places", localized("Travel & Places"), "🚀"),
+    ("Activities", localized("Activities"), "⚽"), ("Objects", localized("Objects"), "💡"),
+    ("Symbols", localized("Symbols"), "❤️"),
+    ("Flags", localized("Flags"), "🏳️"),
+  ]
+}
+var nativeEmojiTones: [(String, String)] {
+  [
+    ("default", localized("✋ Default")), ("🏻", localized("🏻 Light")),
+    ("🏼", localized("🏼 Medium-light")),
+    ("🏽", localized("🏽 Medium")),
+    ("🏾", localized("🏾 Medium-dark")), ("🏿", localized("🏿 Dark")),
+    ("all", localized("All skin tones")),
+  ]
+}
 
 struct NativeEmojiView: View {
   @ObservedObject var model: NativeUIModel
   var body: some View {
     VStack(spacing: 0) {
-      NativeBuiltinHeader(model: model, title: "Эмодзи") {
-        Text("Русский / English").font(.system(size: 11)).foregroundStyle(.secondary)
+      NativeBuiltinHeader(model: model, title: localized("Emoji")) {
+        Text(localized("English / Русский")).font(.system(size: 11)).foregroundStyle(.secondary)
       }
       NativeBuiltinSearch(
-        model: model, placeholder: "Название или слово: улыбка, heart…", maxLength: 256)
+        model: model, placeholder: localized("Name or word: smile, heart…"), maxLength: 256)
       NativeEmojiCategoryPicker(model: model).frame(maxWidth: .infinity).frame(height: 40)
         .glassEffect(.regular, in: Capsule())
         .padding(.horizontal, 12).padding(.bottom, 10)
@@ -228,13 +245,13 @@ struct NativeEmojiView: View {
         Text(
           model.query.isEmpty
             ? nativeEmojiCategories.first(where: { $0.id == model.emojiCategory })?.label
-              ?? "Все эмодзи" : "Результаты поиска")
+              ?? localized("All emoji") : localized("Search results"))
         Text("\(model.emojiResults.count)")
         Spacer(minLength: 8)
-        Picker("Оттенок кожи", selection: $model.emojiTone) {
+        Picker(localized("Skin tone"), selection: $model.emojiTone) {
           ForEach(nativeEmojiTones, id: \.0) { tone in Text(tone.1).tag(tone.0) }
         }.labelsHidden().frame(maxWidth: 160).disabled(model.busy).accessibilityLabel(
-          "Оттенок кожи")
+          localized("Skin tone"))
       }.font(.system(size: 11)).foregroundStyle(.secondary).padding(10)
       ScrollViewReader { reader in
         ScrollView {
@@ -255,8 +272,13 @@ struct NativeEmojiView: View {
                   model.selectedEmoji?.id == emoji.id ? Color.accentColor.opacity(0.16) : .clear,
                   in: RoundedRectangle(cornerRadius: 6))
               }.buttonStyle(.plain).disabled(model.busy).help(emoji.name).accessibilityLabel(
-                emoji.name + " · " + emoji.englishName
-              ).accessibilityHint(index < 9 ? "Выбрать: ⌘\(index + 1)" : "Выбрать: Enter").id(
+                emoji.name == emoji.englishName
+                  ? emoji.name : emoji.name + " · " + emoji.englishName
+              ).accessibilityHint(
+                index < 9
+                  ? localized("Select: ⌘{0}", String(describing: index + 1))
+                  : localized("Select: Enter")
+              ).id(
                 emoji.id
               ).onHover { if $0 { model.selectedID = emoji.id } }
             }
@@ -266,11 +288,11 @@ struct NativeEmojiView: View {
               token: "emoji-" + String(model.visible) + "-" + model.emojiCategory))
           if model.emojiResults.isEmpty {
             VStack(spacing: 10) {
-              Text("Ничего не найдено").font(.system(size: 15, weight: .semibold))
-              Text("Попробуйте другое слово на русском или английском.").foregroundStyle(.secondary)
+              Text(localized("Nothing Found")).font(.system(size: 15, weight: .semibold))
+              Text(localized("Try another word in English or Russian.")).foregroundStyle(.secondary)
               if model.emojiCategory != "all" || model.emojiTone != "default" {
                 NativeCommandButton(
-                  title: "Искать во всех категориях и оттенках", disabled: model.busy
+                  title: localized("Search All Categories and Skin Tones"), disabled: model.busy
                 ) {
                   model.emojiCategory = "all"
                   model.emojiTone = "all"
@@ -285,10 +307,10 @@ struct NativeEmojiView: View {
       NativeToolbar {
         Text(model.selectedEmoji?.value ?? "⌕").font(.system(size: 30)).frame(width: 40, height: 32)
         VStack(alignment: .leading, spacing: 3) {
-          Text(model.selectedEmoji?.name ?? "Выберите эмодзи").font(
+          Text(model.selectedEmoji?.name ?? localized("Select an Emoji")).font(
             .system(size: 13, weight: .semibold)
           ).lineLimit(1)
-          Text(model.selectedEmoji?.englishName ?? "Поиск по названиям и ключевым словам").font(
+          Text(model.selectedEmoji?.englishName ?? localized("Search by names and keywords")).font(
             .system(size: 11)
           ).foregroundStyle(.secondary).lineLimit(1)
         }
@@ -339,7 +361,7 @@ final class NativeEmojiCategoryBar: NSView {
   private let selectionGlass = NativeEmojiSelectionGlass()
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
-    setAccessibilityLabel("Категории эмодзи")
+    setAccessibilityLabel(localized("Emoji categories"))
     selectionGlass.cornerRadius = 17
     selectionGlass.setAccessibilityElement(false)
     addSubview(selectionGlass)
@@ -360,7 +382,8 @@ final class NativeEmojiCategoryBar: NSView {
       } else {
         button.title = category.symbol
       }
-      button.toolTip = category.label + " · ← → выбрать категорию · Home / End первая / последняя"
+      button.toolTip =
+        category.label + localized(" · ← → select category · Home / End first / last")
       button.setAccessibilityRole(.radioButton)
       button.setAccessibilityLabel(category.label)
       button.setAccessibilityHelp(button.toolTip)
@@ -397,8 +420,14 @@ final class NativeEmojiCategoryBar: NSView {
       && !NSMenuTrackingState.shared.active
   }
   func synchronizeSelection() {
+    setAccessibilityLabel(localized("Emoji categories"))
     let selected = nativeEmojiCategories.firstIndex { $0.id == model?.emojiCategory } ?? 0
     for (index, button) in buttons.enumerated() {
+      let category = nativeEmojiCategories[index]
+      button.toolTip =
+        category.label + localized(" · ← → select category · Home / End first / last")
+      button.setAccessibilityLabel(category.label)
+      button.setAccessibilityHelp(button.toolTip)
       button.state = index == selected ? .on : .off
       button.isEnabled = canInteract
       button.setAccessibilitySelected(index == selected)

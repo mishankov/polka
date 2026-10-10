@@ -26,7 +26,7 @@ public final class SettingsStore {
   deinit { close() }
   private func failure() -> Error {
     PolkaCoreError.storage(
-      db.map { String(cString: sqlite3_errmsg($0)) } ?? "Хранилище настроек закрыто")
+      db.map { String(cString: sqlite3_errmsg($0)) } ?? localized("Settings storage is closed"))
   }
   private func execute(_ sql: String) throws {
     guard let db, sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { throw failure() }
@@ -82,11 +82,11 @@ public final class SettingsStore {
       key.range(
         of: "secret|password|api[-_]?key|token", options: [.regularExpression, .caseInsensitive])
         == nil
-    else { throw PolkaCoreError.invalid("Секреты должны храниться в защищённом хранилище") }
+    else { throw PolkaCoreError.invalid(localized("Secrets must be stored in secure storage")) }
     let data = try JSONSerialization.data(
       withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys])
     guard let text = String(data: data, encoding: .utf8), text.utf16.count <= 10_000_000 else {
-      throw PolkaCoreError.invalid("Некорректные настройки")
+      throw PolkaCoreError.invalid(localized("Invalid settings"))
     }
     try prepared(
       "INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value"

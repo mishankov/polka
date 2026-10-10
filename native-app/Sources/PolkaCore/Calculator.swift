@@ -99,7 +99,7 @@ public enum Calculator {
     else { return nil }
     guard source.count <= 512 else {
       return Calculation(
-        status: .error, expression: expression, message: "Слишком длинное выражение")
+        status: .error, expression: expression, message: localized("Expression is too long"))
     }
     let regex = try! NSRegularExpression(
       pattern: "(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?|[^\\s]")
@@ -110,10 +110,10 @@ public enum Calculator {
     do {
       let value = try parser.sum()
       guard parser.position == tokens.count else {
-        throw ArithmeticFailure.message("Проверьте выражение")
+        throw ArithmeticFailure.message(localized("Check the expression"))
       }
       guard value.isFinite else {
-        throw ArithmeticFailure.message("Результат вне допустимого диапазона")
+        throw ArithmeticFailure.message(localized("Result is out of range"))
       }
       return Calculation(status: .result, expression: expression, value: calculationNumber(value))
     } catch ArithmeticFailure.incomplete {
@@ -121,7 +121,8 @@ public enum Calculator {
     } catch ArithmeticFailure.message(let message) {
       return Calculation(status: .error, expression: expression, message: message)
     } catch {
-      return Calculation(status: .error, expression: expression, message: "Проверьте выражение")
+      return Calculation(
+        status: .error, expression: expression, message: localized("Check the expression"))
     }
   }
 }
@@ -144,7 +145,7 @@ private struct ArithmeticParser {
       let value = try sum()
       if !take(")") {
         if peek == nil { throw ArithmeticFailure.incomplete }
-        throw ArithmeticFailure.message("Проверьте скобки")
+        throw ArithmeticFailure.message(localized("Check the parentheses"))
       }
       return value
     }
@@ -153,7 +154,7 @@ private struct ArithmeticParser {
     guard regexGroups("^(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$", token) != nil,
       let value = Double(token)
     else {
-      throw ArithmeticFailure.message("Проверьте выражение")
+      throw ArithmeticFailure.message(localized("Check the expression"))
     }
     return value
   }
@@ -174,7 +175,9 @@ private struct ArithmeticParser {
       let operation = tokens[position]
       position += 1
       let right = try unary()
-      if operation == "/" && right == 0 { throw ArithmeticFailure.message("На ноль делить нельзя") }
+      if operation == "/" && right == 0 {
+        throw ArithmeticFailure.message(localized("Cannot divide by zero"))
+      }
       value = operation == "*" ? value * right : value / right
     }
     return value

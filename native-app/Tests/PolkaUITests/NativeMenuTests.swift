@@ -1,4 +1,5 @@
 import AppKit
+import PolkaCore
 import XCTest
 
 @testable import PolkaApp
@@ -8,7 +9,7 @@ final class NativeMenuTests: XCTestCase {
     _ = NSApplication.shared
     let application = NativeApplication()
     let edit = try XCTUnwrap(
-      application.makeMainMenu().items.first { $0.submenu?.title == "Правка" }?.submenu)
+      application.makeMainMenu().items.first { $0.submenu?.title == localized("Edit") }?.submenu)
     let redo = try XCTUnwrap(edit.items.first { $0.action == Selector(("redo:")) })
     let target = NativeMenuActionFixture()
     redo.target = target
