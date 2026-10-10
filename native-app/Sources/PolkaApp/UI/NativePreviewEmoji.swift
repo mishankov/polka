@@ -321,10 +321,6 @@ struct NativeEmojiView: View {
           if let emoji = model.selectedEmoji { model.chooseEmoji(emoji, copyOnly: copyOnly) }
         }
       }
-      NativeKeyboardHint(
-        text: localized(
-          "↑ ↓ ← → select   ↵ {0}   esc close",
-          String(describing: model.canPaste ? localized("Paste") : localized("Copy"))))
     }.onChange(of: model.query) { _, _ in model.emojiCategory = "all" }.onChange(
       of: model.emojiTone
     ) { _, _ in model.selectedID = nil }.accessibilityElement(children: .contain)

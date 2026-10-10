@@ -436,7 +436,7 @@
 "↑ ↓ select   ↵ open   esc close" = "↑ ↓ select   ↵ open   esc close";
 "↑ ↓ select   ↵ {0}   esc close" = "↑ ↓ select   ↵ {0}   esc close";
 "↑ ↓ ← → select   ↵ {0}   esc close" = "↑ ↓ ← → select   ↵ {0}   esc close";
-"⌘ / ⇧ select multiple · ⌘A all · esc close" = "⌘ / ⇧ select multiple · ⌘A all · esc close";
+"⌘ / ⇧ select multiple · ⌘A all" = "⌘ / ⇧ select multiple · ⌘A all";
 "⌘↵ save   esc cancel" = "⌘↵ save   esc cancel";
 "⌫ / esc back to list" = "⌫ / esc back to list";
 "✋ Default" = "✋ Default";

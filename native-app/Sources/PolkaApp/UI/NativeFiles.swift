@@ -67,7 +67,7 @@ struct NativeFileShelfView: View {
           disabled: model.busy || model.selectedFiles.isEmpty
         ) { model.removeSelectedFiles() }.accessibilityIdentifier("files-remove")
       }.font(.system(size: 11)).foregroundStyle(.secondary)
-      NativeKeyboardHint(text: localized("⌘ / ⇧ select multiple · ⌘A all · esc close"))
+      NativeKeyboardHint(text: localized("⌘ / ⇧ select multiple · ⌘A all"))
       Text(
         localized(
           "Clearing or removing items from the shelf only removes links. Files are not synced.")
