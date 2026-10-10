@@ -28,7 +28,8 @@ import SwiftUI
 /// Runs only in the app-owned, isolated desktop fixture. All keys are posted to
 /// this process's real AppKit event loop, and every copy uses the injected board.
 @MainActor func nativeSmokeAdditionalFlows(
-  application: NativeApplication, shelf: NSWindow, model: NativeUIModel, platform: NativePlatform
+  application: NativeApplication, shelf: NSWindow, model: NativeUIModel, platform: NativePlatform,
+  settingsOnly: Bool = false
 ) async -> [String] {
   guard NativeProfile.isolatedFixture else { return ["native smoke requires an isolated profile"] }
   var failures: [String] = []
@@ -124,594 +125,601 @@ import SwiftUI
       failures.append("cannot render screenshot \(name)")
     }
   }
-  // Real window lifecycle, not just model dispatch: a delayed close must not
-  // order out a reopened panel, and repeated requests must remain harmless.
-  await application.show("apps")
-  await settle()
-  application.hide()
-  application.hide()
-  await application.show("emoji")
-  await settle()
-  if !model.visible || !shelf.isVisible || model.destination != "emoji" {
-    failures.append("stale close animation hid or replaced a reopened shelf")
-  }
-  await application.show("toggle")
-  await settle()
-  if model.visible || shelf.isVisible {
-    failures.append("active launcher toggle did not close shelf")
-  }
-  await application.show("toggle")
-  await settle()
-  if !model.visible || !shelf.isVisible || model.destination != "emoji" {
-    failures.append("launcher toggle did not reopen remembered shelf")
-  }
-  await application.show("apps")
-  await settle()
-  model.busy = true
-  post(53)
-  application.hide()
-  application.applicationDidResignActive(
-    Notification(name: NSApplication.didResignActiveNotification, object: NSApp))
-  await settle()
-  if !model.visible || !shelf.isVisible {
-    failures.append("busy shelf was dismissed by Escape, close, or blur")
-  }
-  model.busy = false
-  post(53, repeatKey: true)
-  await settle()
-  if !model.visible || !shelf.isVisible { failures.append("repeated Escape dismissed shelf") }
-  let guardedSheet = NSWindow(
-    contentRect: NSRect(x: 0, y: 0, width: 160, height: 80), styleMask: [.titled],
-    backing: .buffered, defer: false)
-  guardedSheet.isReleasedWhenClosed = false
-  shelf.beginSheet(guardedSheet, completionHandler: nil)
-  post(53, window: guardedSheet)
-  application.hide(force: true)
-  application.applicationDidResignActive(
-    Notification(name: NSApplication.didResignActiveNotification, object: NSApp))
-  await settle()
-  if !model.visible || !shelf.isVisible {
-    failures.append("sheet owner was dismissed by Escape, forced close, or blur")
-  }
-  shelf.endSheet(guardedSheet)
-  guardedSheet.close()
-  shelf.makeKeyAndOrderFront(nil)
-  await settle()
-  await application.show("snippets")
-  await settle()
-  model.createSnippet()
-  model.draft?.name = "Закрытие"
-  model.draft?.content = "Несохранённый черновик"
-  let draftOutside = NSWindow(
-    contentRect: NSRect(x: 30, y: 30, width: 160, height: 100), styleMask: [.titled],
-    backing: .buffered, defer: false)
-  draftOutside.isReleasedWhenClosed = false
-  draftOutside.makeKeyAndOrderFront(nil)
-  if !(await wait({ !model.visible && !shelf.isVisible })) {
-    failures.append("snippet editor did not close after focus loss")
-  }
-  draftOutside.close()
-  await application.show(nil)
-  await settle()
-  if model.draft?.content != "Несохранённый черновик" {
-    failures.append("focus-loss close discarded unsaved snippet draft")
-  }
-  post(13, .command, "w")
-  if !(await wait({ !model.visible && !shelf.isVisible })) {
-    failures.append("posted Command W did not close shelf editor")
-  }
-  await application.show(nil)
-  await settle()
-  if model.draft?.content != "Несохранённый черновик" {
-    failures.append("Command W close discarded unsaved snippet draft")
-  }
-  post(53)
-  if !(await wait({ model.draft == nil && model.visible })) {
-    failures.append("Escape did not cancel restored draft without closing shelf")
-  }
-  await application.show("apps")
-  await settle()
-  model.query = "Hide preserves context"
-  post(4, .command, "h")
-  if !(await wait({ NSApp.isHidden && !model.visible })) {
-    failures.append("posted Command H did not hide app and conceal shelf")
-  }
-  if !(await wait({ !shelf.isVisible })) {
-    failures.append("application Hide did not finish ordering out shelf")
-  }
-  NSApp.unhide(nil)
-  await application.show(nil)
-  await settle()
-  if !(await wait({ shelf.isKeyWindow && NSApp.isActive && !NSApp.isHidden })) {
-    failures.append(
-      "shelf did not regain keyboard focus after application Hide: \(keyboardState())")
-  }
-  if model.query != "Hide preserves context" {
-    failures.append("application Hide discarded browse context")
-  }
-  // Reopen while the 150 ms close/unhide transitions are still pending. This
-  // used to leave the accessory application's visible panel without a key
-  // window, causing the local keyboard bridge to correctly ignore Escape.
-  for cycle in 1...20 {
-    post(4, .command, "h")
-    if !(await wait({ NSApp.isHidden && !model.visible })) {
-      failures.append("rapid Hide cycle \(cycle) did not hide application: \(keyboardState())")
-      break
-    }
-    NSApp.unhide(nil)
-    await application.show(nil)
-    if !(await wait({ model.visible && shelf.isVisible && shelf.isKeyWindow && NSApp.isActive })) {
-      failures.append(
-        "rapid Hide/reopen cycle \(cycle) left shelf without keyboard focus: \(keyboardState())")
-      break
-    }
-    // Also check after the native activation/close animations settle; an
-    // immediate key-window success must not hide a delayed dismissal.
+  if !settingsOnly {
+    // Real window lifecycle, not just model dispatch: a delayed close must not
+    // order out a reopened panel, and repeated requests must remain harmless.
+    await application.show("apps")
     await settle()
-    if !model.visible || !shelf.isVisible || !shelf.isKeyWindow {
-      failures.append("rapid Hide/reopen cycle \(cycle) was later dismissed: \(keyboardState())")
-      break
-    }
-  }
-  await application.show("apps")
-  model.query = ""
-  await settle()
-  await screenshot("launcher")
-  if let view = shelf.contentView,
-    let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
-  {
-    view.cacheDisplay(in: view.bounds, to: bitmap)
-    if let color = bitmap.colorAt(x: 2, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB) {
-      if color.alphaComponent < 0.99
-        || max(color.redComponent, color.greenComponent, color.blueComponent) > 0.01
-      {
-        failures.append("shelf background is not opaque black")
-      }
-    } else {
-      failures.append("cannot inspect shelf background")
-    }
-  }
-  let standardWidth = shelf.frame.width
-  func searchField(in view: NSView) -> NSSearchField? {
-    if let field = view as? NSSearchField { return field }
-    for child in view.subviews { if let field = searchField(in: child) { return field } }
-    return nil
-  }
-  post(0, [], "я")
-  if !(await wait({ model.query == "я" })) {
-    failures.append("enlarged search field did not accept non-Latin keyboard text")
-  }
-  post(51, .command)
-  if !(await wait({ model.query.isEmpty })) {
-    failures.append("native Command Backspace did not clear enlarged search field")
-  }
-  // The model binding changes before SwiftUI's query observer resets the old
-  // result selection. Let that text-edit transaction finish before navigation.
-  await settle()
-  post(125)
-  if !(await wait({ model.selectedID != nil })) {
-    failures.append(
-      "Arrow Down from enlarged search field did not select launcher result: \(keyboardState())")
-  }
-  for destination in ["apps", "clipboard", "snippets", "emoji", "files"] {
-    await application.show(destination)
+    application.hide()
+    application.hide()
+    await application.show("emoji")
     await settle()
-    if abs(shelf.frame.width - standardWidth) > 1 {
-      failures.append("\(destination) shelf width differs from launcher")
-    }
-    if destination != "files" {
-      if let view = shelf.contentView, let field = searchField(in: view) {
-        if field.focusRingType != .none || field.cell?.focusRingType != NSFocusRingType.none {
-          failures.append(
-            "\(destination) search uses a window focus ring outside the shelf animation mask")
-        }
-        if field.bounds.height < 44 || field.bounds.width < standardWidth - 100
-          || (field.font?.pointSize ?? 0) < 20
-        {
-          failures.append("\(destination) search field is too small")
-        }
-        if let editor = field.currentEditor() as? NSTextView, let window = field.window {
-          let caret = editor.firstRect(
-            forCharacterRange: NSRange(location: 0, length: 0), actualRange: nil)
-          let textBounds = field.convert(window.convertFromScreen(caret), from: nil)
-          if textBounds.minX < 30 || abs(textBounds.midY - field.bounds.midY) > 4 {
-            failures.append(
-              "\(destination) search text overlaps its icon or is not vertically centered: \(textBounds), bezel \(field.isBezeled)"
-            )
-          }
-        } else {
-          failures.append("\(destination) search field did not receive keyboard focus")
-        }
-        if let bitmap = field.bitmapImageRepForCachingDisplay(in: field.bounds) {
-          field.cacheDisplay(in: field.bounds, to: bitmap)
-          if let color = bitmap.colorAt(x: bitmap.pixelsWide / 2, y: 4)?.usingColorSpace(
-            .deviceRGB),
-            color.alphaComponent < 0.9
-              || max(color.redComponent, color.greenComponent, color.blueComponent) < 0.02
-          {
-            failures.append("\(destination) search bezel does not fill its enlarged height")
-          }
-        }
-      } else {
-        failures.append("\(destination) search field missing")
-      }
-    }
-    let query = destination == "files" ? "" : destination == "emoji" ? "heart" : "Синтетическая"
-    model.query = query
-    await settle()
-    post(53)
-    if !(await wait({ !model.visible && !shelf.isVisible && !model.busy })) {
-      failures.append("\(destination) shelf did not finish closing: \(keyboardState())")
-    }
-    await application.show(nil)
-    await settle()
-    if model.destination != destination || model.query != query {
-      failures.append("fully closed \(destination) shelf did not resume its previous context")
-    }
-    post(53)
-    if !(await wait({ !model.visible && !shelf.isVisible && !model.busy })) {
-      failures.append("\(destination) shelf did not close before keyboard toggle")
+    if !model.visible || !shelf.isVisible || model.destination != "emoji" {
+      failures.append("stale close animation hid or replaced a reopened shelf")
     }
     await application.show("toggle")
     await settle()
-    if model.destination != destination || model.query != query {
-      failures.append("launcher shortcut path did not resume \(destination)")
+    if model.visible || shelf.isVisible {
+      failures.append("active launcher toggle did not close shelf")
+    }
+    await application.show("toggle")
+    await settle()
+    if !model.visible || !shelf.isVisible || model.destination != "emoji" {
+      failures.append("launcher toggle did not reopen remembered shelf")
     }
     await application.show("apps")
     await settle()
-    if model.destination != "apps" || !model.query.isEmpty {
-      failures.append(
-        "explicit launcher navigation from \(destination) did not reset browse context: \(model.destination), query \(model.query)"
-      )
-    }
-  }
-  post(53)
-  if !(await wait({ !model.visible && !shelf.isVisible })) {
-    failures.append("posted Escape did not dismiss native shelf window")
-  }
-  await application.show("apps", byHover: true)
-  await settle()
-  // An app-owned test window exercises real key-window loss without clicking
-  // in another user's application or changing its contents.
-  let outside = NSWindow(
-    contentRect: NSRect(x: 30, y: 30, width: 160, height: 100), styleMask: [.titled],
-    backing: .buffered, defer: false)
-  outside.isReleasedWhenClosed = false
-  outside.makeKeyAndOrderFront(nil)
-  if !(await wait({ !model.visible && !shelf.isVisible })) {
-    failures.append("hover shelf stayed visible after outside window gained focus")
-  }
-  outside.close()
-  await application.show("apps")
-  await settle()
-  NSApp.deactivate()
-  if !(await wait({ !model.visible && !shelf.isVisible })) {
-    failures.append("shelf stayed visible after application deactivation")
-  }
-  await application.show("clipboard")
-  await settle()
-  if let clip = model.clips.first(where: { $0.kind == "text" }) {
-    model.selectedID = clip.id
-    post(36, .command, "\r")
-    if !(await wait({ model.previewID == clip.id })) {
-      failures.append("posted Command Enter did not open clipboard preview")
-    }
-    post(18, .command, "1")
-    if !(await wait({ model.transformation == "upperCase" })) {
-      failures.append("posted Command1 did not transform preview")
-    }
-    await screenshot("clipboard-preview")
-    if abs(shelf.frame.width - standardWidth) > 1 {
-      failures.append("clipboard entry preview is wider than launcher")
-    }
-    post(53)
-    if !(await wait({ model.previewID == nil })) {
-      failures.append("posted Escape did not return preview to list")
-    }
-    let count = model.clips.count
-    post(51, [.command, .shift])
-    if !(await wait({ model.confirmClear })) {
-      failures.append("posted Command Shift Backspace did not show clear confirmation")
-    }
-    await screenshot("clipboard-clear-confirmation")
-    if abs(shelf.frame.width - standardWidth) > 1 {
-      failures.append("clipboard clear confirmation is wider than launcher")
-    }
-    post(53)
-    if !(await wait({ !model.confirmClear })) || model.clips.count != count {
-      failures.append("clear confirmation cancellation changed history")
-    }
-  } else {
-    failures.append("fixture has no text record for preview keyboard flow")
-  }
-  // Color/plain-text previews exercise the same real AppKit keyboard route and
-  // synthetic clipboard as the other desktop flows, never the user's board.
-  trace("color and plain-text previews")
-  let previewFixtures: [(String, String)] = [
-    ("color", "rgba(100, 160, 255, 0.5)"),
-    ("plain", "Цвет #64a0ff упоминается в тексте.\nОбычный текст остаётся обычным текстом."),
-    ("large", String(repeating: "x", count: 1_048_500)),
-  ]
-  for (name, content) in previewFixtures {
-    do {
-      try platform.history.add(.text, content: content, preview: String(content.prefix(400)))
-    } catch {
-      failures.append("cannot create \(name) preview fixture: \(error)")
-      continue
-    }
-    platform.refresh()
-    await application.show("clipboard")
-    guard let clip = model.clips.first(where: { Data($0.content.utf8) == Data(content.utf8) })
-    else {
-      failures.append("missing \(name) preview fixture")
-      continue
-    }
-    model.selectedID = clip.id
-    let original = platform.history.snapshot()
-    post(36, .command, "\r")
-    if !(await wait({ model.previewID == clip.id })) {
-      failures.append("Command Enter did not open \(name) preview")
-    }
-    guard
-      let text = await nativeSmokeWaitForView(
-        in: shelf, ofType: NSTextView.self,
-        ready: {
-          $0.accessibilityIdentifier() == "clipboard-preview-text"
-            && Data($0.string.utf8) == Data(content.utf8)
-        })
-    else {
-      failures.append("\(name) preview did not render exact selectable text")
-      model.back()
-      continue
-    }
-    if !text.isSelectable || text.isEditable || text.isAutomaticLinkDetectionEnabled {
-      failures.append("\(name) preview text was not inert and selectable")
-    }
-    await screenshot("clipboard-preview-\(name)")
-    if abs(shelf.frame.width - standardWidth) > 1 {
-      failures.append("\(name) entry preview is wider than launcher")
-    }
-    platform.capture.write(text: "Synthetic preview copy sentinel")
-    post(36, .shift, "\r")
-    if !(await wait({
-      !model.busy && Data(platform.capture.syntheticText.utf8) == Data(content.utf8)
-    })) {
-      failures.append("Shift Enter did not copy exact \(name) preview text")
-    }
-    if !model.visible { await application.show(nil) }
-    platform.capture.write(text: "Synthetic preview select sentinel")
-    post(36, [], "\r")
-    if !(await wait({
-      !model.busy && !model.visible
-        && Data(platform.capture.syntheticText.utf8) == Data(content.utf8)
-    })) {
-      failures.append("Enter did not select exact \(name) preview text for paste")
-    }
-    if platform.history.snapshot() != original {
-      failures.append("opening/copying \(name) preview changed stored history")
-    }
-    // A copy can close the shelf; reopen the preserved preview before returning.
-    if !model.visible { await application.show(nil) }
-    post(53)
-    if !(await wait({ model.previewID == nil })) {
-      failures.append("Escape did not return \(name) preview to history")
-    }
-  }
-  await screenshot("clipboard-color-history")
-  await application.show("snippets")
-  await settle()
-  if let snippet = model.snippets.first {
-    model.selectedID = snippet.id
-    post(36, .command, "\r")
-    if !(await wait({ model.previewID == snippet.id })) {
-      failures.append("posted Command Enter did not open snippet preview")
-    }
-    await screenshot("snippet-preview")
-    if abs(shelf.frame.width - standardWidth) > 1 {
-      failures.append("snippet entry preview is wider than launcher")
-    }
-    post(14, .command, "e")
-    if !(await wait({ model.draft?.id == snippet.id })) {
-      failures.append("posted Command E did not edit snippet from preview")
-    }
-    await screenshot("snippet-edit")
-    if abs(shelf.frame.width - standardWidth) > 1 {
-      failures.append("existing snippet editor is wider than launcher")
-    }
-    post(53)
-    if !(await wait({ model.draft == nil })) {
-      failures.append("posted Escape did not cancel existing snippet editor")
-    }
-    await application.show("snippets")
-    await settle()
-  }
-  post(45, .command, "n")
-  if !(await wait({ model.draft != nil })) {
-    failures.append("posted CommandN did not create a snippet draft")
-  }
-  model.draft?.name = "Тестовый шаблон"
-  model.draft?.content = "Несохранённый текст для проверки редактора."
-  await screenshot("snippet-editor")
-  if abs(shelf.frame.width - standardWidth) > 1 {
-    failures.append("new snippet editor is wider than launcher")
-  }
-  post(53)
-  if !(await wait({ model.draft == nil })) {
-    failures.append("posted Escape did not cancel snippet editor")
-  }
-  await application.show("emoji")
-  await settle()
-  if let bar = await nativeSmokeWaitForView(
-    in: shelf, ofType: NativeEmojiCategoryBar.self,
-    ready: { $0.buttons.count == nativeEmojiCategories.count && $0.bounds.width > 0 }),
-    let view = shelf.contentView
-  {
-    if bar.bounds.width < standardWidth - 32
-      || bar.buttons.contains(where: { $0.bounds.width < 40 || $0.bounds.height < 36 })
-    {
-      failures.append("emoji category tabs are cramped")
-    }
-    // Creating the representables queues a separate search-focus request.
-    // Sending Tab before it completes can target the departing snippet editor
-    // or have the category focus overwritten by that queued request.
-    if await nativeSmokeWaitForView(
-      in: shelf, ofType: NSSearchField.self,
-      ready: {
-        guard let editor = $0.currentEditor() as? NSTextView else { return false }
-        return $0.identifier?.rawValue == "polka-search" && shelf.isKeyWindow
-          && shelf.firstResponder === editor && (editor.delegate as? NSTextField) === $0
-      }) != nil
-    {
-      post(48, [], "\t")
-      if !(await wait({ shelf.firstResponder === bar.buttons[0] })) {
-        failures.append(
-          "Tab from emoji search did not focus the selected category: \(keyboardState()); selected=\(bar.buttons[0].state.rawValue), enabled=\(bar.buttons[0].isEnabled), canBecomeKeyView=\(bar.buttons[0].canBecomeKeyView)"
-        )
-      }
-    } else {
-      failures.append("emoji search did not receive focus before Tab: \(keyboardState())")
-    }
-    click(bar.buttons[1])
-    if !(await wait({ model.emojiCategory == "Smileys & Emotion" })) {
-      failures.append("emoji category mouse click did not select smileys")
-    }
-    await screenshot("emoji-categories")
-    if !shelf.makeFirstResponder(bar.buttons[1]) {
-      failures.append("selected emoji category cannot receive keyboard focus")
-    }
-    post(124, repeatKey: true)
-    await settle()
-    if model.emojiCategory != "Smileys & Emotion" {
-      failures.append("repeated emoji category arrow changed selection")
-    }
-    post(124)
-    if !(await wait({ model.emojiCategory == "People & Body" })) {
-      failures.append("emoji category ArrowRight did not select people")
-    }
-    post(119)
-    if !(await wait({ model.emojiCategory == "Flags" })) {
-      failures.append("emoji category End did not select flags")
-    }
-    post(124)
-    if !(await wait({ model.emojiCategory == "all" })) {
-      failures.append("emoji category ArrowRight did not wrap to all")
-    }
-    post(123)
-    if !(await wait({ model.emojiCategory == "Flags" })) {
-      failures.append("emoji category ArrowLeft did not wrap to flags")
-    }
-    post(115)
-    if !(await wait({ model.emojiCategory == "all" })) {
-      failures.append("emoji category Home did not select all")
-    }
-    if bar.buttons.filter({ $0.state == .on }).count != 1 {
-      failures.append("emoji categories do not expose one selected tab")
-    }
     model.busy = true
+    post(53)
+    application.hide()
+    application.applicationDidResignActive(
+      Notification(name: NSApplication.didResignActiveNotification, object: NSApp))
     await settle()
-    click(bar.buttons[1])
-    await settle()
-    if model.emojiCategory != "all" {
-      failures.append("busy emoji category button changed selection")
+    if !model.visible || !shelf.isVisible {
+      failures.append("busy shelf was dismissed by Escape, close, or blur")
     }
     model.busy = false
+    post(53, repeatKey: true)
     await settle()
-    if let field = searchField(in: view) {
-      shelf.makeFirstResponder(field)
-      let editor = shelf.firstResponder
-      click(bar.buttons[1])
-      if !(await wait({ model.emojiCategory == "Smileys & Emotion" })) {
-        failures.append("emoji category mouse click stayed disabled after busy state ended")
-      }
-      if shelf.firstResponder !== editor {
-        failures.append("emoji category mouse click stole search editing focus")
-      }
-      click(bar.buttons[0])
-      if !(await wait({ model.emojiCategory == "all" })) {
-        failures.append("emoji category mouse click did not return to all")
-      }
-    }
-    model.query = "no-such-synthetic-emoji-xyz"
+    if !model.visible || !shelf.isVisible { failures.append("repeated Escape dismissed shelf") }
+    let guardedSheet = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 160, height: 80), styleMask: [.titled],
+      backing: .buffered, defer: false)
+    guardedSheet.isReleasedWhenClosed = false
+    shelf.beginSheet(guardedSheet, completionHandler: nil)
+    post(53, window: guardedSheet)
+    application.hide(force: true)
+    application.applicationDidResignActive(
+      Notification(name: NSApplication.didResignActiveNotification, object: NSApp))
     await settle()
-    if !model.emojiResults.isEmpty { failures.append("empty emoji search returned results") }
-    await screenshot("emoji-empty")
-    model.query = ""
+    if !model.visible || !shelf.isVisible {
+      failures.append("sheet owner was dismissed by Escape, forced close, or blur")
+    }
+    shelf.endSheet(guardedSheet)
+    guardedSheet.close()
+    shelf.makeKeyAndOrderFront(nil)
     await settle()
-    await screenshot("emoji-all")
-  } else {
-    failures.append("emoji category tabs missing after layout: \(keyboardState())")
-  }
-  model.query = "heart"
-  await settle()
-  await screenshot("emoji")
-  if let emoji = model.emojiResults.first {
-    post(18, .command, "1")
-    if !(await wait({
-      !model.busy && platform.capture.syntheticText == emoji.value && !model.visible
-    })) {
-      failures.append("posted Command1 did not copy emoji and close shelf")
-    }
-  } else {
-    failures.append("emoji fixture search did not find heart")
-  }
-  let fixtureRoot = URL(fileURLWithPath: platform.history.storage.state().path)
-    .deletingLastPathComponent().appendingPathComponent("desktop-files")
-  await platform.showIncomingFiles?()
-  await settle()
-  model.incomingFileDropPending = true
-  platform.endIncomingFiles?()
-  await settle()
-  if !model.visible || !shelf.isVisible {
-    failures.append("incomingEnd closed the shelf before file provider decoding finished")
-  }
-  model.incomingFileDropPending = false
-  if !(await wait({ !model.visible && !shelf.isVisible })) {
-    failures.append("cancelled incoming drag did not close after provider decoding ended")
-  }
-  await application.show("files")
-  await settle()
-  await screenshot("files-empty")
-  model.incomingFileDropTargeted = true
-  await screenshot("files-upload-zone")
-  if !model.incomingFileDropTargeted || model.busy {
-    failures.append("incoming file target did not retain its nonblocking drag state")
-  }
-  model.incomingFileDropTargeted = false
-  do {
-    try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
-    let urls = [
-      fixtureRoot.appendingPathComponent("Synthetic note.txt"),
-      fixtureRoot.appendingPathComponent("Synthetic document.txt"),
-    ]
-    for url in urls { try Data("Synthetic desktop fixture".utf8).write(to: url) }
-    try await platform.handle(NativeUICommand("shelf.files.add", ids: urls.map(\.path)))
-    await application.show("files")
+    await application.show("snippets")
     await settle()
-    if abs(shelf.frame.width - standardWidth) > 1 {
-      failures.append("populated file shelf is wider than launcher")
+    model.createSnippet()
+    model.draft?.name = "Закрытие"
+    model.draft?.content = "Несохранённый черновик"
+    let draftOutside = NSWindow(
+      contentRect: NSRect(x: 30, y: 30, width: 160, height: 100), styleMask: [.titled],
+      backing: .buffered, defer: false)
+    draftOutside.isReleasedWhenClosed = false
+    draftOutside.makeKeyAndOrderFront(nil)
+    if !(await wait({ !model.visible && !shelf.isVisible })) {
+      failures.append("snippet editor did not close after focus loss")
     }
-    post(0, .command, "a")
-    if !(await wait({ model.selectedFiles.count == 2 })) {
-      failures.append("posted CommandA did not select all file references")
+    draftOutside.close()
+    await application.show(nil)
+    await settle()
+    if model.draft?.content != "Несохранённый черновик" {
+      failures.append("focus-loss close discarded unsaved snippet draft")
     }
-    await screenshot("files-selection")
-    post(53)
-    if !(await wait({ !model.visible && !shelf.isVisible && !model.busy })) {
-      failures.append("selected file shelf did not finish closing")
+    post(13, .command, "w")
+    if !(await wait({ !model.visible && !shelf.isVisible })) {
+      failures.append("posted Command W did not close shelf editor")
     }
     await application.show(nil)
     await settle()
-    if model.destination != "files" || model.selectedFiles.count != 2 {
-      failures.append("file shelf did not resume multiple selection")
+    if model.draft?.content != "Несохранённый черновик" {
+      failures.append("Command W close discarded unsaved snippet draft")
+    }
+    post(53)
+    if !(await wait({ model.draft == nil && model.visible })) {
+      failures.append("Escape did not cancel restored draft without closing shelf")
+    }
+    await application.show("apps")
+    await settle()
+    model.query = "Hide preserves context"
+    post(4, .command, "h")
+    if !(await wait({ NSApp.isHidden && !model.visible })) {
+      failures.append("posted Command H did not hide app and conceal shelf")
+    }
+    if !(await wait({ !shelf.isVisible })) {
+      failures.append("application Hide did not finish ordering out shelf")
+    }
+    NSApp.unhide(nil)
+    await application.show(nil)
+    await settle()
+    if !(await wait({ shelf.isKeyWindow && NSApp.isActive && !NSApp.isHidden })) {
+      failures.append(
+        "shelf did not regain keyboard focus after application Hide: \(keyboardState())")
+    }
+    if model.query != "Hide preserves context" {
+      failures.append("application Hide discarded browse context")
+    }
+    // Reopen while the 150 ms close/unhide transitions are still pending. This
+    // used to leave the accessory application's visible panel without a key
+    // window, causing the local keyboard bridge to correctly ignore Escape.
+    for cycle in 1...20 {
+      post(4, .command, "h")
+      if !(await wait({ NSApp.isHidden && !model.visible })) {
+        failures.append("rapid Hide cycle \(cycle) did not hide application: \(keyboardState())")
+        break
+      }
+      NSApp.unhide(nil)
+      await application.show(nil)
+      if !(await wait({ model.visible && shelf.isVisible && shelf.isKeyWindow && NSApp.isActive }))
+      {
+        failures.append(
+          "rapid Hide/reopen cycle \(cycle) left shelf without keyboard focus: \(keyboardState())")
+        break
+      }
+      // Also check after the native activation/close animations settle; an
+      // immediate key-window success must not hide a delayed dismissal.
+      await settle()
+      if !model.visible || !shelf.isVisible || !shelf.isKeyWindow {
+        failures.append("rapid Hide/reopen cycle \(cycle) was later dismissed: \(keyboardState())")
+        break
+      }
+    }
+    await application.show("apps")
+    model.query = ""
+    await settle()
+    await screenshot("launcher")
+    if let view = shelf.contentView,
+      let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+    {
+      view.cacheDisplay(in: view.bounds, to: bitmap)
+      if let color = bitmap.colorAt(x: 2, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB) {
+        if color.alphaComponent < 0.99
+          || max(color.redComponent, color.greenComponent, color.blueComponent) > 0.01
+        {
+          failures.append("shelf background is not opaque black")
+        }
+      } else {
+        failures.append("cannot inspect shelf background")
+      }
+    }
+    let standardWidth = shelf.frame.width
+    func searchField(in view: NSView) -> NSSearchField? {
+      if let field = view as? NSSearchField { return field }
+      for child in view.subviews { if let field = searchField(in: child) { return field } }
+      return nil
+    }
+    post(0, [], "я")
+    if !(await wait({ model.query == "я" })) {
+      failures.append("enlarged search field did not accept non-Latin keyboard text")
     }
     post(51, .command)
-    if !(await wait({ !model.busy && platform.files.items.isEmpty })) {
-      failures.append("posted Command Backspace did not remove selected file references")
+    if !(await wait({ model.query.isEmpty })) {
+      failures.append("native Command Backspace did not clear enlarged search field")
     }
-    if !urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) {
-      failures.append("removing file references deleted synthetic originals")
+    // The model binding changes before SwiftUI's query observer resets the old
+    // result selection. Let that text-edit transaction finish before navigation.
+    await settle()
+    post(125)
+    if !(await wait({ model.selectedID != nil })) {
+      failures.append(
+        "Arrow Down from enlarged search field did not select launcher result: \(keyboardState())")
     }
-  } catch { failures.append("file fixture failed: " + error.localizedDescription) }
+    for destination in ["apps", "clipboard", "snippets", "emoji", "files"] {
+      await application.show(destination)
+      await settle()
+      if abs(shelf.frame.width - standardWidth) > 1 {
+        failures.append("\(destination) shelf width differs from launcher")
+      }
+      if destination != "files" {
+        if let view = shelf.contentView, let field = searchField(in: view) {
+          if field.focusRingType != .none || field.cell?.focusRingType != NSFocusRingType.none {
+            failures.append(
+              "\(destination) search uses a window focus ring outside the shelf animation mask")
+          }
+          if field.bounds.height < 44 || field.bounds.width < standardWidth - 100
+            || (field.font?.pointSize ?? 0) < 20
+          {
+            failures.append("\(destination) search field is too small")
+          }
+          if let editor = field.currentEditor() as? NSTextView, let window = field.window {
+            let caret = editor.firstRect(
+              forCharacterRange: NSRange(location: 0, length: 0), actualRange: nil)
+            let textBounds = field.convert(window.convertFromScreen(caret), from: nil)
+            if textBounds.minX < 30 || abs(textBounds.midY - field.bounds.midY) > 4 {
+              failures.append(
+                "\(destination) search text overlaps its icon or is not vertically centered: \(textBounds), bezel \(field.isBezeled)"
+              )
+            }
+          } else {
+            failures.append("\(destination) search field did not receive keyboard focus")
+          }
+          if let bitmap = field.bitmapImageRepForCachingDisplay(in: field.bounds) {
+            field.cacheDisplay(in: field.bounds, to: bitmap)
+            if let color = bitmap.colorAt(x: bitmap.pixelsWide / 2, y: 4)?.usingColorSpace(
+              .deviceRGB),
+              color.alphaComponent < 0.9
+                || max(color.redComponent, color.greenComponent, color.blueComponent) < 0.02
+            {
+              failures.append("\(destination) search bezel does not fill its enlarged height")
+            }
+          }
+        } else {
+          failures.append("\(destination) search field missing")
+        }
+      }
+      let query = destination == "files" ? "" : destination == "emoji" ? "heart" : "Синтетическая"
+      model.query = query
+      await settle()
+      post(53)
+      if !(await wait({ !model.visible && !shelf.isVisible && !model.busy })) {
+        failures.append("\(destination) shelf did not finish closing: \(keyboardState())")
+      }
+      await application.show(nil)
+      await settle()
+      if model.destination != destination || model.query != query {
+        failures.append("fully closed \(destination) shelf did not resume its previous context")
+      }
+      post(53)
+      if !(await wait({ !model.visible && !shelf.isVisible && !model.busy })) {
+        failures.append("\(destination) shelf did not close before keyboard toggle")
+      }
+      await application.show("toggle")
+      await settle()
+      if model.destination != destination || model.query != query {
+        failures.append("launcher shortcut path did not resume \(destination)")
+      }
+      await application.show("apps")
+      await settle()
+      if model.destination != "apps" || !model.query.isEmpty {
+        failures.append(
+          "explicit launcher navigation from \(destination) did not reset browse context: \(model.destination), query \(model.query)"
+        )
+      }
+    }
+    post(53)
+    if !(await wait({ !model.visible && !shelf.isVisible })) {
+      failures.append("posted Escape did not dismiss native shelf window")
+    }
+    await application.show("apps", byHover: true)
+    await settle()
+    // An app-owned test window exercises real key-window loss without clicking
+    // in another user's application or changing its contents.
+    let outside = NSWindow(
+      contentRect: NSRect(x: 30, y: 30, width: 160, height: 100), styleMask: [.titled],
+      backing: .buffered, defer: false)
+    outside.isReleasedWhenClosed = false
+    outside.makeKeyAndOrderFront(nil)
+    if !(await wait({ !model.visible && !shelf.isVisible })) {
+      failures.append("hover shelf stayed visible after outside window gained focus")
+    }
+    outside.close()
+    await application.show("apps")
+    await settle()
+    NSApp.deactivate()
+    if !(await wait({ !model.visible && !shelf.isVisible })) {
+      failures.append("shelf stayed visible after application deactivation")
+    }
+    await application.show("clipboard")
+    await settle()
+    if let clip = model.clips.first(where: { $0.kind == "text" }) {
+      model.selectedID = clip.id
+      post(36, .command, "\r")
+      if !(await wait({ model.previewID == clip.id })) {
+        failures.append("posted Command Enter did not open clipboard preview")
+      }
+      post(18, .command, "1")
+      if !(await wait({ model.transformation == "upperCase" })) {
+        failures.append("posted Command1 did not transform preview")
+      }
+      await screenshot("clipboard-preview")
+      if abs(shelf.frame.width - standardWidth) > 1 {
+        failures.append("clipboard entry preview is wider than launcher")
+      }
+      post(53)
+      if !(await wait({ model.previewID == nil })) {
+        failures.append("posted Escape did not return preview to list")
+      }
+      let count = model.clips.count
+      post(51, [.command, .shift])
+      if !(await wait({ model.confirmClear })) {
+        failures.append("posted Command Shift Backspace did not show clear confirmation")
+      }
+      await screenshot("clipboard-clear-confirmation")
+      if abs(shelf.frame.width - standardWidth) > 1 {
+        failures.append("clipboard clear confirmation is wider than launcher")
+      }
+      post(53)
+      if !(await wait({ !model.confirmClear })) || model.clips.count != count {
+        failures.append("clear confirmation cancellation changed history")
+      }
+    } else {
+      failures.append("fixture has no text record for preview keyboard flow")
+    }
+    // Color/plain-text previews exercise the same real AppKit keyboard route and
+    // synthetic clipboard as the other desktop flows, never the user's board.
+    trace("color and plain-text previews")
+    let previewFixtures: [(String, String)] = [
+      ("color", "rgba(100, 160, 255, 0.5)"),
+      ("plain", "Цвет #64a0ff упоминается в тексте.\nОбычный текст остаётся обычным текстом."),
+      ("large", String(repeating: "x", count: 1_048_500)),
+    ]
+    for (name, content) in previewFixtures {
+      do {
+        try platform.history.add(.text, content: content, preview: String(content.prefix(400)))
+      } catch {
+        failures.append("cannot create \(name) preview fixture: \(error)")
+        continue
+      }
+      platform.refresh()
+      await application.show("clipboard")
+      guard let clip = model.clips.first(where: { Data($0.content.utf8) == Data(content.utf8) })
+      else {
+        failures.append("missing \(name) preview fixture")
+        continue
+      }
+      model.selectedID = clip.id
+      let original = platform.history.snapshot()
+      post(36, .command, "\r")
+      if !(await wait({ model.previewID == clip.id })) {
+        failures.append("Command Enter did not open \(name) preview")
+      }
+      guard
+        let text = await nativeSmokeWaitForView(
+          in: shelf, ofType: NSTextView.self,
+          ready: {
+            $0.accessibilityIdentifier() == "clipboard-preview-text"
+              && Data($0.string.utf8) == Data(content.utf8)
+          })
+      else {
+        failures.append("\(name) preview did not render exact selectable text")
+        model.back()
+        continue
+      }
+      if !text.isSelectable || text.isEditable || text.isAutomaticLinkDetectionEnabled {
+        failures.append("\(name) preview text was not inert and selectable")
+      }
+      await screenshot("clipboard-preview-\(name)")
+      if abs(shelf.frame.width - standardWidth) > 1 {
+        failures.append("\(name) entry preview is wider than launcher")
+      }
+      platform.capture.write(text: "Synthetic preview copy sentinel")
+      post(36, .shift, "\r")
+      if !(await wait({
+        !model.busy && Data(platform.capture.syntheticText.utf8) == Data(content.utf8)
+      })) {
+        failures.append("Shift Enter did not copy exact \(name) preview text")
+      }
+      if !model.visible { await application.show(nil) }
+      platform.capture.write(text: "Synthetic preview select sentinel")
+      post(36, [], "\r")
+      if !(await wait({
+        !model.busy && !model.visible
+          && Data(platform.capture.syntheticText.utf8) == Data(content.utf8)
+      })) {
+        failures.append("Enter did not select exact \(name) preview text for paste")
+      }
+      if platform.history.snapshot() != original {
+        failures.append("opening/copying \(name) preview changed stored history")
+      }
+      // A copy can close the shelf; reopen the preserved preview before returning.
+      if !model.visible { await application.show(nil) }
+      post(53)
+      if !(await wait({ model.previewID == nil })) {
+        failures.append("Escape did not return \(name) preview to history")
+      }
+    }
+    await screenshot("clipboard-color-history")
+    await application.show("snippets")
+    await settle()
+    if let snippet = model.snippets.first {
+      model.selectedID = snippet.id
+      post(36, .command, "\r")
+      if !(await wait({ model.previewID == snippet.id })) {
+        failures.append("posted Command Enter did not open snippet preview")
+      }
+      await screenshot("snippet-preview")
+      if abs(shelf.frame.width - standardWidth) > 1 {
+        failures.append("snippet entry preview is wider than launcher")
+      }
+      post(14, .command, "e")
+      if !(await wait({ model.draft?.id == snippet.id })) {
+        failures.append("posted Command E did not edit snippet from preview")
+      }
+      await screenshot("snippet-edit")
+      if abs(shelf.frame.width - standardWidth) > 1 {
+        failures.append("existing snippet editor is wider than launcher")
+      }
+      post(53)
+      if !(await wait({ model.draft == nil })) {
+        failures.append("posted Escape did not cancel existing snippet editor")
+      }
+      await application.show("snippets")
+      await settle()
+    }
+    post(45, .command, "n")
+    if !(await wait({ model.draft != nil })) {
+      failures.append("posted CommandN did not create a snippet draft")
+    }
+    model.draft?.name = "Тестовый шаблон"
+    model.draft?.content = "Несохранённый текст для проверки редактора."
+    await screenshot("snippet-editor")
+    if abs(shelf.frame.width - standardWidth) > 1 {
+      failures.append("new snippet editor is wider than launcher")
+    }
+    post(53)
+    if !(await wait({ model.draft == nil })) {
+      failures.append("posted Escape did not cancel snippet editor")
+    }
+    await application.show("emoji")
+    await settle()
+    if let bar = await nativeSmokeWaitForView(
+      in: shelf, ofType: NativeEmojiCategoryBar.self,
+      ready: { $0.buttons.count == nativeEmojiCategories.count && $0.bounds.width > 0 }),
+      let view = shelf.contentView
+    {
+      if bar.bounds.width < standardWidth - 32
+        || bar.buttons.contains(where: { $0.bounds.width < 40 || $0.bounds.height < 36 })
+      {
+        failures.append("emoji category tabs are cramped")
+      }
+      // Creating the representables queues a separate search-focus request.
+      // Sending Tab before it completes can target the departing snippet editor
+      // or have the category focus overwritten by that queued request.
+      if await nativeSmokeWaitForView(
+        in: shelf, ofType: NSSearchField.self,
+        ready: {
+          guard let editor = $0.currentEditor() as? NSTextView else { return false }
+          return $0.identifier?.rawValue == "polka-search" && shelf.isKeyWindow
+            && shelf.firstResponder === editor && (editor.delegate as? NSTextField) === $0
+        }) != nil
+      {
+        post(48, [], "\t")
+        if !(await wait({ shelf.firstResponder === bar.buttons[0] })) {
+          failures.append(
+            "Tab from emoji search did not focus the selected category: \(keyboardState()); selected=\(bar.buttons[0].state.rawValue), enabled=\(bar.buttons[0].isEnabled), canBecomeKeyView=\(bar.buttons[0].canBecomeKeyView)"
+          )
+        }
+      } else {
+        failures.append("emoji search did not receive focus before Tab: \(keyboardState())")
+      }
+      click(bar.buttons[1])
+      if !(await wait({ model.emojiCategory == "Smileys & Emotion" })) {
+        failures.append("emoji category mouse click did not select smileys")
+      }
+      await screenshot("emoji-categories")
+      if !shelf.makeFirstResponder(bar.buttons[1]) {
+        failures.append("selected emoji category cannot receive keyboard focus")
+      }
+      post(124, repeatKey: true)
+      await settle()
+      if model.emojiCategory != "Smileys & Emotion" {
+        failures.append("repeated emoji category arrow changed selection")
+      }
+      post(124)
+      if !(await wait({ model.emojiCategory == "People & Body" })) {
+        failures.append("emoji category ArrowRight did not select people")
+      }
+      post(119)
+      if !(await wait({ model.emojiCategory == "Flags" })) {
+        failures.append("emoji category End did not select flags")
+      }
+      post(124)
+      if !(await wait({ model.emojiCategory == "all" })) {
+        failures.append("emoji category ArrowRight did not wrap to all")
+      }
+      post(123)
+      if !(await wait({ model.emojiCategory == "Flags" })) {
+        failures.append("emoji category ArrowLeft did not wrap to flags")
+      }
+      post(115)
+      if !(await wait({ model.emojiCategory == "all" })) {
+        failures.append("emoji category Home did not select all")
+      }
+      if bar.buttons.filter({ $0.state == .on }).count != 1 {
+        failures.append("emoji categories do not expose one selected tab")
+      }
+      model.busy = true
+      await settle()
+      click(bar.buttons[1])
+      await settle()
+      if model.emojiCategory != "all" {
+        failures.append("busy emoji category button changed selection")
+      }
+      model.busy = false
+      await settle()
+      if let field = searchField(in: view) {
+        shelf.makeFirstResponder(field)
+        let editor = shelf.firstResponder
+        click(bar.buttons[1])
+        if !(await wait({ model.emojiCategory == "Smileys & Emotion" })) {
+          failures.append("emoji category mouse click stayed disabled after busy state ended")
+        }
+        if shelf.firstResponder !== editor {
+          failures.append("emoji category mouse click stole search editing focus")
+        }
+        click(bar.buttons[0])
+        if !(await wait({ model.emojiCategory == "all" })) {
+          failures.append("emoji category mouse click did not return to all")
+        }
+      }
+      model.query = "no-such-synthetic-emoji-xyz"
+      await settle()
+      if !model.emojiResults.isEmpty { failures.append("empty emoji search returned results") }
+      await screenshot("emoji-empty")
+      model.query = ""
+      await settle()
+      await screenshot("emoji-all")
+    } else {
+      failures.append("emoji category tabs missing after layout: \(keyboardState())")
+    }
+    model.query = "heart"
+    await settle()
+    await screenshot("emoji")
+    if let emoji = model.emojiResults.first {
+      post(18, .command, "1")
+      if !(await wait({
+        !model.busy && platform.capture.syntheticText == emoji.value && !model.visible
+      })) {
+        failures.append("posted Command1 did not copy emoji and close shelf")
+      }
+    } else {
+      failures.append("emoji fixture search did not find heart")
+    }
+    let fixtureRoot = URL(fileURLWithPath: platform.history.storage.state().path)
+      .deletingLastPathComponent().appendingPathComponent("desktop-files")
+    await platform.showIncomingFiles?()
+    await settle()
+    model.incomingFileDropPending = true
+    platform.endIncomingFiles?()
+    await settle()
+    if !model.visible || !shelf.isVisible {
+      failures.append("incomingEnd closed the shelf before file provider decoding finished")
+    }
+    model.incomingFileDropPending = false
+    if !(await wait({ !model.visible && !shelf.isVisible })) {
+      failures.append("cancelled incoming drag did not close after provider decoding ended")
+    }
+    await application.show("files")
+    await settle()
+    await screenshot("files-empty")
+    model.incomingFileDropTargeted = true
+    await screenshot("files-upload-zone")
+    if !model.incomingFileDropTargeted || model.busy {
+      failures.append("incoming file target did not retain its nonblocking drag state")
+    }
+    model.incomingFileDropTargeted = false
+    do {
+      try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+      let urls = [
+        fixtureRoot.appendingPathComponent("Synthetic note.txt"),
+        fixtureRoot.appendingPathComponent("Synthetic document.txt"),
+      ]
+      for url in urls { try Data("Synthetic desktop fixture".utf8).write(to: url) }
+      try await platform.handle(NativeUICommand("shelf.files.add", ids: urls.map(\.path)))
+      await application.show("files")
+      await settle()
+      if abs(shelf.frame.width - standardWidth) > 1 {
+        failures.append("populated file shelf is wider than launcher")
+      }
+      post(0, .command, "a")
+      if !(await wait({ model.selectedFiles.count == 2 })) {
+        failures.append("posted CommandA did not select all file references")
+      }
+      await screenshot("files-selection")
+      post(53)
+      if !(await wait({ !model.visible && !shelf.isVisible && !model.busy })) {
+        failures.append("selected file shelf did not finish closing")
+      }
+      await application.show(nil)
+      await settle()
+      if model.destination != "files" || model.selectedFiles.count != 2 {
+        failures.append("file shelf did not resume multiple selection")
+      }
+      post(51, .command)
+      if !(await wait({ !model.busy && platform.files.items.isEmpty })) {
+        failures.append("posted Command Backspace did not remove selected file references")
+      }
+      if !urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) {
+        failures.append("removing file references deleted synthetic originals")
+      }
+    } catch { failures.append("file fixture failed: " + error.localizedDescription) }
+    model.error = ""
+    await application.show("clipboard")
+    await settle()
+    return failures
+  }
   // Disable every optional app using actual Settings focus navigation and Space.
   // The fixture's board and profiles remain synthetic throughout this flow.
   await application.show("snippets")

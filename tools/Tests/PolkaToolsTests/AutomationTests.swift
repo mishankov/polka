@@ -69,7 +69,7 @@ final class AutomationTests: XCTestCase {
     ] {
       XCTAssertThrowsError(try ToolRequest(arguments), "\(arguments)")
     }
-    for command in ["core", "all", "updates", "files"] {
+    for command in ["core", "settings", "all", "updates", "files"] {
       XCTAssertEqual(
         try ToolRequest(["desktop", command, "--prebuilt", "--release"]).positionals, [command])
     }
