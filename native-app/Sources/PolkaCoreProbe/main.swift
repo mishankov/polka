@@ -7,6 +7,8 @@ while let line = readLine() {
     guard let input = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
     else { throw CocoaError(.coderReadCorrupt) }
     let query = input["query"] as? String ?? ""
+    AppLocalization.configure(
+      AppLanguagePreference(rawValue: input["language"] as? String ?? "system") ?? .system)
     let output: Data
     switch input["action"] as? String {
     case "calculate":

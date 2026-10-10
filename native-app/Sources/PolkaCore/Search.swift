@@ -29,24 +29,34 @@ public struct LauncherUsage: Equatable, Codable, Sendable {
   }
 }
 public enum LauncherSearch {
-  public static let builtinApps: [NativeLauncherApp] = [
-    NativeLauncherApp(
-      id: "builtin:snippets", name: "Сниппеты", kind: .builtin, icon: "snippets",
-      description: "Адреса, реквизиты и готовые ответы — создать и вставить",
-      searchTerms: ["snippet", "snippets", "сниппет", "шаблоны", "готовые ответы"]),
-    NativeLauncherApp(
-      id: "builtin:files", name: "Файлы на полке", kind: .builtin, icon: "files",
-      description: "Временно оставить файлы и перетащить в другую программу",
-      searchTerms: ["files", "shelf", "файлы", "перетащить"]),
-    NativeLauncherApp(
-      id: "builtin:clipboard", name: "История буфера обмена", kind: .builtin, icon: "clipboard",
-      description: "Скопированный текст и изображения",
-      searchTerms: ["clipboard", "history", "буфер", "копировать"]),
-    NativeLauncherApp(
-      id: "builtin:emoji", name: "Эмодзи", kind: .builtin, icon: "emoji",
-      description: "Смайлы, жесты и символы — найти и вставить",
-      searchTerms: ["emoji", "emojis", "эмоджи", "смайлик", "смайлики"]),
-  ]
+  public static var builtinApps: [NativeLauncherApp] {
+    [
+      NativeLauncherApp(
+        id: "builtin:snippets", name: localized("Snippets"), kind: .builtin, icon: "snippets",
+        description: localized("Addresses, details, and ready-made replies — create and paste"),
+        searchTerms: [
+          "Snippets", "Сниппеты", "snippet", "snippets", "сниппет", "шаблоны", "готовые ответы",
+        ]),
+      NativeLauncherApp(
+        id: "builtin:files", name: localized("Files on the Shelf"), kind: .builtin, icon: "files",
+        description: localized("Temporarily keep files and drag them to another app"),
+        searchTerms: [
+          "Files on the Shelf", "Файлы на полке", "files", "shelf", "файлы", "перетащить",
+        ]),
+      NativeLauncherApp(
+        id: "builtin:clipboard", name: localized("Clipboard History"), kind: .builtin,
+        icon: "clipboard",
+        description: localized("Copied text and images"),
+        searchTerms: [
+          "Clipboard History", "История буфера обмена", "clipboard", "history", "буфер",
+          "копировать",
+        ]),
+      NativeLauncherApp(
+        id: "builtin:emoji", name: localized("Emoji"), kind: .builtin, icon: "emoji",
+        description: localized("Smileys, gestures, and symbols — find and paste"),
+        searchTerms: ["Emoji", "Эмодзи", "emoji", "emojis", "эмоджи", "смайлик", "смайлики"]),
+    ]
+  }
   private struct Field {
     let text: String
     let length: Int

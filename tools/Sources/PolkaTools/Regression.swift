@@ -28,7 +28,12 @@ public enum Regression {
     }
     var input = Data()
     for item in cases {
-      guard let request = item["request"] else { throw ToolError("Missing feature request.") }
+      guard var request = item["request"] as? [String: Any] else {
+        throw ToolError("Missing feature request.")
+      }
+      // The reference corpus predates language selection and asserts Russian copy.
+      // Make its language explicit so results do not depend on the runner's locale.
+      request["language"] = "ru"
       input.append(try canonicalJSON(request))
       input.append(10)
     }

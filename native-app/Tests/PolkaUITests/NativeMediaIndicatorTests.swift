@@ -1,4 +1,5 @@
 import AppKit
+import PolkaCore
 import SwiftUI
 import XCTest
 
@@ -98,13 +99,13 @@ final class NativeMediaIndicatorTests: XCTestCase {
     for camera in ["active", "inactive", "unknown", "disabled"] {
       for microphone in ["active", "inactive", "unknown", "disabled"] {
         let state = NativeMediaPresentation(camera: camera, microphone: microphone)
-        XCTAssertTrue(state.label.contains("Камера:"))
-        XCTAssertTrue(state.label.contains("Микрофон:"))
+        XCTAssertTrue(state.label.contains(localized("Camera") + ":"))
+        XCTAssertTrue(state.label.contains(localized("Microphone") + ":"))
         if [camera, microphone].contains("unknown") {
-          XCTAssertTrue(state.label.contains("статус недоступен"))
+          XCTAssertTrue(state.label.contains(localized("status unavailable")))
         }
         if [camera, microphone].contains("disabled") {
-          XCTAssertTrue(state.label.contains("отслеживание выключено"))
+          XCTAssertTrue(state.label.contains(localized("tracking off")))
         }
         XCTAssertEqual(
           state.visible,

@@ -1,4 +1,5 @@
 import AppKit
+import PolkaCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -6,12 +7,13 @@ struct NativeFileShelfView: View {
   @ObservedObject var model: NativeUIModel
   var body: some View {
     VStack(spacing: 0) {
-      NativeBuiltinHeader(model: model, title: "Файлы на полке") {
+      NativeBuiltinHeader(model: model, title: localized("Files on the Shelf")) {
         NativeCommandButton(
-          title: "Очистить полку", shortcut: "⌘⇧⌫", disabled: model.busy || model.files.isEmpty
+          title: localized("Clear Shelf"), shortcut: "⌘⇧⌫",
+          disabled: model.busy || model.files.isEmpty
         ) { model.removeSelectedFiles(clear: true) }.accessibilityIdentifier("files-clear")
       }
-      Text("Перетащите сюда файлы, затем заберите их в другую программу.").font(.system(size: 12))
+      Text(localized("Drag files here, then take them to another app.")).font(.system(size: 12))
         .foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(
           .horizontal, 12
         ).padding(.bottom, 10)
@@ -22,8 +24,12 @@ struct NativeFileShelfView: View {
           if model.files.isEmpty {
             VStack(spacing: 12) {
               Image(systemName: "folder").font(.system(size: 40)).foregroundStyle(.secondary)
-              Text("Оставьте файлы здесь").font(.system(size: 16, weight: .semibold))
-              Text("Они останутся на своих местах. Полка хранит ссылки до выхода из Полки.").font(
+              Text(localized("Leave Files Here")).font(.system(size: 16, weight: .semibold))
+              Text(
+                localized(
+                  "They stay in their original locations. The shelf keeps links until you quit Polka."
+                )
+              ).font(
                 .system(size: 12)
               ).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }.frame(maxWidth: .infinity).padding(40)
@@ -32,7 +38,9 @@ struct NativeFileShelfView: View {
             HStack(spacing: 0) {
               NativeDraggableFileRow(model: model, file: file).frame(height: 62)
               NativeIconButton(
-                label: "Убрать \(file.name) с полки", symbol: "trash", shortcut: "⌘⌫",
+                label: localized("Remove {0} from Shelf", String(describing: file.name)),
+                symbol: "trash",
+                shortcut: "⌘⌫",
                 disabled: model.busy
               ) {
                 model.selectedFiles = [file.id]
@@ -51,15 +59,20 @@ struct NativeFileShelfView: View {
       NativeToolbar {
         Text(
           model.selectedFiles.isEmpty
-            ? "Файлов: \(model.files.count)" : "Выбрано: \(model.selectedFiles.count)")
+            ? localized("Files: {0}", String(describing: model.files.count))
+            : localized("Selected: {0}", String(describing: model.selectedFiles.count)))
         Spacer()
         NativeCommandButton(
-          title: "Убрать с полки", symbol: "trash", shortcut: "⌘⌫",
+          title: localized("Remove from Shelf"), symbol: "trash", shortcut: "⌘⌫",
           disabled: model.busy || model.selectedFiles.isEmpty
         ) { model.removeSelectedFiles() }.accessibilityIdentifier("files-remove")
       }.font(.system(size: 11)).foregroundStyle(.secondary)
-      NativeKeyboardHint(text: "⌘ / ⇧ выбрать несколько · ⌘A все · esc закрыть")
-      Text("Очистка и удаление с полки убирают только ссылки. Файлы не синхронизируются.").font(
+      NativeKeyboardHint(text: localized("⌘ / ⇧ select multiple · ⌘A all · esc close"))
+      Text(
+        localized(
+          "Clearing or removing items from the shelf only removes links. Files are not synced.")
+      )
+      .font(
         .system(size: 10)
       ).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.bottom, 10)
     }
@@ -77,9 +90,11 @@ struct NativeDraggableFileRow: NSViewRepresentable {
     view.file = file
     view.needsDisplay = true
     view.setAccessibilityLabel(file.name)
-    view.setAccessibilityHelp(file.available ? file.path : "Перемещён, удалён или недоступен")
+    view.setAccessibilityHelp(
+      file.available ? file.path : localized("Moved, deleted, or unavailable"))
     view.setAccessibilityIdentifier("file-\(file.id)")
-    view.setAccessibilityValue(model.selectedFiles.contains(file.id) ? "Выбрано" : "Не выбрано")
+    view.setAccessibilityValue(
+      model.selectedFiles.contains(file.id) ? localized("Selected") : localized("Not selected"))
   }
 }
 @MainActor final class NativeFileDragView: NSView, NSDraggingSource {
@@ -107,7 +122,7 @@ struct NativeDraggableFileRow: NSViewRepresentable {
         .font: NSFont.systemFont(ofSize: 13, weight: .medium),
         .foregroundColor: file.available ? NSColor.labelColor : NSColor.secondaryLabelColor,
       ])
-    (file.available ? file.path : "Перемещён, удалён или недоступен").draw(
+    (file.available ? file.path : localized("Moved, deleted, or unavailable")).draw(
       in: NSRect(x: 56, y: 13, width: width, height: 15),
       withAttributes: [
         .font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor,
@@ -290,7 +305,7 @@ extension NativeUIModel {
       }
       guard !busy else { return }
       guard !paths.isEmpty else {
-        error = "Перетащите локальные файлы из Finder."
+        error = localized("Drag local files from Finder.")
         return
       }
       // After decoding, the ordinary guarded command owns the brief commit.
@@ -302,7 +317,9 @@ extension NativeUIModel {
         guard let action else {
           throw NSError(
             domain: "Polka", code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "Действие пока недоступно."])
+            userInfo: [
+              NSLocalizedDescriptionKey: localized("This action is currently unavailable.")
+            ])
         }
         try await action(NativeUICommand("shelf.files.add", ids: paths))
       } catch {
@@ -318,7 +335,7 @@ extension NativeUIModel {
 struct NativeIncomingFileDropHint: View {
   var topInset: CGFloat
   var body: some View {
-    Text("Отпустите, чтобы оставить файлы на полке")
+    Text(localized("Drop to Leave Files on the Shelf"))
       .font(.system(size: 14)).foregroundStyle(.white)
       .multilineTextAlignment(.center).padding(20)
       .frame(maxWidth: .infinity, maxHeight: .infinity)

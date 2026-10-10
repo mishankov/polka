@@ -1,4 +1,5 @@
 import AppKit
+import PolkaCore
 import SwiftUI
 
 /// AppKit owns input while a sheet or modal dialog is open. Accessibility
@@ -44,8 +45,8 @@ struct NativeCommandButton: View {
     .tint(destructive ? .red : prominent ? .accentColor : nil)
     .disabled(disabled)
     .help(title + (shortcut.isEmpty ? "" : " · " + shortcut))
-    .accessibilityHint(shortcut.isEmpty ? "" : "Сочетание клавиш: " + shortcut)
-    .accessibilityCustomContent("Сочетание клавиш", Text(shortcut))
+    .accessibilityHint(shortcut.isEmpty ? "" : localized("Keyboard shortcut: ") + shortcut)
+    .accessibilityCustomContent(Text(localized("Keyboard shortcut")), Text(shortcut))
   }
 }
 struct NativeIconButton: View {
@@ -63,9 +64,9 @@ struct NativeIconButton: View {
     .modifier(NativeCommandStyle()).buttonBorderShape(.circle).disabled(disabled)
     .help(label + (shortcut.isEmpty ? "" : " · " + shortcut))
     .accessibilityLabel(label).accessibilityHint(
-      shortcut.isEmpty ? "" : "Сочетание клавиш: " + shortcut
+      shortcut.isEmpty ? "" : localized("Keyboard shortcut: ") + shortcut
     )
-    .accessibilityCustomContent("Сочетание клавиш", Text(shortcut))
+    .accessibilityCustomContent(Text(localized("Keyboard shortcut")), Text(shortcut))
   }
 }
 
@@ -86,16 +87,17 @@ struct NativeBuiltinHeader<Actions: View>: View {
     NativeToolbar {
       NativeIconButton(
         label: model.draft != nil
-          ? "Отменить редактирование"
-          : model.previewID != nil || model.confirmClear ? "Назад к списку" : "Назад к приложениям",
+          ? localized("Cancel Editing")
+          : model.previewID != nil || model.confirmClear
+            ? localized("Back to List") : localized("Back to Apps"),
         symbol: "arrow.left", shortcut: model.draft != nil ? "esc" : "⌫", disabled: model.busy
       ) { model.back() }.accessibilityIdentifier("builtin-back")
       Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
       Spacer(minLength: 8)
-      if model.busy { ProgressView().controlSize(.small).accessibilityLabel("Выполняем…") }
+      if model.busy { ProgressView().controlSize(.small).accessibilityLabel(localized("Working…")) }
       actions()
       NativeIconButton(
-        label: "Закрыть полку", symbol: "xmark", shortcut: "⌘W", disabled: model.busy
+        label: localized("Close Shelf"), symbol: "xmark", shortcut: "⌘W", disabled: model.busy
       ) { model.closeShelf() }.accessibilityIdentifier("builtin-close")
     }
   }
@@ -123,12 +125,13 @@ struct NativeSelectionActions: View {
   var body: some View {
     HStack(spacing: 8) {
       if canPaste {
-        NativeCommandButton(title: "Копировать", shortcut: "⇧↵", disabled: disabled) {
+        NativeCommandButton(title: localized("Copy"), shortcut: "⇧↵", disabled: disabled) {
           choose(true)
         }.accessibilityIdentifier("builtin-copy")
       }
       NativeCommandButton(
-        title: canPaste ? "Вставить" : "Копировать", shortcut: canPaste ? "↵" : "↵ / ⇧↵",
+        title: canPaste ? localized("Paste") : localized("Copy"),
+        shortcut: canPaste ? "↵" : "↵ / ⇧↵",
         disabled: disabled,
         prominent: true
       ) { choose(false) }.accessibilityIdentifier("builtin-select")
@@ -411,6 +414,7 @@ struct NativeShortcutRecorder: NSViewRepresentable {
     CGSize(width: proposal.width ?? 250, height: proposal.height ?? 30)
   }
   func updateNSView(_ view: NativeShortcutCaptureView, context: Context) {
+    view.setAccessibilityLabel(localized("Record Keyboard Shortcut"))
     view.value = value
     view.enabled = !disabled
     view.record = onRecord
@@ -427,7 +431,7 @@ final class NativeShortcutCaptureView: NSView {
     super.init(frame: frame)
     setAccessibilityElement(true)
     setAccessibilityRole(.button)
-    setAccessibilityLabel("Записать сочетание клавиш")
+    setAccessibilityLabel(localized("Record Keyboard Shortcut"))
   }
   required init?(coder: NSCoder) { super.init(coder: coder) }
   override var intrinsicContentSize: NSSize { NSSize(width: 250, height: 30) }
@@ -457,7 +461,8 @@ final class NativeShortcutCaptureView: NSView {
     path.stroke()
     let label =
       recording
-      ? "Нажмите сочетание клавиш…" : value.isEmpty ? "Не назначено" : nativeShortcutLabel(value)
+      ? localized("Press a keyboard shortcut…")
+      : value.isEmpty ? localized("Not Assigned") : nativeShortcutLabel(value)
     label.draw(
       in: rect.insetBy(dx: 8, dy: 6),
       withAttributes: [

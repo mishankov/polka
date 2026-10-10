@@ -1,4 +1,5 @@
 import AppKit
+import PolkaCore
 import UniformTypeIdentifiers
 import XCTest
 
@@ -88,7 +89,7 @@ final class NativeIncomingFileDropTests: XCTestCase {
     XCTAssertTrue(model.incomingFileDropPending, "An older callback must not clear a newer drop")
     current.release(nil)
     await assertEventually { !model.incomingFileDropPending }
-    XCTAssertEqual(model.error, "Перетащите локальные файлы из Finder.")
+    XCTAssertEqual(model.error, localized("Drag local files from Finder."))
     XCTAssertFalse(model.busy)
   }
 

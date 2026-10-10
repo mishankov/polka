@@ -28,16 +28,17 @@ import Sparkle
   private(set) var notesRussian = ""
   private(set) var notesEnglish = ""
   private(set) var progress = 0.0
-  private(set) var message: String
+  private var messageKey: String
+  var message: String { localized(messageKey) }
   private(set) var installationAuthorized = false
   let currentVersion: String
   var changed: (() -> Void)?
   var beforeInstall: (() async throws -> Void)?
   var restoreAfterInstallFailure: (() -> Void)?
   private static let unavailable =
-    "Эта сборка не подключена к каналу обновлений. Установите выпуск с GitHub, чтобы получать обновления."
+    "This build is not connected to the update channel. Install a GitHub release to receive updates."
   private static let updateError =
-    "Не удалось обновить приложение. Проверьте подключение и повторите проверку."
+    "Could not update the app. Check your connection and check again."
   static let reminderDelay = 86_400_000.0
 
   init(
@@ -56,7 +57,7 @@ import Sparkle
       currentVersion ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
       as? String ?? "0.1.15"
     status = enabled ? "idle" : "unavailable"
-    message = enabled ? "" : Self.unavailable
+    messageKey = enabled ? "" : Self.unavailable
     super.init()
     let saved = (preferences ?? (try? settings?.get(key: "updatePreferences"))) as? [String: Any]
     skippedVersion = saved?["skippedVersion"] as? String
@@ -89,55 +90,55 @@ import Sparkle
       updater.sendsSystemProfile = false
       enabled = true
       status = "idle"
-      message = ""
+      messageKey = ""
       changed?()
       updater.checkForUpdatesInBackground()
     } catch {
       enabled = true
       status = "error"
-      message = "Не удалось начать проверку обновлений."
+      messageKey = "Could not start checking for updates."
       changed?()
     }
   }
   private func requireEnabled() throws {
     guard enabled else {
-      throw PolkaCoreError.invalid(message.isEmpty ? Self.unavailable : message)
+      throw PolkaCoreError.invalid(message.isEmpty ? localized(Self.unavailable) : message)
     }
   }
   private func requireIdleOperation() throws {
     try requireEnabled()
     guard !busy && !preferenceSaving else {
-      throw PolkaCoreError.invalid("Дождитесь завершения текущей операции обновления")
+      throw PolkaCoreError.invalid(localized("Wait for the current update operation to finish"))
     }
   }
   func check() throws {
     try requireIdleOperation()
     guard !["checking", "downloading", "ready", "installing"].contains(status) else {
-      throw PolkaCoreError.invalid("Сначала завершите текущее обновление")
+      throw PolkaCoreError.invalid(localized("Finish the current update first"))
     }
     if checkAction == nil {
       guard let updater, updater.canCheckForUpdates else {
-        throw PolkaCoreError.invalid("Проверка обновлений уже выполняется")
+        throw PolkaCoreError.invalid(localized("An update check is already running"))
       }
     }
     status = "checking"
-    message = ""
+    messageKey = ""
     progress = 0
     changed?()
     do { if let checkAction { try checkAction() } else { updater?.checkForUpdates() } } catch {
       status = "error"
-      message = "Не удалось проверить обновления. Повторите попытку позже."
+      messageKey = "Could not check for updates. Try again later."
       changed?()
     }
   }
   func install() async throws {
     try requireIdleOperation()
     guard status == "ready", let reply = readyReply else {
-      throw PolkaCoreError.invalid("Обновление ещё не загружено")
+      throw PolkaCoreError.invalid(localized("The update has not been downloaded yet"))
     }
     busy = true
     status = "installing"
-    message = ""
+    messageKey = ""
     changed?()
     let operationGeneration = generation
     defer { busy = false }
@@ -153,7 +154,7 @@ import Sparkle
       guard generation == operationGeneration else { return }
       restoreAfterInstallFailure?()
       status = "ready"
-      message = "Не удалось сохранить историю буфера или начать установку. Повторите попытку."
+      messageKey = "Could not save clipboard history or start installation. Try again."
       changed?()
     }
   }
@@ -166,9 +167,11 @@ import Sparkle
   private func saveChoice(version requestedVersion: String, skip: Bool) async throws {
     try requireEnabled()
     guard !requestedVersion.isEmpty && requestedVersion == version && status != "installing" else {
-      throw PolkaCoreError.invalid("Эта версия обновления больше недоступна")
+      throw PolkaCoreError.invalid(localized("This update version is no longer available"))
     }
-    guard !preferenceSaving else { throw PolkaCoreError.invalid("Дождитесь сохранения выбора") }
+    guard !preferenceSaving else {
+      throw PolkaCoreError.invalid(localized("Wait for your selection to be saved"))
+    }
     preferenceSaving = true
     defer { preferenceSaving = false }
     let after = now() + Self.reminderDelay
@@ -216,7 +219,7 @@ import Sparkle
     version = ""
     clearNotes()
     progress = 0
-    message = ""
+    messageKey = ""
     // Skip is Sparkle's cancellation of staging; Dismiss consents to install on quit.
     if let reply { reply(.skip) } else { cancel?() }
     changed?()
@@ -261,7 +264,7 @@ import Sparkle
     applyNotes(releaseNotes)
     status = "downloading"
     progress = 0
-    message = ""
+    messageKey = ""
     changed?()
   }
   func receiveReady(
@@ -275,7 +278,7 @@ import Sparkle
     cancellation = nil
     status = "ready"
     progress = 100
-    message = ""
+    messageKey = ""
     changed?()
   }
   func receiveCurrent() {
@@ -285,7 +288,7 @@ import Sparkle
     status = "current"
     version = ""
     clearNotes()
-    message = ""
+    messageKey = ""
     changed?()
   }
   func receiveError() {
@@ -296,7 +299,7 @@ import Sparkle
     readyReply = nil
     cancellation = nil
     status = "error"
-    message = Self.updateError
+    messageKey = Self.updateError
     changed?()
   }
   func show(
@@ -308,7 +311,7 @@ import Sparkle
     self.cancellation = cancellation
     if enabled && ["idle", "current", "error"].contains(status) {
       status = "checking"
-      message = ""
+      messageKey = ""
       progress = 0
       changed?()
     }

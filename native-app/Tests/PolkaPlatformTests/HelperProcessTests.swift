@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import PolkaCore
 import XCTest
 
 @testable import PolkaApp
@@ -57,7 +58,9 @@ final class HelperProcessTests: XCTestCase {
         URL(fileURLWithPath: "/usr/bin/env"), arguments: arguments(script, [pidPath.path]),
         timeout: 0.1)
       XCTFail("Timeout accepted")
-    } catch { XCTAssertTrue(error.localizedDescription.contains("вовремя")) }
+    } catch {
+      XCTAssertTrue(error.localizedDescription == localized("The helper did not respond in time"))
+    }
     let pid = try await waitForPID(pidPath)
     XCTAssertEqual(kill(pid, 0), -1)
     XCTAssertEqual(errno, ESRCH)
@@ -88,7 +91,9 @@ final class HelperProcessTests: XCTestCase {
         URL(fileURLWithPath: "/usr/bin/env"), arguments: arguments(script, [pidPath.path]),
         timeout: 10, limit: 1024)
       XCTFail("Output cap ignored")
-    } catch { XCTAssertTrue(error.localizedDescription.contains("большой")) }
+    } catch {
+      XCTAssertTrue(error.localizedDescription == localized("Helper response is too large"))
+    }
     let pid = try await waitForPID(pidPath)
     XCTAssertEqual(kill(pid, 0), -1)
     XCTAssertEqual(errno, ESRCH)

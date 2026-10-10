@@ -39,12 +39,20 @@ import UserNotifications
   var endIncomingFiles: (() -> Void)?
   var filesDropped: (() async -> Void)?
   var mediaTracking: ((String, Bool) throws -> Void)?
+  var languageChanged: (() -> Void)?
   init(model: NativeUIModel, root: URL, fixture: Bool, encryption: EncryptionCodec? = nil) throws {
     self.model = model
     self.fixture = fixture
     try FileManager.default.createDirectory(
       at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     settings = try SettingsStore(root: root)
+    let languagePreference =
+      AppLanguagePreference(
+        rawValue: (try settings.get(key: AppLanguagePreference.settingsKey)) as? String ?? "system")
+      ?? .system
+    AppLocalization.configure(languagePreference)
+    model.settings.languagePreference = languagePreference
+    model.settings.language = AppLocalization.language
     let historyPath = root.appendingPathComponent("clipboard-history/history.enc")
     let syncPath = root.appendingPathComponent("clipboard-history/sync.enc")
     let codec: EncryptionCodec
@@ -85,7 +93,10 @@ import UserNotifications
     model.searchProvider = { [weak self] query in self?.search(query) ?? [] }
     model.emojiProvider = { query, category, tone in
       EmojiCatalog.shared.results(query: query, category: category, tone: tone).map {
-        NativeUIEmoji(id: $0.id, value: $0.value, name: $0.name, englishName: $0.englishName)
+        NativeUIEmoji(
+          id: $0.id, value: $0.value,
+          name: AppLocalization.language == .russian ? $0.name : $0.englishName,
+          englishName: $0.englishName)
       }
     }
     model.calculationStatusProvider = { [weak self] query in
@@ -230,6 +241,17 @@ import UserNotifications
     }
   }
   func waitForInitialization() async { await initializationTask?.value }
+  func updateSystemLanguage(preferredLanguages: [String] = Locale.preferredLanguages) {
+    guard !disposed else { return }
+    AppLocalization.configure(
+      model.settings.languagePreference, preferredLanguages: preferredLanguages)
+    let language = AppLocalization.language
+    guard model.settings.language != language else { return }
+    model.settings.language = language
+    model.searchRevision += 1
+    refresh()
+    languageChanged?()
+  }
   private func keychainNotice() async throws {
     let root = URL(fileURLWithPath: history.storage.state().path).deletingLastPathComponent()
       .deletingLastPathComponent()
@@ -243,14 +265,16 @@ import UserNotifications
     // This explanatory prompt must not veto Quit before the application
     // delegate can cancel startup and release helpers.
     alert.window.preventsApplicationTerminationWhenModal = false
-    alert.messageText = "Доступ к зашифрованной истории"
+    alert.messageText = localized("Access to Encrypted History")
     alert.informativeText =
-      "Полка хранит ключ шифрования в Связке ключей macOS. Система может попросить разрешить доступ к «polka Safe Storage». Разрешите его, чтобы открыть историю. При отказе зашифрованные файлы сохранятся."
-    alert.addButton(withTitle: "Продолжить")
-    alert.addButton(withTitle: "Отмена")
+      localized(
+        "Polka stores its encryption key in macOS Keychain. The system may ask for access to “polka Safe Storage”. Allow access to open history. If access is denied, encrypted files are preserved."
+      )
+    alert.addButton(withTitle: localized("Continue"))
+    alert.addButton(withTitle: localized("Cancel"))
     alert.buttons[1].keyEquivalent = "\u{1b}"
     guard let panel = currentPanel?() else {
-      throw PolkaCoreError.storage("Не удалось показать запрос доступа к истории")
+      throw PolkaCoreError.storage(localized("Could not show the history access prompt"))
     }
     if !panel.isVisible { await show?(nil, "") }
     guard !disposed, !Task.isCancelled else { throw CancellationError() }
@@ -260,7 +284,7 @@ import UserNotifications
     guard !disposed, !Task.isCancelled else { throw CancellationError() }
     guard response == .alertFirstButtonReturn else {
       throw PolkaCoreError.storage(
-        "Доступ к истории отменён. Перезапустите Полку, чтобы повторить.")
+        localized("History access was cancelled. Restart Polka to try again."))
     }
     try version.write(to: path, atomically: true, encoding: .utf8)
   }
@@ -285,7 +309,7 @@ import UserNotifications
       self.pasteToken = nil
       self.model.pasteReady = false
       self.model.helperStatus = "failed"
-      self.model.helperError = "Наблюдение за буфером остановлено. Перезапустите Полку."
+      self.model.helperError = localized("Clipboard monitoring has stopped. Restart Polka.")
     }
     startupTask = Task {
       let delays: [Double] = [5, 15, 30]
@@ -311,7 +335,7 @@ import UserNotifications
         try? await Task.sleep(nanoseconds: 1_000_000_000)
       }
       model.helperStatus = "failed"
-      model.helperError = "Нативный помощник не запустился. Перезапустите Полку."
+      model.helperError = localized("The native helper did not start. Restart Polka.")
     }
   }
   private func startFileProbe() {
@@ -335,7 +359,9 @@ import UserNotifications
     fileProbe.onExit = { [weak self] _ in
       guard let self, !self.disposed else { return }
       self.model.error =
-        "Цель у выреза недоступна. Откройте файлы через список приложений и перетащите их на открытую полку."
+        localized(
+          "The notch target is unavailable. Open files from the app list and drag them onto the open shelf."
+        )
     }
     do {
       try fileProbe.start(NativeProfile.helper("file-shelf-probe"))
@@ -490,7 +516,7 @@ import UserNotifications
     let parsed = try GlobalShortcuts.parse(accelerator)
     if !other.isEmpty, let occupied = try? GlobalShortcuts.parse(other), parsed == occupied {
       throw PolkaCoreError.invalid(
-        "Сочетание уже используется другим действием Полки. Выберите другое.")
+        localized("This shortcut is already used by another Polka action. Choose another."))
     }
   }
   private func registerLauncherShortcut(_ accelerator: String) throws {
@@ -575,7 +601,7 @@ import UserNotifications
           let preview = nativeClipboardSnippet(projectClip(clip), query: query)
           return NativeUISearchRow(
             id: "clip:" + clip.id, kind: "clip",
-            title: clip.name ?? (clip.kind == .image ? "Изображение" : preview),
+            title: clip.name ?? (clip.kind == .image ? localized("Image") : preview),
             detail: clip.name == nil && clip.kind == .text ? "" : preview,
             icon: clip.kind == .image ? clip.preview : "", clipID: clip.id, snippet: clip.isSnippet)
         }
@@ -584,8 +610,8 @@ import UserNotifications
             NativeUISearchRow(
               id: more, kind: more,
               title: more == "more-clips"
-                ? "Показать все записи (\(matches.count))"
-                : "Показать все сниппеты (\(matches.count))"))
+                ? localized("Show All Items ({0})", String(describing: matches.count))
+                : localized("Show All Snippets ({0})", String(describing: matches.count))))
         }
       }
     }
@@ -596,10 +622,10 @@ import UserNotifications
   {
     if let transformation {
       guard content.kind == .text else {
-        throw PolkaCoreError.invalid("Преобразование доступно только для текста")
+        throw PolkaCoreError.invalid(localized("Only text can be transformed"))
       }
       guard ["upperCase", "lowerCase"].contains(transformation) else {
-        throw PolkaCoreError.invalid("Неизвестное преобразование текста")
+        throw PolkaCoreError.invalid(localized("Unknown text transformation"))
       }
     }
     if content.kind == .text {
@@ -610,17 +636,17 @@ import UserNotifications
       capture.write(text: text)
     } else {
       guard transformation == nil, let image = Data(base64Encoded: content.content) else {
-        throw PolkaCoreError.invalid("Не удалось открыть изображение")
+        throw PolkaCoreError.invalid(localized("Could not open the image"))
       }
       capture.write(image: image)
     }
     guard selection, history.getPreferences().pasteOnSelect else {
-      model.notice = "Скопировано"
+      model.notice = localized("Copied")
       hide?(true)
       return
     }
     guard let token = pasteToken, model.pasteAccess == "granted" else {
-      model.notice = "Скопировано. Вставьте вручную через ⌘V."
+      model.notice = localized("Copied. Paste manually with ⌘V.")
       hide?(true)
       return
     }
@@ -634,11 +660,11 @@ import UserNotifications
       let reason = reply["reason"] as? String ?? ""
       let message =
         ["focus-not-restored", "field-changed", "window-changed"].contains(reason)
-        ? "Не удалось вернуть фокус в прежнее поле. Нажмите на него и нажмите ⌘V."
-        : "Автоматическая вставка не выполнена. Вернитесь в нужное поле и нажмите ⌘V."
+        ? localized("Could not restore focus to the previous field. Click it and press ⌘V.")
+        : localized("Automatic paste failed. Return to the desired field and press ⌘V.")
       model.notice = message
       let content = UNMutableNotificationContent()
-      content.title = "Скопировано"
+      content.title = localized("Copied")
       content.body = message
       let center = UNUserNotificationCenter.current()
       if await center.notificationSettings().authorizationStatus == .notDetermined {
@@ -652,7 +678,7 @@ import UserNotifications
   func requireEnabled(_ destination: String) throws {
     guard builtinApps.allows(destination: destination) else {
       throw PolkaCoreError.invalid(
-        "Приложение отключено. Включите его в настройках «Встроенные приложения».")
+        localized("This app is disabled. Enable it in “Built-in Apps” settings."))
     }
   }
   private func validateAvailability(_ command: NativeUICommand) throws {
@@ -682,12 +708,14 @@ import UserNotifications
   }
   private func setBuiltinApp(_ id: String, enabled: Bool) async throws {
     guard LauncherSearch.builtinApps.contains(where: { $0.id == id }) else {
-      throw PolkaCoreError.invalid("Неизвестное встроенное приложение")
+      throw PolkaCoreError.invalid(localized("Unknown built-in app"))
     }
     guard !model.busy || model.pendingCommand == "builtinApps.setEnabled",
       !model.outgoingFileDrag, !model.incomingFileDropPending, !model.incomingFileDropTargeted,
       NSApp?.modalWindow == nil, NSApp?.windows.contains(where: { $0.attachedSheet != nil }) != true
-    else { throw PolkaCoreError.invalid("Завершите текущее действие перед отключением приложения") }
+    else {
+      throw PolkaCoreError.invalid(localized("Finish the current action before disabling the app"))
+    }
     guard builtinApps.isEnabled(id) != enabled else { return }
     var next = builtinApps
     next.overrides[id] = enabled
@@ -724,7 +752,7 @@ import UserNotifications
   func handle(_ command: NativeUICommand) async throws {
     try validateAvailability(command)
     guard updates.status != "installing" || command.name == "system.quit" else {
-      throw PolkaCoreError.invalid("Обновление устанавливается")
+      throw PolkaCoreError.invalid(localized("An update is being installed"))
     }
     defer {
       refresh()
@@ -736,7 +764,7 @@ import UserNotifications
       "clipboardHistory.saveImage",
     ].contains(command.name) {
       guard model.visible, fixture || currentPanel?()?.isKeyWindow == true else {
-        throw PolkaCoreError.invalid("Откройте полку, чтобы вставить выбранное")
+        throw PolkaCoreError.invalid(localized("Open the shelf to paste the selection"))
       }
     }
     if [
@@ -759,7 +787,7 @@ import UserNotifications
       let source = sourceID.flatMap(history.find)
       if sourceID != nil {
         guard history.storage.ready, source?.kind == .text else {
-          throw PolkaCoreError.invalid("Исходная текстовая запись уже недоступна")
+          throw PolkaCoreError.invalid(localized("The original text item is no longer available"))
         }
       }
       await show?("snippets", command.strings["query"] ?? "")
@@ -783,7 +811,7 @@ import UserNotifications
         try settings.set(
           key: "launcherUsage",
           value: JSONSerialization.jsonObject(with: JSONEncoder().encode(usage)))
-      } catch { model.error = "Не удалось сохранить статистику запуска" }
+      } catch { model.error = localized("Could not save launch statistics") }
       hide?(true)
     case "launcher.refresh": try await refreshCatalog()
     case "launcher.setShortcut": try registerLauncherShortcut(command.strings["accelerator"] ?? "")
@@ -814,22 +842,24 @@ import UserNotifications
       capture.cancel()
       try history.clear()
     case "clipboardHistory.copy", "clipboardHistory.select":
-      guard let clip = history.find(id) else { throw PolkaCoreError.invalid("Запись уже удалена") }
+      guard let clip = history.find(id) else {
+        throw PolkaCoreError.invalid(localized("This item has already been deleted"))
+      }
       try await copy(
         clip, selection: command.name.hasSuffix("select"),
         transformation: command.strings["transformation"])
     case "clipboardHistory.preview":
       guard let clip = history.find(id), clip.kind == .image,
         let data = Data(base64Encoded: clip.content), let image = NSImage(data: data)
-      else { throw PolkaCoreError.invalid("Изображение уже удалено") }
+      else { throw PolkaCoreError.invalid(localized("The image has already been deleted")) }
       model.previewImage = image
     case "clipboardHistory.retryImageText": try history.retryImageText(id)
     case "clipboardHistory.copyImageText":
       guard let clip = history.find(id), let ocr = clip.ocr, ocr.version == capture.ocrVersion,
         ocr.status == .ready
-      else { throw PolkaCoreError.invalid("Распознанный текст ещё недоступен") }
+      else { throw PolkaCoreError.invalid(localized("Recognized text is not available yet")) }
       capture.write(text: ocr.text)
-      model.notice = "Текст скопирован"
+      model.notice = localized("Text Copied")
       hide?(true)
     case "clipboardHistory.requestPasteAccess":
       hide?(true)
@@ -838,18 +868,19 @@ import UserNotifications
       guard let clip = history.find(id), clip.kind == .text, let url = nativeWebURL(clip.content)
       else {
         throw PolkaCoreError.invalid(
-          "Запись должна содержать одну ссылку HTTP или HTTPS без логина и пароля")
+          localized(
+            "The item must contain a single HTTP or HTTPS link without a username or password"))
       }
       if !fixture {
         guard NSWorkspace.shared.open(url) else {
-          throw PolkaCoreError.invalid("Не удалось открыть ссылку")
+          throw PolkaCoreError.invalid(localized("Could not open the link"))
         }
       }
       hide?(true)
     case "clipboardHistory.saveImage":
       guard let clip = history.find(id), clip.kind == .image,
         let data = Data(base64Encoded: clip.content), let owner = currentPanel?()
-      else { throw PolkaCoreError.invalid("Изображение уже удалено") }
+      else { throw PolkaCoreError.invalid(localized("The image has already been deleted")) }
       let revision = model.sessionRevision
       defer {
         if model.visible, model.sessionRevision == revision, owner.isVisible { owner.makeKey() }
@@ -859,8 +890,8 @@ import UserNotifications
       ).replacingOccurrences(of: ":", with: "-").replacingOccurrences(of: ".", with: "-")
       let panel = NSSavePanel()
       panel.allowedContentTypes = [.png]
-      panel.title = "Сохранить изображение"
-      panel.prompt = "Сохранить"
+      panel.title = localized("Save Image")
+      panel.prompt = localized("Save")
       panel.nameFieldStringValue = "Polka-\(timestamp).png"
       panel.canCreateDirectories = true
       let answer = await withCheckedContinuation { continuation in
@@ -869,7 +900,7 @@ import UserNotifications
       if answer == .OK, let url = panel.url {
         do {
           try data.write(to: url)
-          model.notice = "Изображение сохранено"
+          model.notice = localized("Image Saved")
         } catch { throw PolkaCoreError.invalid(nativeImageSaveError(error)) }
       }
     case "clipboardHistory.revealStorage":
@@ -883,13 +914,13 @@ import UserNotifications
           let root = URL(fileURLWithPath: history.storage.state().path).deletingLastPathComponent()
             .deletingLastPathComponent()
           guard NSWorkspace.shared.open(root) else {
-            throw PolkaCoreError.invalid("Не удалось открыть папку хранилища")
+            throw PolkaCoreError.invalid(localized("Could not open the storage folder"))
           }
         }
       }
     case "shelf.selectEmoji", "shelf.copyEmoji":
       guard let emoji = EmojiCatalog.shared.byID(id) else {
-        throw PolkaCoreError.invalid("Эмодзи не найден")
+        throw PolkaCoreError.invalid(localized("Emoji not found"))
       }
       try await copy(
         ClipboardClip(
@@ -902,9 +933,9 @@ import UserNotifications
           context: CalculationContext(
             now: calculationDate, sourceDate: command.strings["sourceDate"])),
         value.status == .result, let text = value.value
-      else { throw PolkaCoreError.invalid("Не удалось вычислить результат") }
+      else { throw PolkaCoreError.invalid(localized("Could not calculate the result")) }
       capture.write(text: text)
-      model.notice = "Результат скопирован"
+      model.notice = localized("Result Copied")
     case "shelf.files.add":
       try files.add(command.ids)
       await filesDropped?()
@@ -918,6 +949,14 @@ import UserNotifications
           try await SMAppService.mainApp.unregister()
         }
       }
+    case "settings.language":
+      guard let preference = AppLanguagePreference(rawValue: command.strings["value"] ?? "") else {
+        throw PolkaCoreError.invalid(localized("Invalid settings"))
+      }
+      // Persist before updating presentation, so a failed write preserves the selection.
+      try settings.set(key: AppLanguagePreference.settingsKey, value: preference.rawValue)
+      model.settings.languagePreference = preference
+      updateSystemLanguage()
     case "settings.set":
       let key = command.strings["key"] ?? ""
       try settings.set(
@@ -929,7 +968,7 @@ import UserNotifications
     case "clipboardHistory.syncCancelInvite": sync.cancelInvite()
     case "clipboardHistory.copyPairingCode":
       guard let code = sync.state().invitation?.code else {
-        throw PolkaCoreError.invalid("Получите новый код")
+        throw PolkaCoreError.invalid(localized("Get a new code"))
       }
       capture.write(text: code, concealed: true)
     case "clipboardHistory.syncPair": try await sync.pair(command.strings["code"] ?? "")
@@ -942,7 +981,9 @@ import UserNotifications
     case "mediaIndicator.setTracking":
       try mediaTracking?(command.strings["device"] ?? "", command.bools["enabled"] ?? false)
     case "system.quit": DispatchQueue.main.async { NSApp.terminate(nil) }
-    default: throw PolkaCoreError.invalid("Неизвестная операция: \(command.name)")
+    default:
+      throw PolkaCoreError.invalid(
+        localized("Unknown operation: {0}", String(describing: command.name)))
     }
   }
   func shutdown() async {
@@ -964,29 +1005,29 @@ import UserNotifications
 
 func nativeImageSaveError(_ error: Error) -> String {
   var current = error as NSError
-  var detail = "Выберите другую папку и попробуйте ещё раз."
+  var detail = localized("Choose another folder and try again.")
   for _ in 0..<4 {
     if current.domain == NSPOSIXErrorDomain {
       if current.code == ENOENT {
-        detail = "Папка больше не существует. Выберите другую папку."
+        detail = localized("The folder no longer exists. Choose another folder.")
       } else if current.code == EACCES || current.code == EPERM {
-        detail = "Нет доступа к файлу. Выберите другую папку или имя."
+        detail = localized("No access to the file. Choose another folder or name.")
       } else if current.code == ENOSPC {
-        detail = "На диске нет свободного места."
+        detail = localized("There is no free disk space.")
       }
     } else if current.domain == NSCocoaErrorDomain {
       if [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(current.code) {
-        detail = "Папка больше не существует. Выберите другую папку."
+        detail = localized("The folder no longer exists. Choose another folder.")
       } else if [NSFileWriteNoPermissionError, NSFileWriteVolumeReadOnlyError].contains(
         current.code)
       {
-        detail = "Нет доступа к файлу. Выберите другую папку или имя."
+        detail = localized("No access to the file. Choose another folder or name.")
       } else if current.code == NSFileWriteOutOfSpaceError {
-        detail = "На диске нет свободного места."
+        detail = localized("There is no free disk space.")
       }
     }
     guard let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
     current = underlying
   }
-  return "Не удалось сохранить изображение. " + detail
+  return localized("Could not save the image. ") + detail
 }

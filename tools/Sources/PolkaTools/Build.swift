@@ -176,6 +176,8 @@ public enum BuildTool {
       <key>CFBundleDisplayName</key><string>\(xml(metadata.productName))</string>
       <key>CFBundleExecutable</key><string>PolkaNative</string>
       <key>CFBundlePackageType</key><string>APPL</string>
+      <key>CFBundleDevelopmentRegion</key><string>en</string>
+      <key>CFBundleLocalizations</key><array><string>en</string><string>ru</string></array>
       <key>CFBundleShortVersionString</key><string>\(xml(pkg.version))</string>
       <key>CFBundleVersion</key><string>\(xml(pkg.version))</string>
       <key>CFBundleIconFile</key><string>Icon.icns</string>
@@ -183,7 +185,7 @@ public enum BuildTool {
       <key>LSMinimumSystemVersion</key><string>\(xml(pkg.build.mac.minimumSystemVersion))</string>
       <key>LSUIElement</key><true/>
       <key>NSHighResolutionCapable</key><true/>
-      <key>NSLocalNetworkUsageDescription</key><string>Полка синхронизирует историю буфера обмена между связанными Mac в вашей локальной сети.</string>
+      <key>NSLocalNetworkUsageDescription</key><string>Polka syncs clipboard history between linked Macs on your local network.</string>
       <key>NSBonjourServices</key><array><string>_polkaclip._tcp</string></array>
       \(updates)
       </dict></plist>
@@ -393,6 +395,8 @@ public enum BuildTool {
     }
     for (source, name) in [
       ("native-app/Resources/polkaTemplate.png", "polkaTemplate.png"),
+      ("native-app/Resources/en.lproj", "en.lproj"),
+      ("native-app/Resources/ru.lproj", "ru.lproj"),
       ("docs/unicode-license.txt", "unicode-license.txt"),
     ] {
       try ToolFiles.manager.copyItem(

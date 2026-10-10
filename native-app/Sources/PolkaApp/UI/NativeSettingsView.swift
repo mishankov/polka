@@ -2,12 +2,15 @@ import AppKit
 import PolkaCore
 import SwiftUI
 
-let nativeSettingsPanes: [(id: String, label: String, icon: String)] = [
-  ("general", "Основные", "slider.horizontal.3"), ("shelf", "Полка и сочетания", "command"),
-  ("clipboard", "Буфер обмена", "clipboard"),
-  ("builtin-apps", "Встроенные приложения", "square.grid.2x2"),
-  ("about", "О приложении", "info.circle"),
-]
+var nativeSettingsPanes: [(id: String, label: String, icon: String)] {
+  [
+    ("general", localized("General"), "slider.horizontal.3"),
+    ("shelf", localized("Shelf and Shortcuts"), "command"),
+    ("clipboard", localized("Clipboard"), "clipboard"),
+    ("builtin-apps", localized("Built-in Apps"), "square.grid.2x2"),
+    ("about", localized("About"), "info.circle"),
+  ]
+}
 
 struct NativeSettingsView: View {
   @ObservedObject var model: NativeUIModel
@@ -16,19 +19,19 @@ struct NativeSettingsView: View {
   }
   private var subtitle: String {
     switch model.settingsPane {
-    case "builtin-apps": "Выберите приложения, которые нужны на полке."
-    case "shelf": "Открытие полки, быстрые команды и индикаторы устройств."
-    case "clipboard": "Сохранение, вставка и история на других Mac."
-    case "about": "Версия приложения и обновления."
-    default: "Запуск приложения и работа в фоне."
+    case "builtin-apps": localized("Choose the apps you need on the shelf.")
+    case "shelf": localized("Opening the shelf, quick commands, and device activity indicators.")
+    case "clipboard": localized("Recording, pasting, and history on other Macs.")
+    case "about": localized("App version and updates.")
+    default: localized("Language, app startup, and background operation.")
     }
   }
   var body: some View {
     HStack(spacing: 0) {
       VStack(alignment: .leading, spacing: 0) {
         VStack(alignment: .leading, spacing: 4) {
-          Text("Полка").font(.system(size: 18, weight: .semibold))
-          Text("Настройки").font(.system(size: 12)).foregroundStyle(.secondary)
+          Text(localized("Polka")).font(.system(size: 18, weight: .semibold))
+          Text(localized("Settings")).font(.system(size: 12)).foregroundStyle(.secondary)
         }.padding(.horizontal, 20).padding(.top, 22).padding(.bottom, 22)
         NativeSettingsSidebar(model: model).frame(height: CGFloat(nativeSettingsPanes.count * 40))
           .padding(.horizontal, 10)
@@ -39,7 +42,7 @@ struct NativeSettingsView: View {
         } label: {
           HStack {
             VStack(alignment: .leading, spacing: 4) {
-              Text("Открыть полку").font(.system(size: 12, weight: .medium))
+              Text(localized("Open Shelf")).font(.system(size: 12, weight: .medium))
               if !model.settings.launcherShortcut.isEmpty {
                 Text(nativeShortcutLabel(model.settings.launcherShortcut)).font(.system(size: 11))
                   .foregroundStyle(.secondary)
@@ -84,7 +87,7 @@ struct NativeSettingsView: View {
   }
   private var builtinApps: some View {
     VStack(alignment: .leading, spacing: 20) {
-      NativeSettingsGroup("Приложения на полке") {
+      NativeSettingsGroup(localized("Apps on the Shelf")) {
         ForEach(LauncherSearch.builtinApps) { app in
           HStack {
             VStack(alignment: .leading, spacing: 5) {
@@ -100,71 +103,100 @@ struct NativeSettingsView: View {
         }
       }
       note(
-        "Изменения применяются сразу. Данные, настройки и черновики сохраняются; полка и настройки всегда доступны."
+        localized(
+          "Changes apply immediately. Data, settings, and drafts are preserved; the shelf and settings are always available."
+        )
       )
       note(
-        "При отключении истории новые копирования не сохраняются, распознавание изображений останавливается. После включения действует прежняя настройка сохранения. Синхронизация и срок хранения продолжают работать по своим настройкам в разделе «Буфер обмена»."
+        localized(
+          "When history is disabled, new copies are not saved and image recognition stops. When enabled again, the previous recording setting applies. Sync and retention continue according to their settings in “Clipboard”."
+        )
       )
       note(
-        "Отключение сниппетов и эмодзи скрывает их команды; общие службы копирования и вставки остаются доступны другим приложениям. Отключение файлов убирает цель перетаскивания у верхнего края; ссылки на файлы сохраняются до выхода из Полки."
+        localized(
+          "Disabling snippets or emoji hides their commands; shared copy and paste services remain available to other apps. Disabling files removes the drop target at the top edge; file links are kept until you quit Polka."
+        )
       )
     }
   }
   private var general: some View {
     VStack(alignment: .leading, spacing: 20) {
       NativeUpdateNotice(model: model)
-      NativeSettingsGroup("Запуск и работа в фоне") {
+      NativeSettingsGroup(localized("App Language")) {
+        HStack {
+          Text(localized("Language")).font(.system(size: 13))
+          Spacer()
+          NativeLanguagePicker(model: model).frame(width: 180)
+        }
+        note(
+          localized(
+            "“System” follows the macOS language. English is used for unsupported languages."))
+        note(localized("Changes apply immediately."))
+      }
+      NativeSettingsGroup(localized("Startup and Background Operation")) {
         settingToggle(
-          "Запускать при входе в macOS", detail: "В фоне, без открытия полки.",
+          localized("Launch at Login"),
+          detail: localized("In the background, without opening the shelf."),
           value: model.settings.login, enabled: !model.busy
         ) {
           model.perform(NativeUICommand("system.login", bools: ["enabled": $0]))
         }
       }
       note(
-        "После закрытия окон Полка продолжает сохранять историю и реагировать на сочетания. Для выхода выберите «Выйти из Полки» в строке меню или нажмите ⌘Q."
+        localized(
+          "After closing its windows, Polka continues recording history and responding to shortcuts. To quit, choose “Quit Polka” in the menu bar or press ⌘Q."
+        )
       )
     }
   }
   private var shelf: some View {
     VStack(alignment: .leading, spacing: 20) {
-      NativeSettingsGroup("Открытие полки") {
+      NativeSettingsGroup(localized("Opening the Shelf")) {
         settingToggle(
-          "Открывать при наведении",
+          localized("Open on Hover"),
           detail:
-            "Наведите указатель на вырез камеры или середину верхнего края экрана. Поиск сразу получит фокус.",
+            localized(
+              "Move the pointer to the camera notch or the center of the top screen edge. Search receives focus immediately."
+            ),
           value: model.settings.hoverEnabled, enabled: model.writable && !model.busy
         ) { model.preference("hoverEnabled", $0) }
         if !model.writable {
           note(
-            "Восстановите доступ к хранилищу и перезапустите Полку, чтобы изменить эту настройку.")
+            localized("Restore access to storage and restart Polka to change this setting."))
         }
       }
-      NativeSettingsGroup("Сочетание для запуска") {
-        shortcutRow("Открыть полку", value: model.settings.launcherShortcut, disabled: model.busy) {
+      NativeSettingsGroup(localized("Launcher Shortcut")) {
+        shortcutRow(
+          localized("Open Shelf"), value: model.settings.launcherShortcut, disabled: model.busy
+        ) {
           model.perform(NativeUICommand("launcher.setShortcut", strings: ["accelerator": $0]))
         }
         NativeErrorNotice(text: model.settings.launcherShortcutError)
         HStack {
           NativeCommandButton(
-            title: "Открыть полку", shortcut: nativeShortcutLabel(model.settings.launcherShortcut),
+            title: localized("Open Shelf"),
+            shortcut: nativeShortcutLabel(model.settings.launcherShortcut),
             disabled: model.busy
           ) { model.navigate("apps") }
           Spacer(minLength: 8)
           NativeCommandButton(
-            title: "Отключить сочетание",
+            title: localized("Disable Shortcut"),
             disabled: model.busy || model.settings.launcherShortcut.isEmpty
           ) { model.perform(NativeUICommand("launcher.setShortcut", strings: ["accelerator": ""])) }
         }
       }
-      NativeSettingsGroup("Индикаторы активности") {
-        settingToggle("Камера", value: model.settings.cameraEnabled, enabled: !model.busy) {
+      NativeSettingsGroup(localized("Activity Indicators")) {
+        settingToggle(
+          localized("Camera"), value: model.settings.cameraEnabled, enabled: !model.busy
+        ) {
           model.perform(
             NativeUICommand(
               "mediaIndicator.setTracking", strings: ["device": "camera"], bools: ["enabled": $0]))
         }
         Divider()
-        settingToggle("Микрофон", value: model.settings.microphoneEnabled, enabled: !model.busy) {
+        settingToggle(
+          localized("Microphone"), value: model.settings.microphoneEnabled, enabled: !model.busy
+        ) {
           model.perform(
             NativeUICommand(
               "mediaIndicator.setTracking", strings: ["device": "microphone"],
@@ -173,7 +205,9 @@ struct NativeSettingsView: View {
         if !model.settings.mediaActivity.isEmpty { note(model.settings.mediaActivity) }
       }
       note(
-        "Индикаторы видны у выреза камеры или в центре верхнего края. При демонстрации экрана они могут попасть в трансляцию; чтобы скрыть их, выключите оба."
+        localized(
+          "Indicators appear by the camera notch or at the center of the top edge. They may be visible during screen sharing; turn both off to hide them."
+        )
       )
     }
   }
@@ -181,25 +215,29 @@ struct NativeSettingsView: View {
     VStack(alignment: .leading, spacing: 20) {
       NativeStorageNotice(model: model)
       NativeErrorNotice(text: model.helperError)
-      if model.helperStatus == "starting" { note("Запускаем наблюдение за буфером…") }
+      if model.helperStatus == "starting" { note(localized("Starting clipboard monitor…")) }
       if !model.settings.builtinApps.allows(destination: "clipboard") {
         note(
-          "История отключена в разделе «Встроенные приложения». Новые копирования не сохраняются, сочетание не активно. Настройки ниже сохраняются для повторного включения; синхронизация и срок хранения продолжают действовать."
+          localized(
+            "History is disabled in “Built-in Apps”. New copies are not saved and its shortcut is inactive. Settings below are preserved for re-enabling; sync and retention continue to apply."
+          )
         )
       }
-      NativeSettingsGroup("Сохранение истории") {
+      NativeSettingsGroup(localized("History Recording")) {
         settingToggle(
-          "Сохранять текст и изображения",
+          localized("Save Text and Images"),
           detail:
-            "До 200 записей и 128 МБ, локально в зашифрованном виде. Конфиденциальные и временные данные пропускаются, если программа пометила их.",
+            localized(
+              "Up to 200 items and 128 MB, encrypted locally. Confidential and temporary data is skipped if marked by its app."
+            ),
           value: !model.settings.paused, enabled: model.writable && !model.busy
         ) { model.preference("paused", !$0) }
         Divider()
         HStack(spacing: 12) {
-          Text("Хранить незакреплённые записи").font(.system(size: 13))
+          Text(localized("Keep Unpinned Items")).font(.system(size: 13))
           Spacer(minLength: 8)
           Picker(
-            "Хранить незакреплённые записи",
+            localized("Keep Unpinned Items"),
             selection: Binding(
               get: { model.settings.retentionDays },
               set: {
@@ -207,56 +245,59 @@ struct NativeSettingsView: View {
                   NativeUICommand("clipboardHistory.preferences", ints: ["retentionDays": $0]))
               })
           ) {
-            Text("1 день").tag(1)
-            Text("7 дней").tag(7)
-            Text("30 дней").tag(30)
+            Text(localized("1 day")).tag(1)
+            Text(localized("7 days")).tag(7)
+            Text(localized("30 days")).tag(30)
           }.labelsHidden().frame(width: 112).disabled(!model.writable || model.busy)
         }
-        note("Закреплённые записи сохраняются дольше выбранного срока.")
+        note(localized("Pinned items are kept beyond the selected retention period."))
       }
-      NativeSettingsGroup("Выбор записи") {
+      NativeSettingsGroup(localized("Selecting an Item")) {
         settingToggle(
-          "Вставлять в предыдущее поле",
+          localized("Paste into the Previous Field"),
           detail: model.settings.pasteOnSelect
-            ? "Enter вставляет выбранную запись. ⇧Enter только копирует её."
-            : "Выбранная запись только копируется. Вставьте её вручную через ⌘V.",
+            ? localized("Enter pastes the selected item. ⇧Enter only copies it.")
+            : localized("The selected item is only copied. Paste it manually with ⌘V."),
           value: model.settings.pasteOnSelect, enabled: model.writable && !model.busy
         ) { model.preference("pasteOnSelect", $0) }
         if model.settings.pasteOnSelect {
           Divider()
           if model.pasteAccess == "granted" {
-            note("Универсальный доступ разрешён.")
+            note(localized("Accessibility access is allowed."))
           } else {
             note(
               model.pasteAccess == "required"
-                ? "Для вставки разрешите Универсальный доступ в настройках macOS. Пока можно копировать и вставлять вручную через ⌘V."
-                : "Не удалось проверить разрешение macOS. Пока можно копировать и вставлять вручную через ⌘V."
+                ? localized(
+                  "To paste, allow Accessibility access in macOS settings. For now, copy and paste manually with ⌘V."
+                )
+                : localized(
+                  "Could not check macOS permission. For now, copy and paste manually with ⌘V.")
             )
             if model.pasteAccess == "required" {
               NativeCommandButton(
-                title: "Разрешить автоматическую вставку…", disabled: !model.writable || model.busy
+                title: localized("Allow Automatic Paste…"), disabled: !model.writable || model.busy
               ) { model.perform(NativeUICommand("clipboardHistory.requestPasteAccess")) }
             }
           }
         }
       }
-      NativeSettingsGroup("Сочетание для истории") {
+      NativeSettingsGroup(localized("History Shortcut")) {
         NativeErrorNotice(text: model.settings.clipboardShortcutError)
         shortcutRow(
-          "Открыть историю", value: model.settings.clipboardShortcut,
+          localized("Open History"), value: model.settings.clipboardShortcut,
           disabled: !model.writable || model.busy
         ) {
           model.perform(NativeUICommand("clipboardHistory.shortcut", strings: ["accelerator": $0]))
         }
         HStack {
           NativeCommandButton(
-            title: "Открыть историю",
+            title: localized("Open History"),
             shortcut: nativeShortcutLabel(model.settings.clipboardShortcut),
             disabled: model.busy || !model.settings.builtinApps.allows(destination: "clipboard")
           ) { model.perform(NativeUICommand("clipboardHistory.show")) }
           Spacer(minLength: 8)
           NativeCommandButton(
-            title: "Отключить сочетание",
+            title: localized("Disable Shortcut"),
             disabled: !model.writable || model.busy || model.settings.clipboardShortcut.isEmpty
           ) {
             model.perform(
@@ -268,27 +309,31 @@ struct NativeSettingsView: View {
     }
   }
   private var sync: some View {
-    NativeSettingsGroup("История на других Mac") {
+    NativeSettingsGroup(localized("History on Other Macs")) {
       settingToggle(
-        "Синхронизировать по локальной сети",
+        localized("Sync over the Local Network"),
         detail:
-          "Текст, изображения, закрепление и удаление передаются напрямую между связанными Mac. Текущий буфер обмена не меняется.",
+          localized(
+            "Text, images, pinned status, and deletions transfer directly between linked Macs. The current clipboard is unchanged."
+          ),
         value: model.settings.syncEnabled, enabled: syncAvailable && !model.busy
       ) { model.perform(NativeUICommand("clipboardHistory.syncEnabled", bools: ["enabled": $0])) }
-      if model.settings.syncStatus == "starting" { note("Загрузка настроек синхронизации…") }
+      if model.settings.syncStatus == "starting" { note(localized("Loading sync settings…")) }
       if model.settings.syncStatus == "blocked" {
-        NativeErrorNotice(text: "Синхронизация остановлена: хранилище истории недоступно.")
+        NativeErrorNotice(text: localized("Sync has stopped: history storage is unavailable."))
       }
       NativeStorageNotice(model: model, store: "sync")
       NativeErrorNotice(text: model.settings.syncError)
       if model.settings.syncEnabled, syncAvailable {
         Divider()
         note(
-          "Этот Mac: \(model.settings.deviceName). При первом соединении и после перерыва объединяется вся сохранённая история. Срок хранения остаётся отдельным на каждом Mac."
+          localized(
+            "This Mac: {0}. On first connection and after a break, all saved history is merged. Retention is set separately on each Mac.",
+            String(describing: model.settings.deviceName))
         )
         if model.settings.paused {
           note(
-            "Сохранение истории на паузе. Синхронизация продолжится, когда вы включите сохранение.")
+            localized("History recording is paused. Sync will resume when you enable recording."))
         }
         ForEach(model.settings.peers) { peer in
           HStack {
@@ -299,10 +344,11 @@ struct NativeSettingsView: View {
                 Text(peer.name).font(.system(size: 13))
                 Text(
                   model.settings.paused
-                    ? "На паузе"
+                    ? localized("Paused")
                     : peer.status == "syncing"
-                      ? "Синхронизация…"
-                      : peer.status == "connected" ? "История синхронизирована" : "Нет соединения"
+                      ? localized("Syncing…")
+                      : peer.status == "connected"
+                        ? localized("History Synced") : localized("Not Connected")
                 ).font(.system(size: 11)).foregroundStyle(.secondary)
                 if peer.lastSync > 0 {
                   Text(nativeClipDate(peer.lastSync)).font(.system(size: 10)).foregroundStyle(
@@ -315,7 +361,7 @@ struct NativeSettingsView: View {
                 model.selectedPeerID == peer.id ? Color.accentColor.opacity(0.1) : .clear,
                 in: RoundedRectangle(cornerRadius: 5))
             }.buttonStyle(.plain)
-            NativeCommandButton(title: "Отвязать", shortcut: "⌘⌥⌫", disabled: model.busy) {
+            NativeCommandButton(title: localized("Unlink"), shortcut: "⌘⌥⌫", disabled: model.busy) {
               model.selectedPeerID = peer.id
               model.perform(
                 NativeUICommand("clipboardHistory.syncForget", strings: ["id": peer.id]))
@@ -324,46 +370,51 @@ struct NativeSettingsView: View {
         }
         if !model.settings.peers.isEmpty {
           NativeCommandButton(
-            title: "Синхронизировать сейчас", disabled: model.busy || model.settings.paused
+            title: localized("Sync Now"), disabled: model.busy || model.settings.paused
           ) { model.perform(NativeUICommand("clipboardHistory.syncNow")) }
         }
         if !model.settings.invitation.isEmpty {
-          Text("Код для другого Mac").font(.system(size: 12, weight: .medium))
+          Text(localized("Code for Another Mac")).font(.system(size: 12, weight: .medium))
           Text(model.settings.invitation).font(.system(size: 11, design: .monospaced))
             .textSelection(.enabled).padding(8).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
           note(
-            "На другом Mac включите синхронизацию и вставьте этот код. Он действует 5 минут и связывает одно устройство. Передавайте его только своему Mac."
+            localized(
+              "Enable sync on the other Mac and paste this code. It is valid for 5 minutes and links one device. Share it only with your own Mac."
+            )
           )
           HStack {
-            NativeCommandButton(title: "Скопировать код", disabled: model.busy) {
+            NativeCommandButton(title: localized("Copy Code"), disabled: model.busy) {
               model.perform(NativeUICommand("clipboardHistory.copyPairingCode"))
             }
-            NativeCommandButton(title: "Отменить код", disabled: model.busy) {
+            NativeCommandButton(title: localized("Cancel Code"), disabled: model.busy) {
               model.perform(NativeUICommand("clipboardHistory.syncCancelInvite"))
             }
           }
         } else {
           NativeCommandButton(
-            title: "Получить код для другого Mac", shortcut: "⌘⇧N", disabled: model.busy
+            title: localized("Get Code for Another Mac"), shortcut: "⌘⇧N", disabled: model.busy
           ) { model.perform(NativeUICommand("clipboardHistory.syncInvite")) }
         }
-        Text("Код с другого Mac").font(.system(size: 12, weight: .medium))
+        Text(localized("Code from Another Mac")).font(.system(size: 12, weight: .medium))
         TextEditor(text: $model.pairingCode).font(.system(size: 11, design: .monospaced)).frame(
           height: 75
         ).padding(4).background(
           Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6)
         ).disabled(model.busy).accessibilityIdentifier("sync-pairing-code")
         NativeCommandButton(
-          title: "Связать Mac и объединить историю", shortcut: "⌘↵",
+          title: localized("Link Mac and Merge History"), shortcut: "⌘↵",
           disabled: model.busy
             || model.pairingCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
           prominent: true
         ) { model.pairMac() }
         note(
           model.settings.nearby.isEmpty
-            ? "Другие Mac пока не найдены. Включите синхронизацию на втором Mac и проверьте, что оба подключены к одной сети."
-            : "Другие Mac в сети: " + model.settings.nearby.joined(separator: ", "))
+            ? localized(
+              "No other Macs found yet. Enable sync on the second Mac and check that both are on the same network."
+            )
+            : localized("Other Macs on the network: ")
+              + model.settings.nearby.joined(separator: ", "))
       }
     }
   }
@@ -373,11 +424,11 @@ struct NativeSettingsView: View {
   }
   private var about: some View {
     VStack(alignment: .leading, spacing: 20) {
-      NativeSettingsGroup("Полка") {
-        note("Приложения и история буфера обмена — на одной полке.")
+      NativeSettingsGroup(localized("Polka")) {
+        note(localized("Apps and clipboard history — on one shelf."))
         NativeUpdatesView(model: model)
       }
-      note("История хранится локально в зашифрованном виде.")
+      note(localized("History is stored locally with encryption."))
     }
   }
   private func note(_ text: String) -> some View {
@@ -435,10 +486,11 @@ struct NativeUpdatesView: View {
   @ObservedObject var model: NativeUIModel
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("Обновления").font(.system(size: 17, weight: .semibold))
+      Text(localized("Updates")).font(.system(size: 17, weight: .semibold))
       Text(
         model.settings.currentVersion.isEmpty
-          ? "Загрузка версии…" : "Полка \(model.settings.currentVersion)"
+          ? localized("Loading version…")
+          : localized("Polka {0}", String(describing: model.settings.currentVersion))
       ).font(.system(size: 12)).foregroundStyle(.secondary)
       if !model.settings.updateMessage.isEmpty {
         Text(model.settings.updateMessage).font(.system(size: 12)).foregroundStyle(
@@ -446,44 +498,57 @@ struct NativeUpdatesView: View {
         ).textSelection(.enabled)
       }
       if model.settings.updateStatus != "unavailable" {
-        Text("Обновления проверяются и загружаются автоматически. Установка — после подтверждения.")
-          .font(.system(size: 12)).foregroundStyle(.secondary)
+        Text(
+          localized(
+            "Updates are checked and downloaded automatically. Installation requires confirmation.")
+        )
+        .font(.system(size: 12)).foregroundStyle(.secondary)
       }
       if model.settings.updateStatus == "current" {
-        Text("Установлена последняя версия.").font(.system(size: 13))
+        Text(localized("The latest version is installed.")).font(.system(size: 13))
       }
       if !model.settings.updateVersion.isEmpty {
         Text(
-          "\(model.settings.updateStatus == "ready" ? "Готова к установке" : "Доступна версия") \(model.settings.updateVersion)"
+          model.settings.updateStatus == "ready"
+            ? localized("Version {0} Is Ready to Install", model.settings.updateVersion)
+            : localized("Version {0} Is Available", model.settings.updateVersion)
         ).font(.system(size: 13))
       }
       if model.settings.updateNotification == "skipped" {
-        Text("Вы пропустили эту версию. Её можно установить здесь.").font(.system(size: 12))
-          .foregroundStyle(.secondary)
+        Text(localized("You skipped this version. You can install it here.")).font(
+          .system(size: 12)
+        )
+        .foregroundStyle(.secondary)
       }
       if model.settings.updateNotification == "deferred" {
         Text(
-          "Напомним \(nativeClipDate(model.settings.updateRemindAfter)). Можно обновиться сейчас."
+          localized(
+            "We will remind you {0}. You can update now.",
+            String(describing: nativeClipDate(model.settings.updateRemindAfter)))
         ).font(.system(size: 12)).foregroundStyle(.secondary)
       }
       if model.settings.updateStatus == "downloading" {
         ProgressView(value: model.settings.updateProgress, total: 100)
-        Text("Загружено \(Int(model.settings.updateProgress))%").font(.system(size: 11))
+        Text(localized("Downloaded {0}%", String(describing: Int(model.settings.updateProgress))))
+          .font(
+            .system(size: 11)
+          )
           .foregroundStyle(.secondary)
       }
       if model.settings.updateStatus == "ready" {
-        Text("Приложение перезапустится для установки обновления.").font(.system(size: 12))
+        Text(localized("The app will restart to install the update.")).font(.system(size: 12))
           .foregroundStyle(.secondary)
       }
       if ["idle", "current", "error", "checking"].contains(model.settings.updateStatus) {
         NativeCommandButton(
-          title: model.settings.updateStatus == "checking" ? "Проверяем…" : "Проверить обновления",
+          title: model.settings.updateStatus == "checking"
+            ? localized("Checking…") : localized("Check for Updates"),
           shortcut: "⌘R", disabled: model.busy || model.settings.updateStatus == "checking"
         ) { model.perform(NativeUICommand("updates.check")) }
       }
       if ["ready", "installing"].contains(model.settings.updateStatus) {
         NativeCommandButton(
-          title: "Установить и перезапустить", shortcut: "⌘⇧U",
+          title: localized("Install and Restart"), shortcut: "⌘⇧U",
           disabled: model.busy || model.settings.updateStatus == "installing", prominent: true
         ) { model.installUpdate() }
       }
@@ -505,7 +570,9 @@ struct NativeUpdateNotice: View {
     {
       VStack(alignment: .leading, spacing: 8) {
         HStack {
-          Text("Доступна Полка \(model.settings.updateVersion)").font(
+          Text(
+            localized("Polka {0} Is Available", String(describing: model.settings.updateVersion))
+          ).font(
             .system(size: 13, weight: .semibold))
           Spacer()
           Text(status).font(.system(size: 11)).foregroundStyle(.secondary)
@@ -513,7 +580,7 @@ struct NativeUpdateNotice: View {
         HStack(spacing: 5) {
           NativeCommandButton(
             title: model.settings.updateStatus == "error"
-              ? "Повторить проверку" : "Обновить и перезапустить",
+              ? localized("Check Again") : localized("Update and Restart"),
             shortcut: model.settings.updateStatus == "error" ? "⌘R" : "⌘⇧U",
             disabled: model.busy
               || ["checking", "downloading", "installing"].contains(model.settings.updateStatus),
@@ -526,16 +593,18 @@ struct NativeUpdateNotice: View {
             }
           }
           NativeCommandButton(
-            title: "Завтра", disabled: model.busy || model.settings.updateStatus == "installing"
+            title: localized("Tomorrow"),
+            disabled: model.busy || model.settings.updateStatus == "installing"
           ) {
             model.perform(NativeUICommand("updates.remind", strings: ["version": displayedVersion]))
           }
           NativeCommandButton(
-            title: "Пропустить", disabled: model.busy || model.settings.updateStatus == "installing"
+            title: localized("Skip"),
+            disabled: model.busy || model.settings.updateStatus == "installing"
           ) {
             model.perform(NativeUICommand("updates.skip", strings: ["version": displayedVersion]))
           }
-          NativeCommandButton(title: "Что нового", disabled: model.busy) {
+          NativeCommandButton(title: localized("What's New"), disabled: model.busy) {
             model.perform(NativeUICommand("shelf.settings", strings: ["section": "about"]))
           }
         }
@@ -545,11 +614,12 @@ struct NativeUpdateNotice: View {
   }
   private var status: String {
     switch model.settings.updateStatus {
-    case "installing": return "Устанавливаем…"
-    case "checking": return "Проверяем…"
-    case "downloading": return "Загружаем… \(Int(model.settings.updateProgress))%"
-    case "ready": return "Готова к установке"
-    default: return "Ошибка обновления"
+    case "installing": return localized("Installing…")
+    case "checking": return localized("Checking…")
+    case "downloading":
+      return localized("Downloading… {0}%", String(describing: Int(model.settings.updateProgress)))
+    case "ready": return localized("Ready to Install")
+    default: return localized("Update Error")
     }
   }
 }
@@ -591,12 +661,23 @@ struct NativeSettingsSidebar: NSViewRepresentable {
     table.allowsEmptySelection = false
     table.focusRingType = .none
     table.intercellSpacing = NSSize(width: 0, height: 2)
-    table.setAccessibilityLabel("Разделы настроек")
+    table.setAccessibilityLabel(localized("Settings sections"))
     context.coordinator.table = table
     return table
   }
   func updateNSView(_ table: NSTableView, context: Context) {
     context.coordinator.model = model
+    if context.coordinator.language != model.settings.language {
+      context.coordinator.language = model.settings.language
+      table.setAccessibilityLabel(localized("Settings sections"))
+      for row in nativeSettingsPanes.indices {
+        if let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false) as? NSTableCellView
+        {
+          cell.textField?.stringValue = nativeSettingsPanes[row].label
+          cell.setAccessibilityLabel(nativeSettingsPanes[row].label)
+        }
+      }
+    }
     let index = nativeSettingsPanes.firstIndex { $0.id == model.settingsPane } ?? 0
     if context.coordinator.table?.selectedRow != index {
       context.coordinator.table?.selectRowIndexes(
@@ -608,6 +689,7 @@ struct NativeSettingsSidebar: NSViewRepresentable {
   @MainActor final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var model: NativeUIModel
     weak var table: NSTableView?
+    var language = AppLocalization.language
     init(_ model: NativeUIModel) { self.model = model }
     func numberOfRows(in tableView: NSTableView) -> Int { nativeSettingsPanes.count }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int)
@@ -687,21 +769,28 @@ final class NativeSettingsSidebarRow: NSTableRowView {
 
 struct NativeReleaseNotesView: View {
   var settings: NativeUISettings
-  @State private var language = "ru"
+  @State private var language: String?
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
-        Text("Что нового").font(.system(size: 15, weight: .semibold))
+        Text(localized("What's New")).font(.system(size: 15, weight: .semibold))
         Spacer()
-        Picker("Язык примечаний к выпуску", selection: $language) {
+        Picker(
+          localized("Release notes language"),
+          selection: Binding(
+            get: { language ?? settings.language.rawValue }, set: { language = $0 }
+          )
+        ) {
           Text("Русский").tag("ru")
           Text("English").tag("en")
         }.pickerStyle(.segmented).labelsHidden().frame(width: 180).accessibilityLabel(
-          "Язык примечаний к выпуску")
+          localized("Release notes language"))
       }
       // Release notes are plain text, including any HTML-like characters.
-      Text(nativeReleaseNoteText(settings, language: language)).font(.system(size: 13))
-        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+      Text(nativeReleaseNoteText(settings, language: language ?? settings.language.rawValue)).font(
+        .system(size: 13)
+      )
+      .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 }
@@ -712,7 +801,8 @@ func nativeReleaseNoteText(_ settings: NativeUISettings, language: String) -> St
   if split.count == 2 { return split[language == "ru" ? 0 : 1] }
   if language == "ru", !settings.updateNotes.isEmpty { return settings.updateNotes }
   return language == "ru"
-    ? "Для этого выпуска примечания не опубликованы."
+    ? AppLocalization.text(
+      "Release notes have not been published for this version.", language: .russian)
     : "Release notes have not been published for this version."
 }
 
@@ -793,6 +883,52 @@ final class NativeBuiltinAppSwitch: NSSwitch {
       if !event.isARepeat { performClick(nil) }
       return
     }
+    super.keyDown(with: event)
+  }
+}
+
+/// A focused native pop-up uses Space and arrow keys. It participates in Tab
+/// navigation even when Full Keyboard Access is off and keeps focus on translation.
+struct NativeLanguagePicker: NSViewRepresentable {
+  @ObservedObject var model: NativeUIModel
+  func makeNSView(context: Context) -> NativeLanguagePopUp {
+    let control = NativeLanguagePopUp(frame: .zero, pullsDown: false)
+    control.target = control
+    control.action = #selector(NativeLanguagePopUp.change)
+    control.setAccessibilityIdentifier("settings-language")
+    return control
+  }
+  func updateNSView(_ control: NativeLanguagePopUp, context: Context) {
+    let labels = [localized("System"), "English", "Русский"]
+    if control.itemTitles != labels {
+      if control.numberOfItems != labels.count {
+        control.removeAllItems()
+        control.addItems(withTitles: labels)
+      } else {
+        for (index, title) in labels.enumerated() { control.item(at: index)?.title = title }
+      }
+    }
+    control.selectItem(
+      at: AppLanguagePreference.allCases.firstIndex(of: model.settings.languagePreference) ?? 0)
+    control.setAccessibilityLabel(localized("Language"))
+    control.isEnabled = !model.busy && !model.commandPending
+    control.changeValue = { model.setLanguage($0) }
+  }
+}
+final class NativeLanguagePopUp: NSPopUpButton {
+  var changeValue: ((AppLanguagePreference) -> Void)?
+  override var acceptsFirstResponder: Bool { isEnabled }
+  override var canBecomeKeyView: Bool {
+    acceptsFirstResponder && !isHiddenOrHasHiddenAncestor && window?.canBecomeKey == true
+  }
+  @objc func change() {
+    guard isEnabled, AppLanguagePreference.allCases.indices.contains(indexOfSelectedItem),
+      NSApp?.modalWindow == nil, window?.attachedSheet == nil
+    else { return }
+    changeValue?(AppLanguagePreference.allCases[indexOfSelectedItem])
+  }
+  override func keyDown(with event: NSEvent) {
+    if event.isARepeat { return }
     super.keyDown(with: event)
   }
 }

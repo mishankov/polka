@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import PolkaCore
 
 /// A pipe read returns the currently available bytes. Foundation's read(upToCount:)
 /// can wait to fill the requested count, which would delay short interactive replies.
@@ -370,8 +371,10 @@ private final class CommandOperation: @unchecked Sendable {
           domain: "Polka.Helper", code: Int(child.terminationStatus),
           userInfo: [
             NSLocalizedDescriptionKey: expired
-              ? "Помощник не ответил вовремя"
-              : tooLarge ? "Слишком большой ответ помощника" : "Нативный адаптер недоступен"
+              ? localized("The helper did not respond in time")
+              : tooLarge
+                ? localized("Helper response is too large")
+                : localized("The native adapter is unavailable")
           ])
       }
       finish(.success(data))
