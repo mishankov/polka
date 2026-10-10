@@ -14,6 +14,8 @@ struct NativeShelfView: View {
       default: NativeLauncherView(model: model)
       }
     }
+    // Keep the shelf and its controls in the established dark appearance.
+    .environment(\.colorScheme, .dark)
     .background(NativeKeyboardBridge(model: model).frame(width: 0, height: 0))
     .background(Color.black)
     .onChange(of: model.query) { _, _ in

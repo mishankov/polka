@@ -570,9 +570,9 @@ import SwiftUI
     } else {
       failures.append("emoji search did not receive focus before Tab: \(keyboardState())")
     }
-    bar.buttons[1].performClick(nil)
+    click(bar.buttons[1])
     if !(await wait({ model.emojiCategory == "Smileys & Emotion" })) {
-      failures.append("emoji category button did not select smileys")
+      failures.append("emoji category mouse click did not select smileys")
     }
     await screenshot("emoji-categories")
     if !shelf.makeFirstResponder(bar.buttons[1]) {
@@ -608,13 +608,28 @@ import SwiftUI
     }
     model.busy = true
     await settle()
-    bar.buttons[1].performClick(nil)
+    click(bar.buttons[1])
+    await settle()
     if model.emojiCategory != "all" {
       failures.append("busy emoji category button changed selection")
     }
     model.busy = false
     await settle()
-    if let field = searchField(in: view) { shelf.makeFirstResponder(field) }
+    if let field = searchField(in: view) {
+      shelf.makeFirstResponder(field)
+      let editor = shelf.firstResponder
+      click(bar.buttons[1])
+      if !(await wait({ model.emojiCategory == "Smileys & Emotion" })) {
+        failures.append("emoji category mouse click stayed disabled after busy state ended")
+      }
+      if shelf.firstResponder !== editor {
+        failures.append("emoji category mouse click stole search editing focus")
+      }
+      click(bar.buttons[0])
+      if !(await wait({ model.emojiCategory == "all" })) {
+        failures.append("emoji category mouse click did not return to all")
+      }
+    }
     model.query = "no-such-synthetic-emoji-xyz"
     await settle()
     if !model.emojiResults.isEmpty { failures.append("empty emoji search returned results") }

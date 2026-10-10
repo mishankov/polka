@@ -47,6 +47,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   private var hoverTimer: Timer?
   private var observer: NSObjectProtocol?
   private var media: NativeMediaMonitor?
+  private var mediaPreviewWindow: NSWindow?
   private var openedByHover = false
   private var incomingDrag = false
   private var incomingCount = 0
@@ -220,6 +221,10 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       }
       Task {
         await platform.initialize()
+        // Demonstrate the real overlays without probing or activating devices.
+        if fixture, ProcessInfo.processInfo.environment["POLKA_NATIVE_MEDIA_DEMO"] == "1" {
+          _ = media?.showFixture(.init(camera: "active", microphone: "active"))
+        }
         if let update = NativeProfile.update {
           await platform.waitForInitialization()
           if update.mode == "updates" {
@@ -231,6 +236,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
           return
         }
         if !CommandLine.arguments.contains("--hidden") && !self.launchedAtLogin { await show(nil) }
+        if fixture, ProcessInfo.processInfo.environment["POLKA_NATIVE_MEDIA_PREVIEW"] == "1" {
+          mediaPreviewWindow = nativeMediaGlassPreviewWindow()
+        }
         if CommandLine.arguments.contains("--native-smoke") { await smoke() }
         if CommandLine.arguments.contains("--native-scroll-smoke") { await scrollSmoke() }
         if CommandLine.arguments.contains("--native-startup-close-smoke") {
