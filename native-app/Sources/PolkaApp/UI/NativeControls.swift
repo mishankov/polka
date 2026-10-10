@@ -1,6 +1,18 @@
 import AppKit
 import SwiftUI
 
+/// Native glass belongs to interactive controls above the opaque shelf.
+private struct NativeCommandStyle: ViewModifier {
+  var prominent: Bool = false
+  @ViewBuilder func body(content: Content) -> some View {
+    if prominent {
+      content.buttonStyle(.glassProminent)
+    } else {
+      content.buttonStyle(.glass)
+    }
+  }
+}
+
 struct NativeCommandButton: View {
   var title: String
   var symbol: String = ""
@@ -17,7 +29,7 @@ struct NativeCommandButton: View {
         if !shortcut.isEmpty { Text(shortcut).font(.system(size: 11)).foregroundStyle(.secondary) }
       }
     }
-    .buttonStyle(.bordered)
+    .modifier(NativeCommandStyle(prominent: prominent))
     .tint(destructive ? .red : prominent ? .accentColor : nil)
     .disabled(disabled)
     .help(title + (shortcut.isEmpty ? "" : " · " + shortcut))
@@ -29,13 +41,16 @@ struct NativeIconButton: View {
   var symbol: String
   var shortcut = ""
   var disabled = false
+  var compact = false
   var action: () -> Void
   var body: some View {
-    Button(action: action) { Image(systemName: symbol).frame(width: 23, height: 23) }
-      .buttonStyle(.borderless).disabled(disabled)
-      .help(label + (shortcut.isEmpty ? "" : " · " + shortcut))
-      .accessibilityLabel(label).accessibilityHint(
-        shortcut.isEmpty ? "" : "Сочетание клавиш: " + shortcut)
+    Button(action: action) {
+      Image(systemName: symbol).frame(width: compact ? 14 : 23, height: compact ? 14 : 23)
+    }
+    .modifier(NativeCommandStyle()).buttonBorderShape(.circle).disabled(disabled)
+    .help(label + (shortcut.isEmpty ? "" : " · " + shortcut))
+    .accessibilityLabel(label).accessibilityHint(
+      shortcut.isEmpty ? "" : "Сочетание клавиш: " + shortcut)
   }
 }
 struct NativeErrorNotice: View {

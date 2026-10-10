@@ -50,9 +50,11 @@ struct NativeSettingsView: View {
           }.contentShape(Rectangle()).padding(18)
         }.buttonStyle(.plain).disabled(model.busy).help(
           nativeShortcutLabel(model.settings.launcherShortcut))
-      }.frame(width: 210).background(Color(nsColor: .windowBackgroundColor))
-      // The column backgrounds extend under the transparent title bar;
-      // keep their separator continuous through that area as well.
+      }.frame(width: 210)
+        .background {
+          NativeSettingsSidebarMaterial().ignoresSafeArea(.container, edges: .top)
+        }
+      // Keep the content-column separator continuous under the title bar.
       Divider().ignoresSafeArea(.container, edges: .top)
       VStack(alignment: .leading, spacing: 0) {
         VStack(alignment: .leading, spacing: 7) {
@@ -552,6 +554,20 @@ struct NativeUpdateNotice: View {
   }
 }
 
+/// An integrated window sidebar uses the semantic system material rather than
+/// an inset glass card. AppKit supplies wallpaper blending and accessibility.
+private struct NativeSettingsSidebarMaterial: NSViewRepresentable {
+  func makeNSView(context: Context) -> NSVisualEffectView {
+    let view = NSVisualEffectView()
+    view.material = .sidebar
+    view.blendingMode = .behindWindow
+    view.state = .followsWindowActiveState
+    view.setAccessibilityElement(false)
+    return view
+  }
+  func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
 /// A native source list owns Up/Down/Home/End and VoiceOver selection. Keeping
 /// the sidebar in AppKit avoids requiring pointer input to change settings tabs.
 struct NativeSettingsSidebar: NSViewRepresentable {
@@ -630,8 +646,8 @@ struct NativeSettingsSidebar: NSViewRepresentable {
     }
     private func style(_ cell: NSTableCellView, selected: Bool) {
       cell.textField?.font = .systemFont(ofSize: 13, weight: selected ? .medium : .regular)
-      cell.textField?.textColor = .labelColor
-      cell.imageView?.contentTintColor = selected ? .controlAccentColor : .secondaryLabelColor
+      cell.textField?.textColor = selected ? .selectedControlTextColor : .labelColor
+      cell.imageView?.contentTintColor = selected ? .selectedControlTextColor : .secondaryLabelColor
     }
     func synchronizeCells() {
       guard let table else { return }
@@ -656,7 +672,9 @@ final class NativeSettingsSidebarRow: NSTableRowView {
     guard selectionHighlightStyle != .none else { return }
     let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 3), xRadius: 7, yRadius: 7)
     let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-    NSColor.controlAccentColor.withAlphaComponent(contrast ? 0.25 : 0.13).setFill()
+    (isEmphasized
+      ? NSColor.selectedContentBackgroundColor
+      : NSColor.unemphasizedSelectedContentBackgroundColor).setFill()
     path.fill()
     if contrast {
       NSColor.controlAccentColor.setStroke()

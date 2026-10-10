@@ -181,36 +181,41 @@ struct NativeMediaIndicatorView: View {
     GeometryReader { container in
       let notched = geometry.hasNotch
       let center = notched ? geometry.notch.midX : container.size.width / 2
-      ZStack(alignment: .top) {
-        if notched {
-          geometry.contour.stroke(
-            rimStyle,
-            style: StrokeStyle(lineWidth: geometry.strokeWidth, lineCap: .butt, lineJoin: .round))
-        } else {
-          // A filled badge keeps the icons legible when there is no housing.
-          UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(rimStyle)
-            .frame(width: badgeWidth, height: badgeHeight)
-        }
-        if ["active", "unknown"].contains(state.camera) {
-          device("video", value: state.camera, color: cameraColor, notched: notched)
-            .position(
-              x: center
-                - (notched
-                  ? geometry.notch.width / 2 + 38
-                  : state.microphone == "inactive" || state.microphone == "disabled"
-                    ? 0 : badgeWidth / 4),
-              y: notched ? 23 : badgeHeight / 2)
-        }
-        if ["active", "unknown"].contains(state.microphone) {
-          device("mic", value: state.microphone, color: micColor, notched: notched)
-            .position(
-              x: center
-                + (notched
-                  ? geometry.notch.width / 2 + 38
-                  : state.camera == "inactive" || state.camera == "disabled" ? 0 : badgeWidth / 4),
-              y: notched ? 23 : badgeHeight / 2)
-        }
-      }.frame(width: container.size.width, height: container.size.height, alignment: .top)
+      GlassEffectContainer(spacing: 0) {
+        ZStack(alignment: .top) {
+          if notched {
+            geometry.contour.stroke(
+              rimStyle,
+              style: StrokeStyle(lineWidth: geometry.strokeWidth, lineCap: .butt, lineJoin: .round))
+          } else {
+            let badge = UnevenRoundedRectangle(
+              bottomLeadingRadius: 14, bottomTrailingRadius: 14)
+            badge.fill(.clear).frame(width: badgeWidth, height: badgeHeight)
+              .glassEffect(.regular, in: badge)
+              .overlay { badge.strokeBorder(rimStyle, lineWidth: 1.5) }
+          }
+          if ["active", "unknown"].contains(state.camera) {
+            device("video", value: state.camera, color: cameraColor, notched: notched)
+              .position(
+                x: center
+                  - (notched
+                    ? geometry.notch.width / 2 + 38
+                    : state.microphone == "inactive" || state.microphone == "disabled"
+                      ? 0 : badgeWidth / 4),
+                y: notched ? 23 : badgeHeight / 2)
+          }
+          if ["active", "unknown"].contains(state.microphone) {
+            device("mic", value: state.microphone, color: micColor, notched: notched)
+              .position(
+                x: center
+                  + (notched
+                    ? geometry.notch.width / 2 + 38
+                    : state.camera == "inactive" || state.camera == "disabled"
+                      ? 0 : badgeWidth / 4),
+                y: notched ? 23 : badgeHeight / 2)
+          }
+        }.frame(width: container.size.width, height: container.size.height, alignment: .top)
+      }
     }.accessibilityElement(children: .ignore).accessibilityLabel(state.label).allowsHitTesting(
       false)
   }
@@ -232,26 +237,20 @@ struct NativeMediaIndicatorView: View {
           : Color(red: 169 / 255, green: 175 / 255, blue: 166 / 255))
   }
   private func device(_ symbol: String, value: String, color: Color, notched: Bool) -> some View {
-    // SF Symbols have different artwork heights at the same font size.
-    // Fit their aspect ratios to a shared height before centering the cells.
-    Image(systemName: symbol).resizable().scaledToFit()
+    // The camera artwork is wider than the microphone; give it more inset
+    // inside the same 40 pt glass badge next to the notch.
+    let iconHeight: CGFloat = notched ? (symbol == "video" ? 20 : 24) : 20
+    return Image(systemName: symbol).resizable().scaledToFit()
       .font(.system(size: 25, weight: notched ? .semibold : .medium))
-      .foregroundStyle(
-        notched
-          ? (value == "unknown" ? .gray : color)
-          : Color(red: 33 / 255, green: 27 / 255, blue: 22 / 255)
-      )
-      .frame(height: notched ? 24 : 20)
+      .foregroundStyle(value == "unknown" ? .gray : color)
+      .frame(height: iconHeight)
       .frame(width: 40, height: notched ? 40 : 36)
-      .background(
-        notched ? Color(red: 23 / 255, green: 19 / 255, blue: 19 / 255) : .clear,
-        in: RoundedRectangle(cornerRadius: 10)
-      )
       .overlay(alignment: .bottomTrailing) {
         if value == "unknown" {
-          Image(systemName: "questionmark.circle.fill").font(.system(size: 13)).foregroundStyle(
-            .gray)
+          Image(systemName: "questionmark.circle.fill").font(.system(size: 13))
+            .symbolRenderingMode(.palette).foregroundStyle(.white, .black).padding(3)
         }
       }
+      .glassEffect(notched ? .regular : .identity, in: RoundedRectangle(cornerRadius: 10))
   }
 }

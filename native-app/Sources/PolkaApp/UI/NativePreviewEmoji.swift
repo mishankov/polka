@@ -77,14 +77,15 @@ struct NativeClipboardPreview: View {
       VStack(alignment: .leading, spacing: 8) {
         Text(clip.name.isEmpty ? nativeClipDate(clip.createdAt) : clip.name).font(.system(size: 11))
           .foregroundStyle(.secondary).lineLimit(1)
-        HStack {
-          Spacer()
+        HStack(spacing: 8) {
+          if clip.kind == "text" { previewActionButtons }
+          Spacer(minLength: 8)
           if clip.kind == "text" {
-            NativeCommandButton(
-              title: clip.snippet ? "Изменить сниппет" : "Создать сниппет", symbol: "pencil",
+            NativeIconButton(
+              label: clip.snippet ? "Изменить сниппет" : "Создать сниппет", symbol: "pencil",
               shortcut: "⌘E",
               disabled: model.busy || !model.writable
-                || !model.settings.builtinApps.allows(destination: "snippets")
+                || !model.settings.builtinApps.allows(destination: "snippets"), compact: true
             ) { model.edit(clip) }
           }
           if model.canPaste {
@@ -98,20 +99,12 @@ struct NativeClipboardPreview: View {
           ) { model.chooseClip(clip) }
         }
       }.padding(10)
-      HStack {
-        ForEach(Array(model.previewActions(for: clip).enumerated()), id: \.element.id) {
-          index, action in
-          NativeCommandButton(
-            title: action.label, shortcut: action.id == "saveImage" ? "⌘S" : "⌘\(index + 1)",
-            disabled: action.disabled, prominent: model.transformation == action.id
-          ) { action.run() }
-          .help(
-            action.disabled && !model.busy && clip.kind == "text"
-              ? "Исходный текст уже в этом виде"
-              : "\(action.label) · " + (action.id == "saveImage" ? "⌘S / " : "") + "⌘\(index + 1)")
-        }
-        Spacer(minLength: 0)
-      }.padding(.horizontal, 10).padding(.bottom, 10)
+      if clip.kind != "text" {
+        HStack(spacing: 8) {
+          previewActionButtons
+          Spacer(minLength: 0)
+        }.padding(.horizontal, 10).padding(.bottom, 10)
+      }
       if let transformation = model.transformation {
         Text(
           "Результат: \(transformation == "upperCase" ? "ПРОПИСНЫЕ" : "строчные"). Оригинал сохранён."
@@ -128,6 +121,8 @@ struct NativeClipboardPreview: View {
           scrollOffset: $model.previewScrollOffset,
           scrollToken: clip.id + "-preview-" + String(model.visible)
         )
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 12).padding(.bottom, 12)
         .accessibilityIdentifier("native-clipboard-preview")
       } else {
         ScrollView {
@@ -182,6 +177,29 @@ struct NativeClipboardPreview: View {
       model.reloadPreviewImage()
     }
   }
+  @ViewBuilder private var previewActionButtons: some View {
+    ForEach(Array(model.previewActions(for: clip).enumerated()), id: \.element.id) {
+      index, action in
+      if action.id == "original" {
+        NativeIconButton(
+          label: action.label, symbol: "arrow.uturn.backward", shortcut: "⌘\(index + 1)",
+          disabled: action.disabled, compact: true
+        ) { action.run() }
+      } else {
+        NativeCommandButton(
+          title: action.label, shortcut: action.id == "saveImage" ? "⌘S" : "⌘\(index + 1)",
+          disabled: action.disabled, prominent: model.transformation == action.id
+        ) { action.run() }
+        .help(
+          action.disabled && !model.busy && clip.kind == "text"
+            ? "Исходный текст уже в этом виде"
+            : "\(action.label) · " + (action.id == "saveImage" ? "⌘S / " : "")
+              + "⌘\(index + 1)"
+        )
+      }
+    }
+  }
+
 }
 
 let nativeEmojiCategories: [(id: String, label: String, symbol: String)] = [
@@ -212,9 +230,9 @@ struct NativeEmojiView: View {
         text: $model.query, placeholder: "Название или слово: улыбка, heart…", maxLength: 256,
         focusToken: "emoji-\(model.visible)-\(model.sessionRevision)"
       ).frame(maxWidth: .infinity).frame(height: 44).padding(.horizontal, 12).padding(.bottom, 10)
-      NativeEmojiCategoryPicker(model: model).frame(maxWidth: .infinity).frame(height: 40).padding(
-        .horizontal, 12
-      ).padding(.bottom, 10)
+      NativeEmojiCategoryPicker(model: model).frame(maxWidth: .infinity).frame(height: 40)
+        .glassEffect(.regular, in: Capsule())
+        .padding(.horizontal, 12).padding(.bottom, 10)
       Divider()
       NativePasteAccessHint(model: model)
       NativeErrorNotice(text: model.error).padding(.horizontal, 10)
@@ -301,7 +319,7 @@ struct NativeEmojiView: View {
 }
 
 struct NativeEmojiCategoryPicker: NSViewRepresentable {
-  var model: NativeUIModel
+  @ObservedObject var model: NativeUIModel
   func makeNSView(context: Context) -> NativeEmojiCategoryBar {
     let bar = NativeEmojiCategoryBar()
     bar.model = model
@@ -330,9 +348,13 @@ extension NativeUIModel {
 final class NativeEmojiCategoryBar: NSView {
   weak var model: NativeUIModel?
   private(set) var buttons: [NativeEmojiCategoryButton] = []
+  private let selectionGlass = NativeEmojiSelectionGlass()
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
     setAccessibilityLabel("Категории эмодзи")
+    selectionGlass.cornerRadius = 17
+    selectionGlass.setAccessibilityElement(false)
+    addSubview(selectionGlass)
     for (index, category) in nativeEmojiCategories.enumerated() {
       let button = NativeEmojiCategoryButton(frame: .zero)
       button.tag = index
@@ -369,6 +391,17 @@ final class NativeEmojiCategoryBar: NSView {
         x: CGFloat(index) * slot + 3, y: (bounds.height - 40) / 2, width: max(0, slot - 6),
         height: 40)
     }
+    updateSelectionGlass()
+  }
+  private func updateSelectionGlass() {
+    guard let selected = buttons.first(where: { $0.state == .on }),
+      selected.frame.width > 0, selected.frame.height > 6
+    else {
+      selectionGlass.isHidden = true
+      return
+    }
+    selectionGlass.isHidden = false
+    selectionGlass.frame = selected.frame.insetBy(dx: 0, dy: 3)
   }
   private var canInteract: Bool {
     guard let model, model.visible, model.destination == "emoji", !model.busy else { return false }
@@ -383,6 +416,7 @@ final class NativeEmojiCategoryBar: NSView {
       button.setAccessibilitySelected(index == selected)
       button.needsDisplay = true
     }
+    updateSelectionGlass()
   }
   @objc private func categoryClicked(_ sender: NativeEmojiCategoryButton) {
     if canInteract, nativeEmojiCategories.indices.contains(sender.tag) {
@@ -407,6 +441,11 @@ final class NativeEmojiCategoryBar: NSView {
     window?.makeFirstResponder(buttons[next])
     return true
   }
+}
+
+/// The glass lens is decoration; category buttons retain pointer and keyboard input.
+private final class NativeEmojiSelectionGlass: NSGlassEffectView {
+  override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 final class NativeEmojiCategoryButton: NSButton {
@@ -436,11 +475,9 @@ final class NativeEmojiCategoryButton: NSButton {
     needsDisplay = true
   }
   override func draw(_ dirtyRect: NSRect) {
-    if state == .on || (hovering && isEnabled) {
-      (state == .on
-        ? NSColor.controlAccentColor.withAlphaComponent(0.16)
-        : NSColor.labelColor.withAlphaComponent(0.06)).setFill()
-      NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 7, yRadius: 7).fill()
+    if state == .off && hovering && isEnabled {
+      NSColor.labelColor.withAlphaComponent(0.06).setFill()
+      NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 3), xRadius: 17, yRadius: 17).fill()
     }
     super.draw(dirtyRect)
   }

@@ -163,6 +163,68 @@ import SwiftUI
   return failures
 }
 
+/// A visible fixture window lets remote reviews capture the composited native
+/// material without changing the real overlay's non-shareable window policy.
+@MainActor func nativeMediaGlassPreviewWindow() -> NSWindow? {
+  guard NativeProfile.isolatedFixture else { return nil }
+  let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    .appendingPathComponent("tests/fixtures/media-indicator/macbook-photo.json")
+  guard let data = try? Data(contentsOf: path),
+    let reference = try? JSONDecoder().decode(NativeMediaPhotoReference.self, from: data)
+  else { return nil }
+  let window = NSWindow(
+    contentRect: NSRect(x: 0, y: 0, width: 800, height: 540),
+    styleMask: [.titled, .closable], backing: .buffered, defer: false)
+  window.title = "Camera & microphone preview"
+  window.identifier = NSUserInterfaceItemIdentifier("media-glass-preview")
+  window.isReleasedWhenClosed = false
+  window.contentView = NSHostingView(rootView: NativeMediaGlassPreview(reference: reference))
+  window.center()
+  window.makeKeyAndOrderFront(nil)
+  return window
+}
+
+private struct NativeMediaGlassPreview: View {
+  let reference: NativeMediaPhotoReference
+  private let states: [(String, NativeMediaPresentation)] = [
+    ("Camera", .init(camera: "active", microphone: "inactive")),
+    ("Microphone", .init(camera: "inactive", microphone: "active")),
+    ("Camera + microphone", .init(camera: "active", microphone: "active")),
+    ("Status unavailable", .init(camera: "unknown", microphone: "unknown")),
+  ]
+  private var geometry: NativeMediaIndicatorGeometry {
+    NativeMediaIndicatorGeometry(
+      screenFrame: CGRect(x: 0, y: 0, width: 1000, height: 800),
+      leftArea: CGRect(x: 0, y: 766.5, width: 407.5, height: 33.5),
+      rightArea: CGRect(x: 592.5, y: 766.5, width: 407.5, height: 33.5), safeTop: 33.5, scale: 2)
+  }
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      Text("Camera & microphone").font(.system(size: 24, weight: .semibold))
+      Text("Simulated activity · native indicator views").foregroundStyle(.secondary)
+      LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 18) {
+        ForEach(Array(states.enumerated()), id: \.offset) { _, item in
+          VStack(alignment: .leading, spacing: 8) {
+            Text(item.0).font(.system(size: 13, weight: .semibold))
+            NativeMediaSmokePreview(
+              state: item.1, geometry: geometry, reference: reference, shelf: nil
+            )
+            .frame(height: 100)
+          }
+        }
+      }
+      Text("Display without a notch").font(.system(size: 13, weight: .semibold))
+      NativeMediaSmokePreview(
+        state: .init(camera: "active", microphone: "active"),
+        geometry: NativeMediaIndicatorGeometry(
+          screenFrame: CGRect(x: 0, y: 0, width: 1000, height: 800),
+          leftArea: nil, rightArea: nil, safeTop: 0, scale: 2),
+        reference: reference, shelf: nil
+      ).frame(height: 90)
+    }.padding(24).frame(width: 800, height: 540, alignment: .topLeading)
+  }
+}
+
 private struct NativeMediaSmokePreview: View {
   let state: NativeMediaPresentation
   let geometry: NativeMediaIndicatorGeometry
