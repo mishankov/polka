@@ -450,7 +450,8 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   }
   private func geometry() {
     let screen = presentationScreen ?? screen()
-    let expanded = model.previewID != nil || model.draft != nil
+    // Editing keeps the standard shelf height, even when opened from a preview.
+    let expanded = model.previewID != nil && model.draft == nil
     // Every shelf destination, preview and editor shares the launcher's width.
     let width = min(CGFloat(560), screen.frame.width)
     let top = screen.safeAreaInsets.top
