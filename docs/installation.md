@@ -1,55 +1,77 @@
-# Установка Полки
+# Install Polka
 
-Нужны **macOS 27 или новее** и **Mac с Apple silicon** (M1 или новее). Полка работает в фоне: после установки открывайте полку через значок в строке меню или **⌘ ⇧ Пробел**.
+You need **macOS 27 or later** and an **Apple silicon Mac (M1 or newer)**. Polka runs in the background: after installation, open the shelf from its menu bar icon or with **⌘⇧Space**.
 
-Выберите один из трёх способов ниже. Выпуски используют self-signed подпись и не проходят Apple notarization, поэтому первый запуск скачанного приложения может потребовать подтверждения. Если Полка уже работает, перед ручной установкой выберите **«Выйти из Полки»** в её меню.
+Choose one of the three methods below. Releases are self-signed and are not notarized by Apple, so macOS may ask you to approve the first launch. If Polka is already running, choose **Quit Polka** from its menu bar menu before replacing the app.
 
-## 1. Установить скриптом
+## 1. Install with the script
 
-Откройте **Терминал**, вставьте команду и нажмите Enter:
+Open **Terminal**, paste this command, and press Enter:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/install.sh | /bin/bash
 ```
 
-Скрипт скачает последний стабильный выпуск, проверит SHA-256 загрузки и целостность подписи, установит **`/Applications/Polka.app`**, снимет quarantine только с этого приложения и откроет Полку. При необходимости записи в «Программы» установщик запросит пароль macOS. Во время ввода пароля символы в Терминале не отображаются — это нормально.
+The script downloads the latest stable release, checks the download's SHA-256 checksum and signature integrity, installs **`/Applications/Polka.app`**, removes the quarantine flag only from that app, and opens Polka. If it needs permission to write to Applications, it asks for your macOS password. Terminal does not display characters while you enter a password.
 
-Homebrew и Xcode для установки не нужны. Скрипт выполняется из ветки `master`; перед запуском его можно [прочитать](../scripts/install.sh). [Дополнительные параметры установщика](macos.md#установка-через-терминал).
+Homebrew and Xcode are not required. The script runs from the `master` branch; you can [read it before running it](../scripts/install.sh).
 
-## 2. Скачать и выполнить команду в Терминале
+To inspect the script locally or choose another installation folder, download it first:
 
-1. Откройте [последний выпуск](https://github.com/mishankov/polka/releases/latest) и скачайте **`polka-VERSION-arm64.dmg`** из раздела **Assets**.
-2. Откройте DMG и перенесите **Polka** в **«Программы»**. Затем извлеките образ диска.
-3. Откройте **Терминал** и выполните:
+```sh
+curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/install.sh -o install-polka.sh
+less install-polka.sh
+/bin/bash install-polka.sh --install-dir "$HOME/Applications" --no-launch
+```
+
+The destination folder must already exist. `--install-dir` selects the folder, and `--no-launch` leaves Polka closed after installation. Omit these options to install into `/Applications` and open the app.
+
+## 2. Download and open from Terminal
+
+1. Open the [latest release](https://github.com/mishankov/polka/releases/latest) and download **`polka-VERSION-arm64.dmg`** from **Assets**.
+2. Open the DMG and drag **Polka** into **Applications**. Eject the disk image.
+3. Open **Terminal** and run:
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/Polka.app"
 open "/Applications/Polka.app"
 ```
 
-Первая команда снимает quarantine только с установленной Полки, вторая открывает приложение. Если при снятии quarantine появляется `Permission denied` или `Operation not permitted`, повторите первую команду с правами администратора:
+The first command removes the quarantine flag only from the installed Polka app; the second opens it. If removing the flag fails with `Permission denied` or `Operation not permitted`, repeat the first command with administrator privileges:
 
 ```sh
 sudo xattr -dr com.apple.quarantine "/Applications/Polka.app"
 ```
 
-Если вы перенесли приложение в другой каталог, замените `/Applications/Polka.app` в обеих командах на его полный путь.
+If you installed Polka somewhere else, replace `/Applications/Polka.app` in the commands with its full path.
 
-## 3. Скачать и разрешить запуск в настройках macOS
+## 3. Download and approve in System Settings
 
-1. Откройте [последний выпуск](https://github.com/mishankov/polka/releases/latest), скачайте **`polka-VERSION-arm64.dmg`**, откройте его и перенесите **Polka** в **«Программы»**. Извлеките образ диска.
-2. Попробуйте открыть **Polka** из «Программ». Если macOS заблокирует запуск, закройте предупреждение.
-3. Откройте **«Системные настройки → Конфиденциальность и безопасность»** и прокрутите до раздела **«Безопасность»**.
-4. Нажмите **«Всё равно открыть»** рядом с сообщением о Polka, подтвердите действие паролем или Touch ID и нажмите **«Открыть»**.
+1. Open the [latest release](https://github.com/mishankov/polka/releases/latest), download **`polka-VERSION-arm64.dmg`**, open it, and drag **Polka** into **Applications**. Eject the disk image.
+2. Try opening **Polka** from Applications. If macOS blocks it, dismiss the alert.
+3. Open **System Settings → Privacy & Security** and scroll down to **Security**.
+4. Click **Open Anyway** next to the message about Polka. Confirm with your password or Touch ID if prompted, then click **Open**.
 
-На macOS с английским интерфейсом путь называется **System Settings → Privacy & Security → Open Anyway**. Кнопка появляется после попытки запуска приложения. Подробности — в [инструкции Apple](https://support.apple.com/ru-ru/102445). На управляемом организацией Mac разрешение может быть недоступно; тогда потребуется помощь администратора.
+**Open Anyway** appears after you have tried to launch the app. See [Apple's instructions](https://support.apple.com/en-us/102445) for details. On a managed Mac, your administrator may need to approve the app.
 
-## После установки
+## After installation
 
-Полка не показывает значок в Dock. Откройте её через значок в строке меню или **⌘ ⇧ Пробел**. Для истории буфера используйте **⌘ ⇧ V**.
+### Open the shelf
 
-Для автоматической вставки из истории и эмодзи нужно отдельно выдать **«Универсальный доступ»** в настройках macOS. Полка покажет кнопку **«Разрешить…»**, если доступа не хватает. Для копирования и ручной вставки через **⌘ V** это разрешение не требуется.
+Polka does not show a Dock icon. Open it from its menu bar icon or with **⌘⇧Space**. Use **⌘⇧V** for clipboard history and **⌘,** for settings.
 
-Перед первым обращением к истории Полка объясняет доступ к ключу **«polka Safe Storage»**. Если macOS запросит доступ, введите пароль связки ключей **«Вход»** (обычно это пароль входа в Mac) в системном окне и выберите **«Разрешать всегда»**. После обновления запрос может появиться снова. При отказе история и синхронизация недоступны, но сохранённые файлы остаются на месте; перезапустите Полку, чтобы повторить запрос.
+### Enable automatic pasting
 
-Последующие обновления устанавливаются внутри Полки: **«О приложении → Обновления»**. История и настройки сохраняются при использовании того же профиля. При переходе с 0.7.0 и более ранних версий на 0.8.0 нужен [ручной перенос прежнего профиля](data.md#переход-с-070-и-более-ранних-версий); автоматической миграции нет.
+Automatic pasting from clipboard history, snippets, and emoji requires **System Settings → Privacy & Security → Accessibility** permission. Polka shows **Allow…** when access is missing. Copying an entry and pasting it yourself with **⌘V** does not require this permission.
+
+### Unlock clipboard storage
+
+Before you first access history, Polka explains why it needs the **polka Safe Storage** key. If macOS asks for access, enter your **login** keychain password (usually your Mac login password) in the system dialog and choose **Always Allow**. The prompt may appear again after an update.
+
+If you deny access, history and sync are unavailable, but saved files remain intact. Restart Polka to try again.
+
+### Install updates
+
+Later updates are available inside Polka in **Settings → About → Updates**. History and settings are preserved when you keep using the same profile.
+
+Upgrading from 0.7.0 or earlier to 0.8.0 or later requires [manually transferring your old profile](data.md#переход-с-070-и-более-ранних-версий); there is no automatic migration. Quit Polka and back up the old profile before transferring it. You may also need to grant macOS permissions again.
