@@ -116,7 +116,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" > "$RUNNER_TEMP/ci-jobs.json"
+          # Failed-job reruns copy successful records with new created_at values
+          # but original execution times. Keep history to recover their queues.
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all" > "$RUNNER_TEMP/ci-jobs.json"
           bash scripts/check-ci-budget.sh "$RUNNER_TEMP/ci-jobs.json" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Require all hosted macOS checks to pass
         env:

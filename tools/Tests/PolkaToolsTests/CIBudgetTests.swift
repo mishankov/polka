@@ -108,6 +108,55 @@ final class CIBudgetTests: XCTestCase {
     XCTAssertEqual(result.status, 0, result.error)
   }
 
+  private func rerunHistory(packageDuration: Int = 253) -> [[String: Any]] {
+    let original = fixture(finishes: [148, 164, 202], queue: 9).enumerated().map { index, job in
+      job.merging(["run_attempt": 1, "conclusion": index == 2 ? "failure" : "success"]) { _, new in
+        new
+      }
+    }
+    // GitHub carries successes into attempt 2 with the retry's creation time,
+    // preserving started_at and completed_at from attempt 1.
+    let retry = fixture(
+      starts: [0, 0, 281], finishes: [148, 164, 281 + packageDuration], queue: -272
+    ).map {
+      $0.merging(["run_attempt": 2, "conclusion": "success"]) { _, new in new }
+    }
+    return original + retry
+  }
+
+  func testFailedJobRerunRecoversCarriedQueuesAndUsesLatestExecution() throws {
+    let jobs = rerunHistory()
+    let result = try check([["jobs": Array(jobs.prefix(3))], ["jobs": Array(jobs.dropFirst(3))]])
+    XCTAssertEqual(result.status, 0, result.error)
+    XCTAssertTrue(result.output.contains("253s / 600s"))
+    XCTAssertTrue(result.output.contains("staggered runner queues: 534s"))
+    XCTAssertTrue(result.output.contains("148s execution, 9s runner queue"))
+    XCTAssertTrue(result.output.contains("253s execution, 9s runner queue"))
+    XCTAssertFalse(result.output.contains("::warning::"))
+  }
+
+  func testRerunStillEnforcesExecutionHardLimit() throws {
+    let result = try check([["jobs": rerunHistory(packageDuration: 601)]])
+    XCTAssertNotEqual(result.status, 0)
+    XCTAssertTrue(result.output.contains("601s / 600s"))
+    XCTAssertTrue(result.output.contains("::error::"))
+  }
+
+  func testCarriedJobWithoutExactSuccessfulOriginFailsClosed() throws {
+    let jobs = rerunHistory()
+    var mismatched = jobs
+    mismatched[0]["completed_at"] = jobs[1]["completed_at"]
+    var failedOrigin = jobs
+    failedOrigin[0]["conclusion"] = "failure"
+    var unfinished = jobs
+    unfinished[3]["status"] = "in_progress"
+    for history in [Array(jobs.dropFirst()), mismatched, failedOrigin, unfinished] {
+      let result = try check([["jobs": history]])
+      XCTAssertNotEqual(result.status, 0)
+      XCTAssertTrue(result.output.contains("::error::"))
+    }
+  }
+
   func testMissingDuplicateUnfinishedAndInvalidJobsFailClosed() throws {
     var duplicate = fixture()
     duplicate.append(duplicate[0])
