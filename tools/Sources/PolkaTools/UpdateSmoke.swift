@@ -66,6 +66,14 @@ public enum UpdateSmoke {
           context.environment["POLKA_VM_SIGN_UPDATE"] != nil
         else { throw DesktopFailure("Updater checks require host-built runtime artifacts.") }
       }
+      let preparedBundle = context.environment["POLKA_VM_PREPARED_APP"].map {
+        URL(fileURLWithPath: $0)
+      }
+      let signUpdate =
+        context.environment["POLKA_VM_SIGN_UPDATE"]
+        ?? context.root.appendingPathComponent(
+          "native-app/.build/artifacts/sparkle/Sparkle/bin/sign_update"
+        ).path
       var oldMetadata = try PolkaMetadata.load(root: context.root)
       let next = try nextVersion(oldMetadata.version)
       let lock = try await DesktopLock.acquire()
@@ -227,9 +235,7 @@ public enum UpdateSmoke {
                   profile: profile, receipt: receipt,
                   password: Data(password.utf8).base64EncodedString(),
                   feed: URL(string: server.origin + "/appcast.xml")),
-                preparedBundle: context.environment["POLKA_VM_PREPARED_APP"].map {
-                  URL(fileURLWithPath: $0)
-                }),
+                preparedBundle: preparedBundle),
               context: ToolContext(root: context.root, environment: buildEnv))
           }
         }
@@ -242,10 +248,7 @@ public enum UpdateSmoke {
           ["-c", "-k", "--sequesterRsrc", "--keepParent", newBundle.path, archive.path])
         let archiveBytes = try Data(contentsOf: archive)
         let signature = try Command.capture(
-          context.environment["POLKA_VM_SIGN_UPDATE"]
-            ?? context.root.appendingPathComponent(
-              "native-app/.build/artifacts/sparkle/Sparkle/bin/sign_update"
-            ).path,
+          signUpdate,
           ["--ed-key-file", "-", "-p", archive.path], input: Data(privateKey.utf8)
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         let validFeed = try ReleaseMetadata.appcast(
@@ -321,7 +324,8 @@ public enum UpdateSmoke {
               updateFixture: UpdateFixture(
                 profile: profile, receipt: receipt,
                 password: Data(password.utf8).base64EncodedString(),
-                feed: URL(string: server.origin + "/appcast.xml"))),
+                feed: URL(string: server.origin + "/appcast.xml")),
+              preparedBundle: preparedBundle),
             context: ToolContext(root: context.root, environment: buildEnv))
         }
         let nightlyFilename = try ReleaseMetadata.artifactNames(metadata: nightlyMetadata)[1]
@@ -331,9 +335,7 @@ public enum UpdateSmoke {
           ["-c", "-k", "--sequesterRsrc", "--keepParent", nightlyBundle.path, nightlyArchive.path])
         let nightlyBytes = try Data(contentsOf: nightlyArchive)
         let nightlySignature = try Command.capture(
-          context.root.appendingPathComponent(
-            "native-app/.build/artifacts/sparkle/Sparkle/bin/sign_update"
-          ).path,
+          signUpdate,
           ["--ed-key-file", "-", "-p", nightlyArchive.path], input: Data(privateKey.utf8)
         )
         .trimmingCharacters(in: .whitespacesAndNewlines)
