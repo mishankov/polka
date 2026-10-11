@@ -254,6 +254,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
         if CommandLine.arguments.contains("--native-preview-smoke") {
           await smoke(previewsOnly: true)
         }
+        if CommandLine.arguments.contains("--native-media-smoke") {
+          await smoke(mediaOnly: true)
+        }
         if CommandLine.arguments.contains("--native-settings-smoke") {
           await smoke(settingsOnly: true)
         }
@@ -888,7 +891,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
     nativeSmokePostQuit(shelf)
   }
-  private func smoke(settingsOnly: Bool = false, previewsOnly: Bool = false) async {
+  private func smoke(
+    settingsOnly: Bool = false, previewsOnly: Bool = false, mediaOnly: Bool = false
+  ) async {
     guard fixture, let path = ProcessInfo.processInfo.environment["POLKA_NATIVE_SMOKE_RESULT"]
     else { return }
     for _ in 0..<100 where model.storageStatus == "starting" {
@@ -937,11 +942,17 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       if let media {
         failures += await nativeMediaSmokeOverlay(application: self, shelf: shelf, monitor: media)
       }
-      failures += nativeMediaSmokeScreenshots(shelf: shelf)
     }
-    failures += await nativeSmokeAdditionalFlows(
-      application: self, shelf: shelf, model: model, platform: platform, settingsOnly: settingsOnly,
-      previewsOnly: previewsOnly)
+    if mediaOnly {
+      // Rasterizing every display/state fixture must not consume the core
+      // keyboard suite's deadline. The harness always runs this separate phase.
+      failures += nativeMediaSmokeScreenshots(shelf: shelf)
+    } else {
+      failures += await nativeSmokeAdditionalFlows(
+        application: self, shelf: shelf, model: model, platform: platform,
+        settingsOnly: settingsOnly,
+        previewsOnly: previewsOnly)
+    }
     _ = media?.showFixture(.init(camera: "inactive", microphone: "inactive"))
     let result: [String: Any] = [
       "ok": failures.isEmpty, "failures": failures, "nativeVisible": shelf.isVisible,
