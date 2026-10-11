@@ -29,7 +29,7 @@ import SwiftUI
 /// this process's real AppKit event loop, and every copy uses the injected board.
 @MainActor func nativeSmokeAdditionalFlows(
   application: NativeApplication, shelf: NSWindow, model: NativeUIModel, platform: NativePlatform,
-  settingsOnly: Bool = false, previewsOnly: Bool = false
+  settingsOnly: Bool = false, previewsOnly: Bool = false, browsingOnly: Bool = false
 ) async -> [String] {
   guard NativeProfile.isolatedFixture else { return ["native smoke requires an isolated profile"] }
   // Ask this fixture process to materialize SwiftUI's virtual accessibility
@@ -127,6 +127,11 @@ import SwiftUI
         NSApp.postEvent(event, atStart: false)
       }
     }
+  }
+  func searchField(in view: NSView) -> NSSearchField? {
+    if let field = view as? NSSearchField { return field }
+    for child in view.subviews { if let field = searchField(in: child) { return field } }
+    return nil
   }
   func settle() async { try? await Task.sleep(nanoseconds: 230_000_000) }
   func trace(_ message: String) {
@@ -264,7 +269,7 @@ import SwiftUI
     await settle()
     return failures
   }
-  if !settingsOnly {
+  if !settingsOnly && !browsingOnly {
     // Real window lifecycle, not just model dispatch: a delayed close must not
     // order out a reopened panel, and repeated requests must remain harmless.
     await application.show("apps")
@@ -523,11 +528,6 @@ import SwiftUI
     await settle()
     await application.show("apps")
     await settle()
-    func searchField(in view: NSView) -> NSSearchField? {
-      if let field = view as? NSSearchField { return field }
-      for child in view.subviews { if let field = searchField(in: child) { return field } }
-      return nil
-    }
     post(0, [], "я")
     if !(await wait({ model.query == "я" })) {
       failures.append("enlarged search field did not accept non-Latin keyboard text")
@@ -730,6 +730,14 @@ import SwiftUI
     if !(await wait({ model.draft == nil })) {
       failures.append("posted Escape did not cancel snippet editor")
     }
+    model.error = ""
+    await application.show("clipboard")
+    await settle()
+    return failures
+  }
+  if browsingOnly {
+    let standardWidth = shelf.frame.width
+    trace("emoji categories and keyboard selection")
     await application.show("emoji")
     await settle()
     if let bar = await nativeSmokeWaitForView(
@@ -852,6 +860,7 @@ import SwiftUI
     } else {
       failures.append("emoji fixture search did not find heart")
     }
+    trace("file shelf selection and reference removal")
     let fixtureRoot = URL(fileURLWithPath: platform.history.storage.state().path)
       .deletingLastPathComponent().appendingPathComponent("desktop-files")
     await platform.showIncomingFiles?()
