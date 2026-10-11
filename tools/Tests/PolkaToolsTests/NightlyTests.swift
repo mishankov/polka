@@ -40,11 +40,18 @@ final class NightlyTests: XCTestCase {
       to: root.appendingPathComponent("polka.json"))
     let output = root.appendingPathComponent("output")
     try Data("existing=value\n".utf8).write(to: output)
-    let env = ["GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": output.path]
+    let env = [
+      "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": output.path,
+      "NIGHTLY_BASE_VERSION": "v0.9.0",
+    ]
     try NightlyPreparation.run(context: ToolContext(root: root, environment: env))
     let lines = try String(contentsOf: output, encoding: .utf8).split(separator: "\n")
     XCTAssertEqual(lines[0], "existing=value")
     let tag = String(lines[1].dropFirst(4))
+    // Published releases can be ahead of the development version in polka.json.
+    // The nightly must remain between that stable release and its next patch.
+    XCTAssertTrue(tag.hasPrefix("v0.9.1-nightly."))
+    XCTAssertTrue(try ReleaseVersion.buildVersion(tag).hasPrefix("0.9.0."))
     let commit = String(lines[2].dropFirst(7))
     var nightly = ["RELEASE_CHANNEL": "nightly", "RELEASE_TAG": tag, "RELEASE_COMMIT": commit]
     let metadata = try ReleaseTool.resolved(PolkaMetadata(version: "0.1.15"), environment: nightly)
@@ -69,6 +76,10 @@ final class NightlyTests: XCTestCase {
       try NightlyPreparation.run(
         context: ToolContext(
           root: root, environment: ["GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1"])))
+    var invalidBase = env
+    invalidBase["NIGHTLY_BASE_VERSION"] = ""
+    XCTAssertThrowsError(
+      try NightlyPreparation.run(context: ToolContext(root: root, environment: invalidBase)))
   }
   func testSignedNightlyFeedReferencesImmutableVersionedArchive() throws {
     let metadata = PolkaMetadata(version: "0.1.16-nightly.20261010021700.123.1")
