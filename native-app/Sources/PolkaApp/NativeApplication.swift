@@ -633,6 +633,11 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       window.titlebarSeparatorStyle = .none
       window.minSize = NSSize(width: 660, height: 480)
       window.isReleasedWhenClosed = false
+      // Follow the shelf's active Space instead of activating the Space where
+      // this persistent window was last used, including another app's full screen.
+      window.collectionBehavior = [
+        .moveToActiveSpace, .fullScreenAuxiliary, .canJoinAllApplications,
+      ]
       window.center()
       window.contentView = NSHostingView(rootView: NativeSettingsView(model: model))
       settingsWindow = window
