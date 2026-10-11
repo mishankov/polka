@@ -806,13 +806,17 @@ import SwiftUI
         failures.append("busy emoji category button changed selection")
       }
       model.busy = false
-      await settle()
+      if !(await wait({ bar.buttons.allSatisfy { $0.isEnabled } })) {
+        failures.append("emoji category buttons did not re-enable after busy state ended")
+      }
       if let field = searchField(in: view) {
         shelf.makeFirstResponder(field)
         let editor = shelf.firstResponder
         click(bar.buttons[1])
         if !(await wait({ model.emojiCategory == "Smileys & Emotion" })) {
-          failures.append("emoji category mouse click stayed disabled after busy state ended")
+          failures.append(
+            "emoji category mouse click stayed disabled after busy state ended: \(keyboardState()); enabled=\(bar.buttons[1].isEnabled)"
+          )
         }
         if shelf.firstResponder !== editor {
           failures.append("emoji category mouse click stole search editing focus")
@@ -836,11 +840,14 @@ import SwiftUI
     await settle()
     await screenshot("emoji")
     if let emoji = model.emojiResults.first {
+      if !(await wait({ shelf.isKeyWindow && model.visible && !model.busy })) {
+        failures.append("emoji surface is not ready for Command1: \(keyboardState())")
+      }
       post(18, .command, "1")
       if !(await wait({
         !model.busy && platform.capture.syntheticText == emoji.value && !model.visible
       })) {
-        failures.append("posted Command1 did not copy emoji and close shelf")
+        failures.append("posted Command1 did not copy emoji and close shelf: \(keyboardState())")
       }
     } else {
       failures.append("emoji fixture search did not find heart")

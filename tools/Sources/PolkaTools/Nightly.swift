@@ -25,7 +25,8 @@ public enum NightlyPreparation {
   public static func run(context: ToolContext = ToolContext()) throws {
     let metadata = try PolkaMetadata.load(root: context.root)
     let version = try version(
-      base: metadata.version, date: Date(), runID: context.environment["GITHUB_RUN_ID"] ?? "",
+      base: context.environment["NIGHTLY_BASE_VERSION"] ?? metadata.version,
+      date: Date(), runID: context.environment["GITHUB_RUN_ID"] ?? "",
       attempt: context.environment["GITHUB_RUN_ATTEMPT"] ?? "")
     let commit = try Command.capture("git", ["rev-parse", "HEAD"], directory: context.root)
       .trimmingCharacters(in: .whitespacesAndNewlines)

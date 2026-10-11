@@ -34,7 +34,12 @@ jobs:
 
       - name: Pin master commit and unique nightly version
         id: release
-        run: ./polka nightly-prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NIGHTLY_BASE_VERSION=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')
+          export NIGHTLY_BASE_VERSION
+          ./polka nightly-prepare
 
   verify:
     name: Verify native macOS release source
@@ -187,7 +192,8 @@ jobs:
               --notes-file ../artifacts/release-notes.md
           fi
           if [[ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')" == "true" ]]; then
-            draft_target=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.target_commitish')
+            # Drafts without a Git tag are not returned by the REST tag lookup.
+            draft_target=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')
             if [[ "$draft_target" != "$COMMIT" ]]; then
               echo 'Nightly draft targets a different source commit.'
               exit 1
