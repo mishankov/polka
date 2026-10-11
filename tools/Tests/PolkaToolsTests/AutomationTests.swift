@@ -66,6 +66,7 @@ final class AutomationTests: XCTestCase {
       ["build", "--debug", "--release"], ["build", "--official", "--development-signing"],
       ["verify", "--no-desktop", "--external-drops"], ["package", "--dir", "--desktop"],
       ["desktop", "unknown"], ["coverage", "unexpected"],
+      ["vm"], ["vm", "unknown"], ["vm", "setup", "doctor"],
     ] {
       XCTAssertThrowsError(try ToolRequest(arguments), "\(arguments)")
     }
@@ -73,6 +74,11 @@ final class AutomationTests: XCTestCase {
       XCTAssertEqual(
         try ToolRequest(["desktop", command, "--prebuilt", "--release"]).positionals, [command])
     }
+    for command in ["setup", "doctor"] {
+      XCTAssertEqual(try ToolRequest(["vm", command]).positionals, [command])
+    }
+    XCTAssertTrue(
+      try ToolRequest(["desktop", "core", "--host-desktop"]).flags.contains("host-desktop"))
   }
   func testNativeMetadataAndBothPackageManifests() throws {
     let metadata = try PolkaMetadata.load(root: TestSupport.root)

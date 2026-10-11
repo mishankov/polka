@@ -24,13 +24,16 @@ public struct BuildOptions {
   public var bundlePath: URL?
   public var sourceMetadata: PolkaMetadata?
   public var updateFixture: UpdateFixture?
+  /// A complete host-built template for disposable updater bundles only.
+  public var preparedBundle: URL?
   public var developmentSigning: DevelopmentSigning?
   public var brokerDirectory: URL?
   public var brokerSource: URL?
   public init(
     release: Bool = false, official: Bool = false, prebuilt: Bool = false, identity: String = "-",
     bundlePath: URL? = nil, sourceMetadata: PolkaMetadata? = nil,
-    updateFixture: UpdateFixture? = nil, developmentSigning: DevelopmentSigning? = nil
+    updateFixture: UpdateFixture? = nil, developmentSigning: DevelopmentSigning? = nil,
+    preparedBundle: URL? = nil
   ) {
     self.release = release
     self.official = official
@@ -39,6 +42,7 @@ public struct BuildOptions {
     self.bundlePath = bundlePath
     self.sourceMetadata = sourceMetadata
     self.updateFixture = updateFixture
+    self.preparedBundle = preparedBundle
     self.developmentSigning = developmentSigning
   }
 }
@@ -325,6 +329,9 @@ public enum BuildTool {
   public static func build(
     options: BuildOptions = BuildOptions(), context: ToolContext = ToolContext()
   ) throws -> BuildResult {
+    if context.environment["POLKA_DESKTOP_BACKEND"] == "guest", options.preparedBundle == nil {
+      throw ToolError("Guest compilation is disabled; supply a host-built updater template.")
+    }
     let source = try options.sourceMetadata ?? PolkaMetadata.load(root: context.root)
     var metadata = try self.metadata(
       source: source, environment: context.environment, official: options.official)
@@ -345,18 +352,23 @@ public enum BuildTool {
     {
       throw ToolError("Refusing to rotate the pinned release signing identity.")
     }
-    let configuration = options.release ? "release" : "debug"
-    if options.prebuilt {
-      try assertPrepared(configuration: configuration, context: context)
+    let products: URL?
+    if options.preparedBundle == nil {
+      let configuration = options.release ? "release" : "debug"
+      if options.prebuilt {
+        try assertPrepared(configuration: configuration, context: context)
+      } else {
+        try Command.run(
+          "/usr/bin/xcrun",
+          ["swift", "build"] + context.swiftBuildArguments
+            + ["--package-path", "native-app", "-c", configuration, "--product", "PolkaNative"],
+          environment: SigningTool.publicEnvironment(context.environment), directory: context.root)
+        try buildHelpers(context: context)
+      }
+      products = try self.products(configuration: configuration, context: context)
     } else {
-      try Command.run(
-        "/usr/bin/xcrun",
-        ["swift", "build"] + context.swiftBuildArguments
-          + ["--package-path", "native-app", "-c", configuration, "--product", "PolkaNative"],
-        environment: SigningTool.publicEnvironment(context.environment), directory: context.root)
-      try buildHelpers(context: context)
+      products = nil
     }
-    let products = try self.products(configuration: configuration, context: context)
     let bundle =
       options.bundlePath
       ?? context.root.appendingPathComponent(
@@ -367,6 +379,16 @@ public enum BuildTool {
     guard bundle.pathExtension == "app" else {
       throw ToolError("Native bundle output must be an .app directory.")
     }
+    if let prepared = options.preparedBundle {
+      guard options.prebuilt, options.official, options.updateFixture != nil,
+        metadata.appId.hasPrefix("app.polka.native-update-test."),
+        options.developmentSigning == nil,
+        prepared.resolvingSymlinksInPath() != bundle.resolvingSymlinksInPath()
+      else { throw ToolError("Prepared templates are restricted to disposable updater fixtures.") }
+      try assertRelativeBundleLinks(prepared)
+      _ = try SigningTool.codesign(
+        ["--verify", "--deep", "--strict", prepared.path], environment: context.environment)
+    }
     try ToolFiles.remove(bundle)
     let contents = bundle.appendingPathComponent("Contents")
     let resources = contents.appendingPathComponent("Resources")
@@ -375,58 +397,66 @@ public enum BuildTool {
     for directory in [resources, frameworks, binaries] {
       try ToolFiles.directory(directory, mode: 0o755)
     }
-    let executable = binaries.appendingPathComponent("PolkaNative")
-    try ToolFiles.manager.copyItem(
-      at: products.appendingPathComponent("PolkaNative"), to: executable)
-    for entry in try ToolFiles.manager.contentsOfDirectory(atPath: products.path)
-    where entry.hasSuffix(".bundle") {
+    if let prepared = options.preparedBundle {
+      try ToolFiles.remove(bundle)
+      try ToolFiles.manager.copyItem(at: prepared, to: bundle)
+    } else {
+      guard let products else { throw ToolError("Missing prepared native products.") }
+      let executable = binaries.appendingPathComponent("PolkaNative")
       try ToolFiles.manager.copyItem(
-        at: products.appendingPathComponent(entry), to: resources.appendingPathComponent(entry))
-    }
-    try ToolFiles.manager.copyItem(
-      at: products.appendingPathComponent("Sparkle.framework"),
-      to: frameworks.appendingPathComponent("Sparkle.framework"))
-    let load = try Command.capture(
-      "/usr/bin/otool", ["-l", executable.path],
-      environment: SigningTool.publicEnvironment(context.environment))
-    let expression = try NSRegularExpression(
-      pattern: #"cmd LC_RPATH\s+cmdsize \d+\s+path (.+?) \(offset \d+\)"#)
-    let rpaths = expression.matches(in: load, range: NSRange(load.startIndex..., in: load))
-      .compactMap { Range($0.range(at: 1), in: load).map { String(load[$0]) } }
-    for path in rpaths where path.contains("/native-app/.build/") {
-      _ = try Command.capture(
-        "/usr/bin/install_name_tool", ["-delete_rpath", path, executable.path],
+        at: products.appendingPathComponent("PolkaNative"), to: executable)
+      for entry in try ToolFiles.manager.contentsOfDirectory(atPath: products.path)
+      where entry.hasSuffix(".bundle") {
+        try ToolFiles.manager.copyItem(
+          at: products.appendingPathComponent(entry), to: resources.appendingPathComponent(entry))
+      }
+      try ToolFiles.manager.copyItem(
+        at: products.appendingPathComponent("Sparkle.framework"),
+        to: frameworks.appendingPathComponent("Sparkle.framework"))
+      let load = try Command.capture(
+        "/usr/bin/otool", ["-l", executable.path],
         environment: SigningTool.publicEnvironment(context.environment))
+      let expression = try NSRegularExpression(
+        pattern: #"cmd LC_RPATH\s+cmdsize \d+\s+path (.+?) \(offset \d+\)"#)
+      let rpaths = expression.matches(in: load, range: NSRange(load.startIndex..., in: load))
+        .compactMap { Range($0.range(at: 1), in: load).map { String(load[$0]) } }
+      for path in rpaths where path.contains("/native-app/.build/") {
+        _ = try Command.capture(
+          "/usr/bin/install_name_tool", ["-delete_rpath", path, executable.path],
+          environment: SigningTool.publicEnvironment(context.environment))
+      }
+      if !rpaths.contains("@executable_path/../Frameworks") {
+        _ = try Command.capture(
+          "/usr/bin/install_name_tool",
+          ["-add_rpath", "@executable_path/../Frameworks", executable.path],
+          environment: SigningTool.publicEnvironment(context.environment))
+      }
+      for helper in helpers {
+        try ToolFiles.manager.copyItem(
+          at: context.root.appendingPathComponent(helper.output),
+          to: resources.appendingPathComponent(
+            URL(fileURLWithPath: helper.output).lastPathComponent))
+      }
+      if let signing = options.developmentSigning {
+        let broker = try DevelopmentTool.prepareBroker(
+          signing, directory: options.brokerDirectory ?? DevelopmentTool.brokerDirectory,
+          appId: metadata.appId, sourcePath: options.brokerSource, context: context)
+        try ToolFiles.manager.copyItem(
+          at: broker.path, to: resources.appendingPathComponent("polka-keychain-broker"))
+      }
+      for (source, name) in [
+        ("native-app/Resources/polkaTemplate.png", "polkaTemplate.png"),
+        ("native-app/Resources/en.lproj", "en.lproj"),
+        ("native-app/Resources/ru.lproj", "ru.lproj"),
+        ("docs/unicode-license.txt", "unicode-license.txt"),
+      ] {
+        try ToolFiles.manager.copyItem(
+          at: context.root.appendingPathComponent(source),
+          to: resources.appendingPathComponent(name))
+      }
+      try copyLicenses(resources: resources, context: context)
+      try compileIcon(resources: resources, metadata: metadata.package, context: context)
     }
-    if !rpaths.contains("@executable_path/../Frameworks") {
-      _ = try Command.capture(
-        "/usr/bin/install_name_tool",
-        ["-add_rpath", "@executable_path/../Frameworks", executable.path],
-        environment: SigningTool.publicEnvironment(context.environment))
-    }
-    for helper in helpers {
-      try ToolFiles.manager.copyItem(
-        at: context.root.appendingPathComponent(helper.output),
-        to: resources.appendingPathComponent(URL(fileURLWithPath: helper.output).lastPathComponent))
-    }
-    if let signing = options.developmentSigning {
-      let broker = try DevelopmentTool.prepareBroker(
-        signing, directory: options.brokerDirectory ?? DevelopmentTool.brokerDirectory,
-        appId: metadata.appId, sourcePath: options.brokerSource, context: context)
-      try ToolFiles.manager.copyItem(
-        at: broker.path, to: resources.appendingPathComponent("polka-keychain-broker"))
-    }
-    for (source, name) in [
-      ("native-app/Resources/polkaTemplate.png", "polkaTemplate.png"),
-      ("native-app/Resources/en.lproj", "en.lproj"),
-      ("native-app/Resources/ru.lproj", "ru.lproj"),
-      ("docs/unicode-license.txt", "unicode-license.txt"),
-    ] {
-      try ToolFiles.manager.copyItem(
-        at: context.root.appendingPathComponent(source), to: resources.appendingPathComponent(name))
-    }
-    try copyLicenses(resources: resources, context: context)
-    try compileIcon(resources: resources, metadata: metadata.package, context: context)
     var plist = infoPlist(metadata, checkout: context.root)
     if let fixture = options.updateFixture {
       guard metadata.appId.hasPrefix("app.polka.native-update-test."), !fixture.password.isEmpty

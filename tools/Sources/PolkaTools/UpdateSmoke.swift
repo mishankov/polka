@@ -51,9 +51,21 @@ public enum UpdateSmoke {
   public static func run(
     prebuilt: Bool = false, release: Bool = false, context: ToolContext = ToolContext()
   ) async throws {
+    if try DesktopVM.usesVM(context.environment) {
+      var arguments = ["desktop", "updates"]
+      if release { arguments.append("--release") }
+      if prebuilt { arguments.append("--prebuilt") }
+      try await DesktopVM.run(arguments: arguments, context: context)
+      return
+    }
     #if !arch(arm64)
       throw DesktopFailure("Native updater tests require an Apple silicon Mac")
     #else
+      if context.environment["POLKA_DESKTOP_BACKEND"] == "guest" {
+        guard context.environment["POLKA_VM_PREPARED_APP"] != nil,
+          context.environment["POLKA_VM_SIGN_UPDATE"] != nil
+        else { throw DesktopFailure("Updater checks require host-built runtime artifacts.") }
+      }
       var oldMetadata = try PolkaMetadata.load(root: context.root)
       let next = try nextVersion(oldMetadata.version)
       let lock = try await DesktopLock.acquire()
@@ -214,7 +226,10 @@ public enum UpdateSmoke {
                 updateFixture: UpdateFixture(
                   profile: profile, receipt: receipt,
                   password: Data(password.utf8).base64EncodedString(),
-                  feed: URL(string: server.origin + "/appcast.xml"))),
+                  feed: URL(string: server.origin + "/appcast.xml")),
+                preparedBundle: context.environment["POLKA_VM_PREPARED_APP"].map {
+                  URL(fileURLWithPath: $0)
+                }),
               context: ToolContext(root: context.root, environment: buildEnv))
           }
         }
@@ -227,9 +242,10 @@ public enum UpdateSmoke {
           ["-c", "-k", "--sequesterRsrc", "--keepParent", newBundle.path, archive.path])
         let archiveBytes = try Data(contentsOf: archive)
         let signature = try Command.capture(
-          context.root.appendingPathComponent(
-            "native-app/.build/artifacts/sparkle/Sparkle/bin/sign_update"
-          ).path,
+          context.environment["POLKA_VM_SIGN_UPDATE"]
+            ?? context.root.appendingPathComponent(
+              "native-app/.build/artifacts/sparkle/Sparkle/bin/sign_update"
+            ).path,
           ["--ed-key-file", "-", "-p", archive.path], input: Data(privateKey.utf8)
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         let validFeed = try ReleaseMetadata.appcast(

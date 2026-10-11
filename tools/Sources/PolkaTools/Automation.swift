@@ -12,9 +12,12 @@ public struct ToolRequest {
     let allowed: [String: Set<String>] = [
       "help": [], "setup": [], "dev": ["release", "prebuilt"],
       "build": ["debug", "release", "official", "prebuilt", "development-signing"],
-      "build-helpers": [], "test": [], "coverage": [], "search-test": [],
-      "desktop": ["prebuilt", "release", "external"],
-      "verify": ["prebuilt", "release", "no-desktop", "no-updates", "no-tools", "external-drops"],
+      "build-helpers": [], "test": [], "coverage": [], "search-test": [], "vm": [],
+      "desktop": ["prebuilt", "release", "external", "host-desktop"],
+      "verify": [
+        "prebuilt", "release", "no-desktop", "no-updates", "no-tools", "external-drops",
+        "host-desktop",
+      ],
       "package": ["prebuilt", "desktop", "official", "debug", "dir"],
       "release": ["prebuilt", "desktop", "publish"], "release-verify": [],
       "release-notes": ["version"], "release-prepare": [], "nightly-prepare": [],
@@ -30,7 +33,7 @@ public struct ToolRequest {
       throw ToolError("Unknown option for \(command). Run ./polka help.")
     }
     if flags.contains("help") { return }
-    let permitted = ["test", "desktop", "release-notes", "signing-certificate"]
+    let permitted = ["test", "desktop", "vm", "release-notes", "signing-certificate"]
     guard permitted.contains(command) || positionals.isEmpty else {
       throw ToolError("Unexpected argument for \(command).")
     }
@@ -44,6 +47,11 @@ public struct ToolRequest {
         || !["core", "settings", "all", "updates", "files"].contains(positionals.first ?? "core")
     {
       throw ToolError("Usage: ./polka desktop [core|settings|all|updates|files]")
+    }
+    if command == "vm",
+      positionals.count != 1 || !["setup", "doctor"].contains(positionals.first ?? "")
+    {
+      throw ToolError("Usage: ./polka vm [setup|doctor]")
     }
     if flags.contains("debug") && flags.contains("release") {
       throw ToolError("Choose --debug or --release.")
@@ -70,8 +78,10 @@ public enum Automation {
       test [all|app|tools]           Run Swift tests (default: all)
       coverage                      Run app tests and enforce LLVM coverage gates
       search-test                   Verify the native search regression corpus
-      desktop [core|settings|all|updates|files] [--release --prebuilt --external]
-      verify [--no-desktop --no-updates --no-tools --prebuilt --release --external-drops]
+      vm [setup|doctor]             Prepare/check the isolated macOS desktop VM
+      desktop [core|settings|all|updates|files] [--release --prebuilt --external --host-desktop]
+                                    Local desktop checks use the VM; CI runs directly
+      verify [--no-desktop --no-updates --no-tools --prebuilt --release --external-drops --host-desktop]
       package [--prebuilt --desktop --official --debug --dir]
       release [--prebuilt --desktop --publish]
       release-verify                Authenticate release artifacts
@@ -129,9 +139,28 @@ public enum Automation {
       print(help)
       return
     }
+    var context = context
+    if flags.contains("host-desktop") { context.environment["POLKA_DESKTOP_BACKEND"] = "host" }
+    if request.command == "desktop", try DesktopVM.usesVM(context.environment) {
+      // Prebuilt core means the host's explicitly selected bundle. All
+      // compilation stays on the host, including updater fixture products.
+      let selected = request.positionals.first ?? "core"
+      let app =
+        flags.contains("prebuilt") && selected != "updates"
+        ? Desktop.appURL(nil, release: flags.contains("release"), context: context) : nil
+      try await DesktopVM.run(
+        arguments: [request.command] + request.arguments, app: app, context: context)
+      return
+    }
     let release = flags.contains("release")
     let prebuilt = flags.contains("prebuilt")
     switch request.command {
+    case "vm":
+      if request.positionals[0] == "setup" {
+        try await DesktopVM.setup(context: context)
+      } else {
+        try await DesktopVM.doctor(context: context)
+      }
     case "setup":
       for package in ["native-app", "tools"] {
         try Command.run(
@@ -194,6 +223,21 @@ public enum Automation {
       // verification can reuse instrumented intermediates. Export happens first.
       try Regression.run(context: context, codeCoverage: true)
       if !flags.contains("no-desktop") {
+        if try DesktopVM.usesVM(context.environment) {
+          var arguments = ["desktop", flags.contains("no-updates") ? "core" : "all"]
+          if release { arguments.append("--release") }
+          if flags.contains("external-drops") && !flags.contains("no-updates") {
+            arguments.append("--external")
+          }
+          // The host prepares current outputs; only GUI execution uses the guest.
+          try await DesktopVM.run(arguments: arguments, context: context)
+          if flags.contains("external-drops") && flags.contains("no-updates") {
+            var files = ["desktop", "files"]
+            if release { files.append("--release") }
+            try await DesktopVM.run(arguments: files, context: context)
+          }
+          return
+        }
         var app: URL?
         if !prebuilt {
           app = try desktopBuild(release: release, context: context)
