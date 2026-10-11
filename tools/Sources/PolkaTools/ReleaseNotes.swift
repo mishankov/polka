@@ -116,7 +116,7 @@ public struct ReleaseNotes: Codable, Equatable {
 
       ### Updating
 
-      If Polka is already installed, open **About → Updates** in its settings and install the new version. History and settings are preserved when the same profile is used; check the compatibility notes above before updating from an earlier release. Polka's interface is in Russian: look for **«О приложении → Обновления»**.
+      If Polka is already installed, open **About → Updates** in its settings and install the new version (**«О приложении → Обновления»** in the Russian interface). History and settings are preserved when the same profile is used; check the compatibility notes above before updating from an earlier release.
 
       ### Installation
 
