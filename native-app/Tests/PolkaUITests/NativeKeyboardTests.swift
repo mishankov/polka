@@ -4,6 +4,33 @@ import XCTest
 @testable import PolkaApp
 
 final class NativeKeyboardTests: XCTestCase {
+  @MainActor func testSettingsShortcutRespectsInputGuardsAndPreservesDraft() async {
+    let model = NativeUIModel()
+    model.storageStatus = "ready"
+    model.present(destination: "snippets")
+    model.createSnippet()
+    model.draft?.content = "Unsaved Settings shortcut draft"
+    var commands: [NativeUICommand] = []
+    model.action = { commands.append($0) }
+    let shortcut = NativeKeyInput(code: 43, characters: "б", modifiers: .command, editing: true)
+    var composing = shortcut
+    composing.composing = true
+    XCTAssertFalse(model.handleKeyboard(composing))
+    var repeated = shortcut
+    repeated.repeatKey = true
+    XCTAssertTrue(model.handleKeyboard(repeated))
+    model.busy = true
+    XCTAssertTrue(model.handleKeyboard(shortcut))
+    model.busy = false
+    await Task.yield()
+    XCTAssertTrue(commands.isEmpty)
+    XCTAssertTrue(model.handleKeyboard(shortcut))
+    for _ in 0..<20 where model.busy { await Task.yield() }
+    XCTAssertEqual(commands.map(\.name), ["shelf.settings"])
+    model.conceal()
+    model.present(destination: "snippets", resume: true)
+    XCTAssertEqual(model.draft?.content, "Unsaved Settings shortcut draft")
+  }
   @MainActor func testSharedCloseUsesGuardedCommandAndPreservesDraft() async {
     let model = NativeUIModel()
     model.storageStatus = "ready"
