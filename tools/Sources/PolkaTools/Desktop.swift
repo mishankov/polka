@@ -218,6 +218,16 @@ public enum Desktop {
     settingsOnly: Bool = false,
     context: ToolContext = ToolContext()
   ) async throws {
+    if try DesktopVM.usesVM(context.environment) {
+      var arguments = ["desktop", settingsOnly ? "settings" : "core", "--prebuilt"]
+      if release { arguments.append("--release") }
+      var context = context
+      if scrollOnly { context.environment["POLKA_NATIVE_SCROLL_ONLY"] = "1" }
+      try await DesktopVM.run(
+        arguments: arguments, app: appURL(app, release: release, context: context), context: context
+      )
+      return
+    }
     let only = scrollOnly || context.environment["POLKA_NATIVE_SCROLL_ONLY"] == "1"
     // Each mandatory surface gets its own locked process/profile and deadline.
     // Media raster captures, settings and large-text previews must not consume
@@ -347,9 +357,21 @@ public enum Desktop {
     release: Bool = false, app: URL? = nil, external: Bool = true,
     context: ToolContext = ToolContext()
   ) async throws {
+    if try DesktopVM.usesVM(context.environment) {
+      var arguments = ["desktop", "files", "--prebuilt"]
+      if release { arguments.append("--release") }
+      var context = context
+      if !external { context.environment["POLKA_NATIVE_FILE_INTERNAL_ONLY"] = "1" }
+      try await DesktopVM.run(
+        arguments: arguments, app: appURL(app, release: release, context: context), context: context
+      )
+      return
+    }
     let phases =
       context.environment["POLKA_NATIVE_EXTERNAL_ONLY"] == "1"
-      ? [true] : external ? [false, true] : [false]
+      ? [true]
+      : external && context.environment["POLKA_NATIVE_FILE_INTERNAL_ONLY"] != "1"
+        ? [false, true] : [false]
     for outside in phases {
       try await filesPhase(
         app: appURL(app, release: release, context: context), external: outside, context: context)
@@ -370,19 +392,27 @@ public enum Desktop {
       env["POLKA_NATIVE_SMOKE_RESULT"] = resultPath.path
       if external {
         let source = profile.appendingPathComponent("external-source")
-        let compiler = try DesktopChild(
-          executable: URL(fileURLWithPath: "/usr/bin/xcrun"),
-          arguments: [
-            "swiftc",
-            context.root.appendingPathComponent("tests/desktop/native-external-file-source.swift")
-              .path, "-o", source.path,
-          ], environment: env, directory: context.root)
-        do {
-          try await compiler.wait(timeout: 60)
-          try await compiler.stop()
-        } catch {
-          try await compiler.stop()
-          throw error
+        if let prepared = context.environment["POLKA_VM_EXTERNAL_SOURCE"] {
+          try FileManager.default.copyItem(at: URL(fileURLWithPath: prepared), to: source)
+        } else {
+          guard context.environment["POLKA_DESKTOP_BACKEND"] != "guest" else {
+            throw DesktopFailure(
+              "Missing host-built external drag source; guest compilation is disabled.")
+          }
+          let compiler = try DesktopChild(
+            executable: URL(fileURLWithPath: "/usr/bin/xcrun"),
+            arguments: [
+              "swiftc",
+              context.root.appendingPathComponent("tests/desktop/native-external-file-source.swift")
+                .path, "-o", source.path,
+            ], environment: env, directory: context.root)
+          do {
+            try await compiler.wait(timeout: 60)
+            try await compiler.stop()
+          } catch {
+            try await compiler.stop()
+            throw error
+          }
         }
         env["POLKA_NATIVE_EXTERNAL_FILE_DROP"] = "1"
         env["POLKA_NATIVE_EXTERNAL_DRAG_SOURCE"] = source.path

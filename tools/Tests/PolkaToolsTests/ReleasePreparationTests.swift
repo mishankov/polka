@@ -249,7 +249,7 @@ final class ReleasePreparationTests: XCTestCase {
     let aggregate = try job("macos-arm64", in: build)
     XCTAssertTrue(aggregate.contains("scripts/check-ci-budget.sh"))
     XCTAssertTrue(aggregate.contains("shell: bash"))  // Preserve failures through tee.
-    XCTAssertTrue(aggregate.contains("attempts/$GITHUB_RUN_ATTEMPT/jobs"))
+    XCTAssertTrue(aggregate.contains("jobs?filter=all"))
     XCTAssertTrue(aggregate.contains("gh api --paginate --slurp"))
     XCTAssertFalse(aggregate.contains("continue-on-error"))
     XCTAssertTrue(build.contains("actions: read"))
