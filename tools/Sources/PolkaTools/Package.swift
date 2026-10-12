@@ -31,6 +31,50 @@ public struct PackageResult {
   public var artifacts: [URL]
 }
 public enum PackageTool {
+  /// DiskImages can briefly return EBUSY on hosted macOS. Retry only that
+  /// creation failure; invalid inputs and failed verification remain fatal.
+  static func createDiskImage(
+    stage: URL, image: URL, volumeName: String, environment: [String: String],
+    execute: (String, [String], [String: String]) throws -> Command.Result = {
+      try Command.execute($0, $1, environment: $2)
+    },
+    wait: (TimeInterval, [String: String]) throws -> Void = {
+      try Command.run("/bin/sleep", [String($0)], environment: $1)
+    }
+  ) throws {
+    var verified = false
+    defer { if !verified { try? ToolFiles.remove(image) } }
+    var environment = environment
+    environment["LC_ALL"] = "C"
+    func run(_ arguments: [String]) throws -> Command.Result {
+      let result = try execute("/usr/bin/hdiutil", arguments, environment)
+      FileHandle.standardOutput.write(result.stdout)
+      FileHandle.standardError.write(result.stderr)
+      return result
+    }
+    for attempt in 1...3 {
+      try ToolFiles.remove(image)
+      let result = try run([
+        "create", "-ov", "-volname", volumeName, "-srcfolder", stage.path,
+        "-format", "UDZO", image.path,
+      ])
+      if result.status == 0 { break }
+      guard attempt < 3, result.error.contains("create failed - Resource busy") else {
+        throw ToolError("DMG creation failed (\(result.status)).", exitCode: result.status)
+      }
+      try ToolFiles.remove(image)
+      let delay = TimeInterval(attempt * 2)
+      FileHandle.standardError.write(
+        Data("DMG creation is busy; retrying in \(Int(delay))s (attempt \(attempt + 1)/3).\n".utf8))
+      try wait(delay, environment)
+    }
+    let result = try run(["verify", image.path])
+    guard result.status == 0 else {
+      throw ToolError("DMG verification failed (\(result.status)).", exitCode: result.status)
+    }
+    verified = true
+  }
+
   public static func package(
     options: PackageOptions = PackageOptions(), context: ToolContext = ToolContext()
   ) throws -> PackageResult {
@@ -71,14 +115,9 @@ public enum PackageTool {
         try ToolFiles.manager.createSymbolicLink(
           at: stage.appendingPathComponent("Applications"),
           withDestinationURL: URL(fileURLWithPath: "/Applications"))
-        try Command.run(
-          "/usr/bin/hdiutil",
-          [
-            "create", "-ov", "-volname", built.metadata.productName, "-srcfolder", stage.path,
-            "-format", "UDZO", image.path,
-          ], environment: publicContext.environment)
-        try Command.run(
-          "/usr/bin/hdiutil", ["verify", image.path], environment: publicContext.environment)
+        try createDiskImage(
+          stage: stage, image: image, volumeName: built.metadata.productName,
+          environment: publicContext.environment)
         try ToolFiles.remove(stage)
       }
       func verifyArchive() throws {
