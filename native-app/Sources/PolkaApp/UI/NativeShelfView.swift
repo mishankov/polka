@@ -126,16 +126,6 @@ struct NativeLauncherView: View {
         .onChange(of: model.scrollID) { _, id in if let id { reader.scrollTo(id, anchor: .center) }
         }
       }
-      Divider()
-      HStack {
-        Text(
-          model.busy
-            ? localized("Working…")
-            : model.catalogLoading
-              ? localized("Searching…")
-              : localized("Results · {0}", String(describing: results.count)))
-        Spacer()
-      }.font(.system(size: 11)).foregroundStyle(.secondary).padding(12)
     }
   }
   private var welcome: some View {
