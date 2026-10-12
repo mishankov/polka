@@ -272,69 +272,14 @@ import SwiftUI
   }
   if systemStatusOnly {
     trace("system status keyboard flow and resource states")
-    await application.show("apps")
-    await settle()
-    model.query = "battery"
-    await settle()
-    post(125)
-    post(36, [], "\r")
-    if !(await wait({ model.destination == "system-status" && !model.busy && shelf.isKeyWindow })) {
-      failures.append("Search, Down, Enter did not open System Status; " + keyboardState())
-    }
-    if environment["POLKA_NATIVE_SYSTEM_STATUS_MEASURE"] == "1", let screenshotDirectory {
-      do { try await nativeSystemStatusMeasure(model: model, directory: screenshotDirectory) } catch
-      { failures.append("System Status overhead measurement failed: \(error)") }
-    }
-    for state in ["normal", "warning", "unavailable", "zero-traffic"] {
-      model.systemStatus = NativeSystemStatusFixtures.snapshot(state)
-      await screenshot("system-status-" + state)
-      for category in ["battery", "memory", "storage", "network"] {
-        if let element = accessible("system-status-" + category) {
-          let frame = element.accessibilityFrame()
-          if !shelf.frame.insetBy(dx: -1, dy: -1).contains(frame) {
-            failures.append("System Status category is clipped: \(category) in \(state)")
-          }
-        } else {
-          failures.append("Missing accessible System Status category: " + category)
-        }
-      }
-      let responder = shelf.firstResponder
-      let selected = model.selectedID
-      model.systemStatus.accept(NativeSystemStatusFixtures.snapshot(state))
-      await settle()
-      if shelf.firstResponder !== responder || model.selectedID != selected {
-        failures.append("Resource updates changed focus or selection")
-      }
-    }
-    model.systemStatus = NativeSystemStatusFixtures.snapshot("normal")
-    model.systemStatus.activity.reset()
-    model.systemStatus.network.value?.rates = nil
-    await screenshot("system-status-collecting")
-    do {
-      let original = model.settings.languagePreference.rawValue
-      try await platform.handle(NativeUICommand("settings.language", strings: ["value": "ru"]))
-      model.systemStatus = NativeSystemStatusFixtures.snapshot("normal")
-      await screenshot("system-status-normal-ru")
-      model.systemStatus = NativeSystemStatusFixtures.snapshot("unavailable")
-      await screenshot("system-status-unavailable-ru")
-      try await platform.handle(NativeUICommand("settings.language", strings: ["value": original]))
-    } catch { failures.append("Could not verify Russian System Status: \(error)") }
-    post(51)
-    if !(await wait({ model.destination == "apps" && !model.busy })) {
-      failures.append("Backspace did not return System Status to apps")
-    }
-    model.query = "сеть"
-    await settle()
-    clickAccessible("result-builtin:system-status")
-    if !(await wait({ model.destination == "system-status" && !model.busy })) {
-      failures.append("Mouse did not open System Status from Russian alias")
-    }
-    post(53)
-    if !(await wait({ !model.visible && !shelf.isVisible })) {
-      failures.append("Escape did not dismiss System Status")
-    }
-    await application.show("clipboard")
-    await settle()
+    let resourceFailures = await nativeSystemStatusSmoke(
+      application: application, shelf: shelf, model: model, platform: platform,
+      environment: environment, screenshotDirectory: screenshotDirectory,
+      post: { post($0) }, enter: { post(36, [], "\r") }, settle: settle,
+      screenshot: { await screenshot($0) },
+      frame: { accessible($0)?.accessibilityFrame() }, clickAccessible: clickAccessible,
+      keyboardState: { keyboardState() })
+    failures.append(contentsOf: resourceFailures)
     return failures
   }
   if !settingsOnly && !browsingOnly {

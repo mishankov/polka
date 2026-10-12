@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 import PolkaCore
@@ -57,4 +58,88 @@ import PolkaCore
   guard (4...6).contains(monitor.sampleCount) else {
     throw PolkaCoreError.invalid("Unexpected System Status sampling frequency")
   }
+}
+
+/// Keep the resource suite independent of the larger shared keyboard routine.
+/// Callbacks use the same AppKit input and screenshot helpers as the other suites.
+@MainActor func nativeSystemStatusSmoke(
+  application: NativeApplication, shelf: NSWindow, model: NativeUIModel, platform: NativePlatform,
+  environment: [String: String], screenshotDirectory: URL?,
+  post: (UInt16) -> Void, enter: () -> Void, settle: () async -> Void,
+  screenshot: (String) async -> Void, frame: (String) -> NSRect?,
+  clickAccessible: (String) -> Void, keyboardState: () -> String
+) async -> [String] {
+  guard NativeProfile.isolatedFixture else { return ["native smoke requires an isolated profile"] }
+  var failures: [String] = []
+  func wait(_ predicate: () -> Bool) async -> Bool {
+    for _ in 0..<100 {
+      if predicate() { return true }
+      try? await Task.sleep(nanoseconds: 10_000_000)
+    }
+    return predicate()
+  }
+  await application.show("apps")
+  await settle()
+  model.query = "battery"
+  await settle()
+  post(125)
+  enter()
+  if !(await wait({ model.destination == "system-status" && !model.busy && shelf.isKeyWindow })) {
+    failures.append("Search, Down, Enter did not open System Status; " + keyboardState())
+  }
+  if environment["POLKA_NATIVE_SYSTEM_STATUS_MEASURE"] == "1", let screenshotDirectory {
+    do { try await nativeSystemStatusMeasure(model: model, directory: screenshotDirectory) } catch {
+      failures.append("System Status overhead measurement failed: \(error)")
+    }
+  }
+  for state in ["normal", "warning", "unavailable", "zero-traffic"] {
+    model.systemStatus = NativeSystemStatusFixtures.snapshot(state)
+    await screenshot("system-status-" + state)
+    for category in ["battery", "memory", "storage", "network"] {
+      if let frame = frame("system-status-" + category) {
+        if !shelf.frame.insetBy(dx: -1, dy: -1).contains(frame) {
+          failures.append("System Status category is clipped: \(category) in \(state)")
+        }
+      } else {
+        failures.append("Missing accessible System Status category: " + category)
+      }
+    }
+    let responder = shelf.firstResponder
+    let selected = model.selectedID
+    model.systemStatus.accept(NativeSystemStatusFixtures.snapshot(state))
+    await settle()
+    if shelf.firstResponder !== responder || model.selectedID != selected {
+      failures.append("Resource updates changed focus or selection")
+    }
+  }
+  model.systemStatus = NativeSystemStatusFixtures.snapshot("normal")
+  model.systemStatus.activity.reset()
+  model.systemStatus.network.value?.rates = nil
+  await screenshot("system-status-collecting")
+  do {
+    let original = model.settings.languagePreference.rawValue
+    try await platform.handle(NativeUICommand("settings.language", strings: ["value": "ru"]))
+    model.systemStatus = NativeSystemStatusFixtures.snapshot("normal")
+    await screenshot("system-status-normal-ru")
+    model.systemStatus = NativeSystemStatusFixtures.snapshot("unavailable")
+    await screenshot("system-status-unavailable-ru")
+    try await platform.handle(NativeUICommand("settings.language", strings: ["value": original]))
+  } catch { failures.append("Could not verify Russian System Status: \(error)") }
+  post(51)
+  if !(await wait({ model.destination == "apps" && !model.busy })) {
+    failures.append("Backspace did not return System Status to apps")
+  }
+  model.query = "сеть"
+  await settle()
+  clickAccessible("result-builtin:system-status")
+  if !(await wait({ model.destination == "system-status" && !model.busy })) {
+    failures.append("Mouse did not open System Status from Russian alias")
+  }
+  post(53)
+  if !(await wait({ !model.visible && !shelf.isVisible })) {
+    failures.append("Escape did not dismiss System Status")
+  }
+  await application.show("clipboard")
+  await settle()
+  return failures
 }
