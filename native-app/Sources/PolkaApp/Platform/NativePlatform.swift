@@ -17,6 +17,7 @@ import UserNotifications
   private(set) var updates: NativeUpdates
   let sync: NativeClipboardSync
   let fixture: Bool
+  private(set) var systemStatusMonitor: SystemStatusMonitor!
   private let encryption: EncryptionCodec
   private var pasteToken: String?
   private var pasteEpoch = 0
@@ -43,6 +44,7 @@ import UserNotifications
   init(model: NativeUIModel, root: URL, fixture: Bool, encryption: EncryptionCodec? = nil) throws {
     self.model = model
     self.fixture = fixture
+    systemStatusMonitor = SystemStatusMonitor(model: model, fixture: fixture)
     try FileManager.default.createDirectory(
       at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     settings = try SettingsStore(root: root)
@@ -998,6 +1000,7 @@ import UserNotifications
   func shutdown() async {
     updates.cancelForQuit(explicitUpdate: updates.installationAuthorized)
     disposed = true
+    systemStatusMonitor.stop()
     startupTask?.cancel()
     initializationTask?.cancel()
     maintenance?.invalidate()

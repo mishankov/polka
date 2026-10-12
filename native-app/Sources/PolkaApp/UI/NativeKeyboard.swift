@@ -135,6 +135,8 @@ extension NativeUIModel {
       back()
       return true
     }
+    // This read-only surface has no launcher results to activate or navigate.
+    if destination == "system-status" { return false }
     if ["clipboard", "snippets"].contains(destination) {
       if cmd, key.code == 1, let clip = preview ?? selectedClip, clip.kind == "image" {
         secondaryClipAction(clip)

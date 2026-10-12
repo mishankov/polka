@@ -2,6 +2,7 @@ import Foundation
 
 public enum ShelfDestination: String, Codable, CaseIterable {
   case apps, clipboard, snippets, emoji, files, settings, about
+  case systemStatus = "system-status"
 }
 
 public struct ShelfEntry: Equatable {
@@ -29,7 +30,9 @@ public final class ShelfLifecycle {
   ) {
     let newSession = !requested
     if newSession { sessionID += 1 }
-    let restorable: Set<ShelfDestination> = [.apps, .clipboard, .snippets, .emoji, .files]
+    let restorable: Set<ShelfDestination> = [
+      .apps, .clipboard, .snippets, .emoji, .files, .systemStatus,
+    ]
     let previous: ShelfDestination? =
       committed
       ? destination

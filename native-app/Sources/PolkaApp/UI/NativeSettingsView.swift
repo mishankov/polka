@@ -86,9 +86,10 @@ struct NativeSettingsView: View {
       .accessibilityIdentifier("native-settings")
   }
   private var builtinApps: some View {
-    VStack(alignment: .leading, spacing: 20) {
+    let apps = LauncherSearch.apps(LauncherSearch.builtinApps, query: "")
+    return VStack(alignment: .leading, spacing: 20) {
       NativeSettingsGroup(localized("Apps on the Shelf")) {
-        ForEach(LauncherSearch.builtinApps) { app in
+        ForEach(apps) { app in
           HStack {
             VStack(alignment: .leading, spacing: 5) {
               Text(app.name).font(.system(size: 13))
@@ -99,7 +100,7 @@ struct NativeSettingsView: View {
               enabled: model.settings.builtinApps.isEnabled(app.id)
             ).controlSize(.small)
           }
-          if app.id != LauncherSearch.builtinApps.last?.id { Divider() }
+          if app.id != apps.last?.id { Divider() }
         }
       }
       note(

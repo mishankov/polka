@@ -150,6 +150,7 @@ struct NativeBrowseContext {
 
 @MainActor final class NativeUIModel: ObservableObject {
   @Published var destination = "apps"
+  @Published var systemStatus = SystemStatusSnapshot()
   @Published var visible = false
   @Published var topInset: CGFloat = 0
   @Published var query = ""

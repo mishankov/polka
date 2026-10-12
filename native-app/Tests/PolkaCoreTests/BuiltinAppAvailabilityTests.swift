@@ -7,7 +7,7 @@ final class BuiltinAppAvailabilityTests: XCTestCase {
     var availability = BuiltinAppAvailability()
     let mac = NativeLauncherApp(id: "builtin:clipboard", name: "Installed", kind: .mac)
     let future = NativeLauncherApp(id: "builtin:future", name: "Future", kind: .builtin)
-    XCTAssertEqual(availability.catalog(LauncherSearch.builtinApps).count, 4)
+    XCTAssertEqual(availability.catalog(LauncherSearch.builtinApps).count, 5)
     availability.overrides["builtin:clipboard"] = false
     XCTAssertFalse(availability.allows(destination: "clipboard"))
     XCTAssertTrue(availability.allows(destination: "snippets"))

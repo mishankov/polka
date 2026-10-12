@@ -354,6 +354,7 @@ public enum DesktopVM {
   static let fixtureEnvironment = [
     "POLKA_NATIVE_SCROLL_ONLY", "POLKA_NATIVE_EXTERNAL_ONLY", "POLKA_NATIVE_FILE_INTERNAL_ONLY",
     "POLKA_NATIVE_SMOKE_WINDOW_CAPTURE",
+    "POLKA_NATIVE_SYSTEM_STATUS_MEASURE",
   ]
   static func compileDisplay(to directory: URL, context: ToolContext) throws {
     let source = directory.appendingPathComponent("prepare-display.swift")

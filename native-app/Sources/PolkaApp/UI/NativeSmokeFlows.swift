@@ -29,7 +29,8 @@ import SwiftUI
 /// this process's real AppKit event loop, and every copy uses the injected board.
 @MainActor func nativeSmokeAdditionalFlows(
   application: NativeApplication, shelf: NSWindow, model: NativeUIModel, platform: NativePlatform,
-  settingsOnly: Bool = false, previewsOnly: Bool = false, browsingOnly: Bool = false
+  settingsOnly: Bool = false, previewsOnly: Bool = false, browsingOnly: Bool = false,
+  systemStatusOnly: Bool = false
 ) async -> [String] {
   guard NativeProfile.isolatedFixture else { return ["native smoke requires an isolated profile"] }
   // Ask this fixture process to materialize SwiftUI's virtual accessibility
@@ -265,6 +266,73 @@ import SwiftUI
       }
     }
     await screenshot("clipboard-color-history")
+    await application.show("clipboard")
+    await settle()
+    return failures
+  }
+  if systemStatusOnly {
+    trace("system status keyboard flow and resource states")
+    await application.show("apps")
+    await settle()
+    model.query = "battery"
+    await settle()
+    post(125)
+    post(36, [], "\r")
+    if !(await wait({ model.destination == "system-status" && !model.busy && shelf.isKeyWindow })) {
+      failures.append("Search, Down, Enter did not open System Status; " + keyboardState())
+    }
+    if environment["POLKA_NATIVE_SYSTEM_STATUS_MEASURE"] == "1", let screenshotDirectory {
+      do { try await nativeSystemStatusMeasure(model: model, directory: screenshotDirectory) } catch
+      { failures.append("System Status overhead measurement failed: \(error)") }
+    }
+    for state in ["normal", "warning", "unavailable", "zero-traffic"] {
+      model.systemStatus = NativeSystemStatusFixtures.snapshot(state)
+      await screenshot("system-status-" + state)
+      for category in ["battery", "memory", "storage", "network"] {
+        if let element = accessible("system-status-" + category) {
+          let frame = element.accessibilityFrame()
+          if !shelf.frame.insetBy(dx: -1, dy: -1).contains(frame) {
+            failures.append("System Status category is clipped: \(category) in \(state)")
+          }
+        } else {
+          failures.append("Missing accessible System Status category: " + category)
+        }
+      }
+      let responder = shelf.firstResponder
+      let selected = model.selectedID
+      model.systemStatus.accept(NativeSystemStatusFixtures.snapshot(state))
+      await settle()
+      if shelf.firstResponder !== responder || model.selectedID != selected {
+        failures.append("Resource updates changed focus or selection")
+      }
+    }
+    model.systemStatus = NativeSystemStatusFixtures.snapshot("normal")
+    model.systemStatus.activity.reset()
+    model.systemStatus.network.value?.rates = nil
+    await screenshot("system-status-collecting")
+    do {
+      let original = model.settings.languagePreference.rawValue
+      try await platform.handle(NativeUICommand("settings.language", strings: ["value": "ru"]))
+      model.systemStatus = NativeSystemStatusFixtures.snapshot("normal")
+      await screenshot("system-status-normal-ru")
+      model.systemStatus = NativeSystemStatusFixtures.snapshot("unavailable")
+      await screenshot("system-status-unavailable-ru")
+      try await platform.handle(NativeUICommand("settings.language", strings: ["value": original]))
+    } catch { failures.append("Could not verify Russian System Status: \(error)") }
+    post(51)
+    if !(await wait({ model.destination == "apps" && !model.busy })) {
+      failures.append("Backspace did not return System Status to apps")
+    }
+    model.query = "сеть"
+    await settle()
+    clickAccessible("result-builtin:system-status")
+    if !(await wait({ model.destination == "system-status" && !model.busy })) {
+      failures.append("Mouse did not open System Status from Russian alias")
+    }
+    post(53)
+    if !(await wait({ !model.visible && !shelf.isVisible })) {
+      failures.append("Escape did not dismiss System Status")
+    }
     await application.show("clipboard")
     await settle()
     return failures
@@ -1042,7 +1110,7 @@ import SwiftUI
       await settle()
     }
     var visited = Set<String>()
-    for _ in 0..<4 {
+    for app in LauncherSearch.apps(LauncherSearch.builtinApps, query: "") {
       guard let button = settings.firstResponder as? NativeBuiltinAppSwitch else {
         failures.append(
           "Tab did not navigate between built-in app switches: \(keyboardState(settings))")
@@ -1050,6 +1118,9 @@ import SwiftUI
       }
       let identifier = button.accessibilityIdentifier()
       let id = String(identifier.dropFirst("builtin-app-toggle-".count))
+      if id != app.id {
+        failures.append("Settings app order differs from launcher: expected \(app.id), found \(id)")
+      }
       visited.insert(id)
       let verifyStability = settingsStability(excluding: button)
       post(49, [], " ", window: settings)
@@ -1086,10 +1157,14 @@ import SwiftUI
       post(48, window: settings)
       await settle()
     }
-    if visited.count != 4 || !model.apps.filter({ $0.id.hasPrefix("builtin:") }).isEmpty {
-      failures.append("Keyboard toggles did not independently disable all four built-in apps")
+    if visited.count != LauncherSearch.builtinApps.count
+      || !model.apps.filter({ $0.id.hasPrefix("builtin:") }).isEmpty
+    {
+      failures.append("Keyboard toggles did not independently disable all built-in apps")
     }
-    for destination in ["clipboard", "snippets", "files", "emoji", "toggle-clipboard"] {
+    for destination in [
+      "clipboard", "snippets", "files", "emoji", "system-status", "toggle-clipboard",
+    ] {
       let previousKeyWindow = NSApp.keyWindow
       let previousDestination = model.destination
       await application.show(destination)
@@ -1101,7 +1176,7 @@ import SwiftUI
         failures.append("Direct navigation reopened disabled \(destination)")
       }
     }
-    if visited.count == 4 {
+    if visited.count == LauncherSearch.builtinApps.count {
       await application.show(nil)
       await settle()
       if model.destination != "apps" || !model.visible {

@@ -67,11 +67,17 @@ final class SearchTests: XCTestCase {
       LauncherSearch.apps(Array(used.reversed()), query: "visual", usage: stats),
       LauncherSearch.apps(used, query: "visual", usage: stats))
     XCTAssertEqual(
-      LauncherSearch.apps(used + LauncherSearch.builtinApps, query: "", usage: stats).prefix(4).map(
+      LauncherSearch.apps(used + LauncherSearch.builtinApps, query: "", usage: stats).prefix(5).map(
         \.id),
       AppLocalization.language == .russian
-        ? ["builtin:clipboard", "builtin:snippets", "builtin:files", "builtin:emoji"]
-        : ["builtin:clipboard", "builtin:emoji", "builtin:files", "builtin:snippets"])
+        ? [
+          "builtin:clipboard", "builtin:snippets", "builtin:system-status", "builtin:files",
+          "builtin:emoji",
+        ]
+        : [
+          "builtin:clipboard", "builtin:emoji", "builtin:files", "builtin:snippets",
+          "builtin:system-status",
+        ])
   }
   func testBoundedSearchLargeCatalog() {
     let apps =
