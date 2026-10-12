@@ -9,89 +9,101 @@ struct NativeSystemStatusView: View {
       Divider()
       ScrollView {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-          card("Battery", symbol: "battery.75percent", reading: model.systemStatus.battery) {
-            battery in
-            metric(battery.percentage.map { "\($0)%" } ?? localized("No battery"))
-            status(
-              batteryLabel(battery),
-              warning: battery.mode == .discharging && (battery.percentage ?? 100) <= 10)
-            detail(localized(battery.externalPower ? "Power adapter" : "Battery power"))
-            if let minutes = battery.estimatedMinutes {
-              detail(
-                localized(
-                  battery.mode == .charging ? "About {0} until charged" : "About {0} remaining",
-                  duration(minutes)))
-            }
-            if model.systemStatus.battery.state == .ready, let percentage = battery.percentage {
-              Spacer(minLength: 0)
-              NativeResourceMeter(
-                fraction: Double(percentage) / 100, label: localized("Charge"),
-                warning: battery.mode == .discharging && percentage <= 10
-              )
-              .accessibilityIdentifier("system-status-battery-meter")
-            }
-          }
-          card("Memory", symbol: "memorychip", reading: model.systemStatus.memory) { memory in
-            metric(localized("{0} used", bytes(memory.used)))
-            status(
-              pressureLabel(memory.pressure),
-              warning: memory.pressure == .warning || memory.pressure == .critical)
-            detail(localized("{0} total", bytes(memory.total)))
-            detail(localized("Compressed: {0}", bytes(memory.compressed)))
-            detail(
-              localized("Swap: {0}", memory.swap.map { bytes($0) } ?? localized("Unavailable")))
-            if model.systemStatus.memory.state == .ready {
-              Spacer(minLength: 0)
-              memoryActivity(memory).accessibilityIdentifier("system-status-memory-activity")
-            }
-          }
-          card("Storage", symbol: "internaldrive", reading: model.systemStatus.storage) { storage in
-            metric(localized("{0} available", bytes(UInt64(storage.available), storage: true)))
-            status(
-              localized(storage.lowSpace ? "Low space — free up storage" : "Enough space"),
-              warning: storage.lowSpace)
-            detail(
-              localized(
-                "{0} used of {1}", bytes(UInt64(storage.used), storage: true),
-                bytes(UInt64(storage.total), storage: true)))
-            detail(storage.volume + " · " + localized("Startup Data volume"))
-              .help(storage.path)
-            if model.systemStatus.storage.state == .ready {
-              Spacer(minLength: 0)
-              NativeResourceMeter(
-                fraction: Double(storage.available) / Double(storage.total),
-                label: localized("Available"), warning: storage.lowSpace
-              )
-              .accessibilityIdentifier("system-status-storage-meter")
-            }
-          }
-          card("Network", symbol: "network", reading: model.systemStatus.network) { network in
-            metric(localized(network.connected ? "Connected" : "Disconnected"))
-            if let interface = network.interface {
-              detail(localized(network.connection) + " · " + interface)
-              if let rates = network.rates {
-                HStack(spacing: 5) {
-                  NativeActivityLineKey()
-                  detail("↓ " + localized("Download") + "  " + rate(rates.download))
-                }
-                HStack(spacing: 5) {
-                  NativeActivityLineKey(upload: true)
-                  detail("↑ " + localized("Upload") + "  " + rate(rates.upload))
-                }
-              } else {
-                detail(localized("Measuring traffic…"))
-              }
-            } else {
-              detail(localized("No active network connection"))
-            }
-            if model.systemStatus.network.state == .ready, network.connected, network.rates != nil {
-              Spacer(minLength: 0)
-              networkActivity.accessibilityIdentifier("system-status-network-activity")
-            }
-          }
+          batteryCard
+          memoryCard
+          storageCard
+          networkCard
         }.padding(14)
       }
     }.accessibilityIdentifier("system-status-overview")
+  }
+  private var batteryCard: some View {
+    card("Battery", symbol: "battery.75percent", reading: model.systemStatus.battery) {
+      battery in
+      metric(battery.percentage.map { "\($0)%" } ?? localized("No battery"))
+      status(
+        batteryLabel(battery),
+        warning: battery.mode == .discharging && (battery.percentage ?? 100) <= 10)
+      detail(localized(battery.externalPower ? "Power adapter" : "Battery power"))
+      if let minutes = battery.estimatedMinutes {
+        detail(
+          localized(
+            battery.mode == .charging ? "About {0} until charged" : "About {0} remaining",
+            duration(minutes)))
+      }
+      if model.systemStatus.battery.state == .ready, let percentage = battery.percentage {
+        Spacer(minLength: 0)
+        NativeResourceMeter(
+          fraction: Double(percentage) / 100, label: localized("Charge"),
+          warning: battery.mode == .discharging && percentage <= 10
+        )
+        .accessibilityIdentifier("system-status-battery-meter")
+      }
+    }
+  }
+  private var memoryCard: some View {
+    card("Memory", symbol: "memorychip", reading: model.systemStatus.memory) { memory in
+      metric(localized("{0} used", bytes(memory.used)))
+      status(
+        pressureLabel(memory.pressure),
+        warning: memory.pressure == .warning || memory.pressure == .critical)
+      detail(localized("{0} total", bytes(memory.total)))
+      detail(localized("Compressed: {0}", bytes(memory.compressed)))
+      detail(
+        localized("Swap: {0}", memory.swap.map { bytes($0) } ?? localized("Unavailable")))
+      if model.systemStatus.memory.state == .ready {
+        Spacer(minLength: 0)
+        memoryActivity(memory).accessibilityIdentifier("system-status-memory-activity")
+      }
+    }
+  }
+  private var storageCard: some View {
+    card("Storage", symbol: "internaldrive", reading: model.systemStatus.storage) { storage in
+      metric(localized("{0} available", bytes(UInt64(storage.available), storage: true)))
+      status(
+        localized(storage.lowSpace ? "Low space — free up storage" : "Enough space"),
+        warning: storage.lowSpace)
+      detail(
+        localized(
+          "{0} used of {1}", bytes(UInt64(storage.used), storage: true),
+          bytes(UInt64(storage.total), storage: true)))
+      detail(storage.volume + " · " + localized("Startup Data volume"))
+        .help(storage.path)
+      if model.systemStatus.storage.state == .ready {
+        Spacer(minLength: 0)
+        NativeResourceMeter(
+          fraction: Double(storage.available) / Double(storage.total),
+          label: localized("Available"), warning: storage.lowSpace
+        )
+        .accessibilityIdentifier("system-status-storage-meter")
+      }
+    }
+  }
+  private var networkCard: some View {
+    card("Network", symbol: "network", reading: model.systemStatus.network) { network in
+      metric(localized(network.connected ? "Connected" : "Disconnected"))
+      if let interface = network.interface {
+        detail(localized(network.connection) + " · " + interface)
+        if let rates = network.rates {
+          HStack(spacing: 5) {
+            NativeActivityLineKey()
+            detail("↓ " + localized("Download") + "  " + rate(rates.download))
+          }
+          HStack(spacing: 5) {
+            NativeActivityLineKey(upload: true)
+            detail("↑ " + localized("Upload") + "  " + rate(rates.upload))
+          }
+        } else {
+          detail(localized("Measuring traffic…"))
+        }
+      } else {
+        detail(localized("No active network connection"))
+      }
+      if model.systemStatus.network.state == .ready, network.connected, network.rates != nil {
+        Spacer(minLength: 0)
+        networkActivity.accessibilityIdentifier("system-status-network-activity")
+      }
+    }
   }
   private func card<T, Content: View>(
     _ title: String, symbol: String,
