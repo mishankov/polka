@@ -32,6 +32,16 @@ public enum LauncherSearch {
   public static var builtinApps: [NativeLauncherApp] {
     [
       NativeLauncherApp(
+        id: "builtin:system-status", name: localized("System Status"), kind: .builtin,
+        icon: "system-status",
+        description: localized("Battery, memory, storage, and network at a glance"),
+        searchTerms: [
+          "System Status", "Состояние системы", "system", "resources", "система", "ресурсы",
+          "battery", "power", "батарея", "аккумулятор", "заряд", "memory", "RAM", "память", "ОЗУ",
+          "storage", "disk", "space", "диск", "место", "хранилище", "network", "Wi-Fi", "Ethernet",
+          "VPN", "сеть", "интернет",
+        ]),
+      NativeLauncherApp(
         id: "builtin:snippets", name: localized("Snippets"), kind: .builtin, icon: "snippets",
         description: localized("Addresses, details, and ready-made replies — create and paste"),
         searchTerms: [

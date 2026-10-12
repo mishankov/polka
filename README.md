@@ -34,6 +34,12 @@ Drag files or folders from Finder to the top center of your screen, then drag th
 
 ![Polka's file shelf with two selected files ready to drag into another app](docs/screenshots/files.png)
 
+### System Status
+
+Check battery charge, memory pressure, storage space, and network traffic from the shelf. Search for **System Status** or a resource such as **battery**, **memory**, **disk**, or **network**. Thin meters show charge and available space; small charts show recent memory and network activity. Readings update while the app is open and stay on your Mac. [Reading details and sampling](docs/system-status.md).
+
+![System Status overview](docs/screenshots/system-status.png)
+
 ### Emoji and activity indicators
 
 Find emoji by name or keyword, browse categories, and choose a skin tone. Copy or paste your selection from the keyboard.

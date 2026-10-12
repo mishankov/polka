@@ -237,7 +237,10 @@ public enum Desktop {
       ? ["settings"]
       : only
         ? ["scroll"]
-        : ["scroll", "core", "browse", "media", "previews", "settings", "startup", "notice"]
+        : [
+          "scroll", "core", "resources", "browse", "media", "previews", "settings", "startup",
+          "notice",
+        ]
     for phase in phases {
       try await smokePhase(
         phase, app: appURL(app, release: release, context: context), context: context)
@@ -275,6 +278,7 @@ public enum Desktop {
       try FileManager.default.createDirectory(at: artifacts, withIntermediateDirectories: true)
       let flag = [
         "scroll": "--native-scroll-smoke", "core": "--native-smoke",
+        "resources": "--native-system-status-smoke",
         "media": "--native-media-smoke",
         "browse": "--native-browse-smoke", "previews": "--native-preview-smoke",
         "settings": "--native-settings-smoke",
@@ -336,7 +340,10 @@ public enum Desktop {
 
   static func validateSmoke(_ result: [String: Any], phase: String) throws {
     try require(
-      ["core", "browse", "media", "previews", "settings", "scroll", "startup", "notice"].contains(
+      [
+        "core", "resources", "browse", "media", "previews", "settings", "scroll", "startup",
+        "notice",
+      ].contains(
         phase),
       "Unknown native smoke phase")
     try require(
@@ -345,10 +352,10 @@ public enum Desktop {
     try require(result["nativeVisible"] as? Bool == true, "Native shelf is not visible")
     try require(
       result["destination"] as? String
-        == (["core", "browse", "media", "previews", "settings"].contains(phase)
+        == (["core", "resources", "browse", "media", "previews", "settings"].contains(phase)
           ? "clipboard" : "apps"),
       "Unexpected native destination")
-    if ["core", "browse", "media", "previews", "settings"].contains(phase) {
+    if ["core", "resources", "browse", "media", "previews", "settings"].contains(phase) {
       try require((result["snippets"] as? Int ?? 0) > 0, "Missing synthetic snippets")
     } else if phase == "startup" || phase == "notice" {
       try require(

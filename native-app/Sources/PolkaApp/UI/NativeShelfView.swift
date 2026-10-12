@@ -11,6 +11,7 @@ struct NativeShelfView: View {
       case "clipboard", "snippets": NativeClipboardView(model: model)
       case "emoji": NativeEmojiView(model: model)
       case "files": NativeFileShelfView(model: model)
+      case "system-status": NativeSystemStatusView(model: model)
       default: NativeLauncherView(model: model)
       }
     }
@@ -170,7 +171,11 @@ struct NativeLauncherView: View {
             : result.id == "builtin:emoji"
               ? "face.smiling"
               : result.id == "builtin:snippets"
-                ? "text.bubble" : result.id == "builtin:files" ? "folder" : "app"
+                ? "text.bubble"
+                : result.id == "builtin:files"
+                  ? "folder"
+                  : result.id == "builtin:system-status"
+                    ? "gauge.with.dots.needle.50percent" : "app"
       ).font(.system(size: 23)).foregroundStyle(.secondary).frame(width: 34, height: 34)
     }
   }

@@ -29,7 +29,8 @@ import SwiftUI
 /// this process's real AppKit event loop, and every copy uses the injected board.
 @MainActor func nativeSmokeAdditionalFlows(
   application: NativeApplication, shelf: NSWindow, model: NativeUIModel, platform: NativePlatform,
-  settingsOnly: Bool = false, previewsOnly: Bool = false, browsingOnly: Bool = false
+  settingsOnly: Bool = false, previewsOnly: Bool = false, browsingOnly: Bool = false,
+  systemStatusOnly: Bool = false
 ) async -> [String] {
   guard NativeProfile.isolatedFixture else { return ["native smoke requires an isolated profile"] }
   // Ask this fixture process to materialize SwiftUI's virtual accessibility
@@ -267,6 +268,18 @@ import SwiftUI
     await screenshot("clipboard-color-history")
     await application.show("clipboard")
     await settle()
+    return failures
+  }
+  if systemStatusOnly {
+    trace("system status keyboard flow and resource states")
+    let resourceFailures = await nativeSystemStatusSmoke(
+      application: application, shelf: shelf, model: model, platform: platform,
+      environment: environment, screenshotDirectory: screenshotDirectory,
+      post: { post($0) }, enter: { post(36, [], "\r") }, settle: settle,
+      screenshot: { await screenshot($0) },
+      frame: { accessible($0)?.accessibilityFrame() }, clickAccessible: clickAccessible,
+      keyboardState: { keyboardState() })
+    failures.append(contentsOf: resourceFailures)
     return failures
   }
   if !settingsOnly && !browsingOnly {
@@ -1042,7 +1055,7 @@ import SwiftUI
       await settle()
     }
     var visited = Set<String>()
-    for _ in 0..<4 {
+    for app in LauncherSearch.apps(LauncherSearch.builtinApps, query: "") {
       guard let button = settings.firstResponder as? NativeBuiltinAppSwitch else {
         failures.append(
           "Tab did not navigate between built-in app switches: \(keyboardState(settings))")
@@ -1050,6 +1063,9 @@ import SwiftUI
       }
       let identifier = button.accessibilityIdentifier()
       let id = String(identifier.dropFirst("builtin-app-toggle-".count))
+      if id != app.id {
+        failures.append("Settings app order differs from launcher: expected \(app.id), found \(id)")
+      }
       visited.insert(id)
       let verifyStability = settingsStability(excluding: button)
       post(49, [], " ", window: settings)
@@ -1086,10 +1102,14 @@ import SwiftUI
       post(48, window: settings)
       await settle()
     }
-    if visited.count != 4 || !model.apps.filter({ $0.id.hasPrefix("builtin:") }).isEmpty {
-      failures.append("Keyboard toggles did not independently disable all four built-in apps")
+    if visited.count != LauncherSearch.builtinApps.count
+      || !model.apps.filter({ $0.id.hasPrefix("builtin:") }).isEmpty
+    {
+      failures.append("Keyboard toggles did not independently disable all built-in apps")
     }
-    for destination in ["clipboard", "snippets", "files", "emoji", "toggle-clipboard"] {
+    for destination in [
+      "clipboard", "snippets", "files", "emoji", "system-status", "toggle-clipboard",
+    ] {
       let previousKeyWindow = NSApp.keyWindow
       let previousDestination = model.destination
       await application.show(destination)
@@ -1101,7 +1121,7 @@ import SwiftUI
         failures.append("Direct navigation reopened disabled \(destination)")
       }
     }
-    if visited.count == 4 {
+    if visited.count == LauncherSearch.builtinApps.count {
       await application.show(nil)
       await settle()
       if model.destination != "apps" || !model.visible {
