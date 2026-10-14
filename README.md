@@ -34,6 +34,16 @@ Drag files or folders from Finder to the top center of your screen, then drag th
 
 ![Polka's file shelf with two selected files ready to drag into another app](docs/screenshots/files.png)
 
+### Screenshots
+
+Open **Screenshots** from the launcher to start capturing, or use **⌘⇧⌥4** (configurable in **Settings → Shelf**). Drag to select an area, including across multiple displays; Esc cancels. Multi-display selections open as one combined image in the editor, with the surrounding pixels from those displays available for resizing. macOS asks for screen recording access the first time.
+
+The selected region remains on the captured screen, with resize handles always visible and compact floating annotation controls around it. Toolbar dimensions stay fixed; unavailable Edit and Delete actions stay visible but disabled. Each toolbar sits outside the selection when there is enough room, and inside it near the screen edge. Drag the handles to shrink or expand the area directly. **⌘R** focuses the handles for keyboard adjustment: Tab chooses a handle, arrow keys adjust it (Shift for 10 pixels), and Return returns to annotation. Area changes support undo and preserve annotation positions. Add arrows (**⌘1**), text (**⌘2**), or rectangles (**⌘3**), and undo/redo with **⌘Z / ⌘⇧Z**. Choose rectangle color, thickness, and outline or filled appearance; arrow color and thickness; or text color, background (including transparency), and size before placing an annotation. Thickness and text size can be entered directly or adjusted with the stepper buttons. Each annotation keeps its own style. With Text selected, click the image and type directly: Return adds a line, ⌘Return, Esc, or clicking outside finishes editing without creating another block. Clear all its text and finish to delete the block. Click any existing object with any tool selected to edit it. Drag a selected text block to move it; double-click it or press Return to edit its words. Text retains its words, color, background, and size; arrows retain their endpoints, thickness, and color. Drag arrow endpoints to reshape the arrow or drag its shaft to move it. Rectangles have four independently draggable corner handles. Selected arrows and rectangles also support Tab to choose a handle and arrow keys to move (Shift for 10 pixels). Backspace deletes any selected object, including text. While typing, Backspace deletes characters and Esc finishes text editing; with an object selected, Esc clears selection while keeping its changes. Newly drawn arrows and rectangles remain selected. With no object selected, Esc discards the capture. Finishing updates the same block; undo restores its previous version. **⌘C** copies the edited image into the clipboard and clipboard history, then closes the capture and **⌘S** saves a PNG. **⌘⇧S** adds a flattened PNG to the file shelf for dragging into another app, then closes the capture. Copy respects paused or disabled clipboard history.
+
+Opening Screenshots starts region capture immediately. There is no screenshot history. Closing the editor discards the capture and its edits; only explicit Copy, Save, or Add to File Shelf actions keep an image. While an editor is open, the original display image stays in memory for area adjustment and undo. Exports include only the selected area.
+
+![Polka screenshot editor with an arrow, text label, and rectangle](docs/screenshots/screenshot-editor.png)
+
 ### System Status
 
 Check battery charge, memory pressure, storage space, and network traffic from the shelf. Search for **System Status** or a resource such as **battery**, **memory**, **disk**, or **network**. Thin meters show charge and available space; small charts show recent memory and network activity. Readings update while the app is open and stay on your Mac. [Reading details and sampling](docs/system-status.md).
@@ -80,6 +90,7 @@ Open the shelf, type to search, use the arrow keys to select a result, and press
 | --- | --- |
 | Open the shelf | ⌘⇧Space |
 | Open clipboard history | ⌘⇧V |
+| Capture a screen region | ⌘⇧⌥4 |
 | Open settings | ⌘, |
 | Use the selected result | Enter |
 | Copy a clipboard entry, snippet, or emoji without pasting | ⇧Enter |

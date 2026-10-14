@@ -95,6 +95,8 @@ struct NativeUISettings: Equatable {
   var launcherShortcut = "CommandOrControl+Shift+Space"
   var clipboardShortcut = "CommandOrControl+Shift+V"
   var launcherShortcutError = ""
+  var screenshotShortcut = "CommandOrControl+Shift+Alt+4"
+  var screenshotShortcutError = ""
   var cameraEnabled = true
   var microphoneEnabled = true
   var mediaActivity = ""
@@ -170,6 +172,7 @@ struct NativeBrowseContext {
       }
     }
   }
+  @Published var screenshotCapturing = false
   @Published var files: [NativeUIFile] = []
   @Published var incomingFileDropTargeted = false
   @Published var incomingFileDropPending = false
@@ -350,7 +353,8 @@ struct NativeBrowseContext {
     }
   }
   func saveContext(now: Date = Date()) {
-    guard ["apps", "clipboard", "snippets", "emoji", "files"].contains(destination) else { return }
+    guard ["apps", "clipboard", "snippets", "emoji", "files", "screenshots"].contains(destination)
+    else { return }
     contexts[destination] = NativeBrowseContext(
       query: query, selectedID: selectedID, previewID: previewID, transformation: transformation,
       draft: draft, category: emojiCategory, tone: emojiTone, scrollID: scrollID,

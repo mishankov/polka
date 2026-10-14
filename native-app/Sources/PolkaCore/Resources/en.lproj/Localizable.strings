@@ -545,3 +545,105 @@
 "Recent network traffic" = "Recent network traffic";
 "Collecting recent activity…" = "Collecting recent activity…";
 "<{0}" = "<{0}";
+
+"Add to File Shelf" = "Add to File Shelf";
+
+"Added to File Shelf" = "Added to File Shelf";
+
+"Allow Polka in System Settings → Privacy & Security → Screen & System Audio Recording, then try again." = "Allow Polka in System Settings → Privacy & Security → Screen & System Audio Recording, then try again.";
+
+"Arrow" = "Arrow";
+
+"Capture Region" = "Capture Region";
+
+"Capture a region, add arrows or text, and hide private information before sharing." = "Capture a region, add arrows or text, and hide private information before sharing.";
+
+"Capture, mark up, and share" = "Capture, mark up, and share";
+
+"Click the image to place text" = "Click the image to place text";
+
+"Could not render the screenshot" = "Could not render the screenshot";
+
+"Delete" = "Delete";
+
+"Drafts stay on the screenshot shelf until you quit Polka." = "Drafts stay on the screenshot shelf until you quit Polka.";
+
+"Drag over information to hide" = "Drag over information to hide";
+
+"Drag to capture a region · Esc to cancel" = "Drag to capture a region · Esc to cancel";
+
+"Drag to draw an arrow" = "Drag to draw an arrow";
+
+"Redact" = "Redact";
+
+"Save…" = "Save…";
+
+"Screenshot Shortcut" = "Screenshot Shortcut";
+
+"Screenshot capture is unavailable in this test profile" = "Screenshot capture is unavailable in this test profile";
+
+"Screenshot {0}" = "Screenshot {0}";
+
+"Screenshots" = "Screenshots";
+
+"Text to place on the image" = "Text to place on the image";
+
+"The screenshot shelf is full. Remove a screenshot before capturing another." = "The screenshot shelf is full. Remove a screenshot before capturing another.";
+
+"Arrow color" = "Arrow color";
+
+"Thickness" = "Thickness";
+
+"Text color" = "Text color";
+
+"Text background" = "Text background";
+
+"Text size" = "Text size";
+
+"Click the image and type · ⌘Return to finish · Esc to cancel" = "Click the image and type · ⌘Return to finish · Esc to cancel";
+
+"Text on the image" = "Text on the image";
+
+"⌘Return to finish · Esc to cancel" = "⌘Return to finish · Esc to cancel";
+
+"Click to add or edit text · ⌘Return to finish · Esc to cancel" = "Click to add or edit text · ⌘Return to finish · Esc to cancel";
+
+"Click to add text · Click any object to edit · Esc or ⌘Return finishes" = "Click to add text · Click any object to edit · Esc or ⌘Return finishes";
+
+"Esc or ⌘Return to finish" = "Esc or ⌘Return to finish";
+
+"Drag handles or the object · Tab selects a handle · Arrow keys move · Esc finishes" = "Drag handles or the object · Tab selects a handle · Arrow keys move · Esc finishes";
+
+"Click any object to edit" = "Click any object to edit";
+
+"Drag text to move · Double-click or Return to edit · Arrow keys move" = "Drag text to move · Double-click or Return to edit · Arrow keys move";
+
+"Rectangle" = "Rectangle";
+"Rectangle color" = "Rectangle color";
+"Filled" = "Filled";
+"Drag to draw a rectangle" = "Drag to draw a rectangle";
+
+"Closing this window discards the screenshot. Copy or save it to keep it." = "Closing this window discards the screenshot. Copy or save it to keep it.";
+"Close a screenshot window before capturing another." = "Close a screenshot window before capturing another.";
+
+"Adjust Area" = "Adjust Area";
+
+"Apply" = "Apply";
+
+"Drag edges to include more or less · Drag inside to move · Tab selects a handle · Arrow keys adjust" = "Drag edges to include more or less · Drag inside to move · Tab selects a handle · Arrow keys adjust";
+
+"Resize" = "Resize";
+
+"Discard" = "Discard";
+
+"Drag boundary handles anytime · ⌘R focuses handles · Tab chooses · Arrow keys resize" = "Drag boundary handles anytime · ⌘R focuses handles · Tab chooses · Arrow keys resize";
+
+"Drag handles or the object · Tab selects a handle · Arrow keys move · Backspace deletes" = "Drag handles or the object · Tab selects a handle · Arrow keys move · Backspace deletes";
+
+"Color" = "Color";
+
+"Background" = "Background";
+
+"Size" = "Size";
+
+"Width" = "Width";

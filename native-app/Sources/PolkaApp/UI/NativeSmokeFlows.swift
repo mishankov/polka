@@ -283,6 +283,8 @@ import SwiftUI
     return failures
   }
   if !settingsOnly && !browsingOnly {
+    failures += await nativeScreenshotSmoke(
+      application: application, shelf: shelf, platform: platform, directory: screenshotDirectory)
     // Real window lifecycle, not just model dispatch: a delayed close must not
     // order out a reopened panel, and repeated requests must remain harmless.
     await application.show("apps")
@@ -1150,6 +1152,10 @@ import SwiftUI
           return $0.isEnabled && $0.state == .off
         })
       {
+        // A growing catalog can place this row outside the shortened test
+        // viewport. Reveal it before measuring stability of consecutive clicks.
+        button.scrollToVisible(button.bounds.insetBy(dx: 0, dy: -12))
+        await settle()
         trace("post pointer events for \(app.id)")
         let verifyStability = settingsStability(excluding: button)
         for enabled in [true, false, true] {

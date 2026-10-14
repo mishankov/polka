@@ -172,10 +172,12 @@ struct NativeLauncherView: View {
               ? "face.smiling"
               : result.id == "builtin:snippets"
                 ? "text.bubble"
-                : result.id == "builtin:files"
-                  ? "folder"
-                  : result.id == "builtin:system-status"
-                    ? "gauge.with.dots.needle.50percent" : "app"
+                : result.id == "builtin:screenshots"
+                  ? "viewfinder"
+                  : result.id == "builtin:files"
+                    ? "folder"
+                    : result.id == "builtin:system-status"
+                      ? "gauge.with.dots.needle.50percent" : "app"
       ).font(.system(size: 23)).foregroundStyle(.secondary).frame(width: 34, height: 34)
     }
   }

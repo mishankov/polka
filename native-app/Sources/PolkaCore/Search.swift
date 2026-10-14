@@ -32,6 +32,10 @@ public enum LauncherSearch {
   public static var builtinApps: [NativeLauncherApp] {
     [
       NativeLauncherApp(
+        id: "builtin:screenshots", name: localized("Screenshots"), kind: .builtin,
+        icon: "screenshots", description: localized("Capture, mark up, and share"),
+        searchTerms: ["screenshot", "capture", "screen", "скриншот", "снимок", "экран"]),
+      NativeLauncherApp(
         id: "builtin:system-status", name: localized("System Status"), kind: .builtin,
         icon: "system-status",
         description: localized("Battery, memory, storage, and network at a glance"),
