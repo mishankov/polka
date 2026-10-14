@@ -306,18 +306,20 @@ struct NativeScreenshotMark: Equatable {
     apply(change, forward: true)
     history.append(change)
   }
-  func rendered(includingDraft: Bool = false) throws -> CGImage {
+  func rendered(includingDraft: Bool = false, background: CGImage? = nil) throws -> CGImage {
     let pending = includingDraft ? pendingText : nil
     let shape = pendingObject
     let visibleMarks = marks.map { $0.id == shape?.id ? shape! : $0 }
-    if shape == nil, editingTextID == nil, pending == nil, let cachedImage { return cachedImage }
+    if background == nil, shape == nil, editingTextID == nil, pending == nil, let cachedImage {
+      return cachedImage
+    }
     guard
       let context = CGContext(
         data: nil, width: source.width, height: source.height, bitsPerComponent: 8,
         bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
     else { throw PolkaCoreError.invalid(localized("Could not render the screenshot")) }
-    context.draw(source, in: CGRect(origin: .zero, size: size))
+    context.draw(background ?? source, in: CGRect(origin: .zero, size: size))
     for mark in visibleMarks {
       if mark.id == editingTextID {
         if let pending { Self.draw(pending, in: context, size: size) }
@@ -329,12 +331,14 @@ struct NativeScreenshotMark: Equatable {
     guard let image = context.makeImage() else {
       throw PolkaCoreError.invalid(localized("Could not render the screenshot"))
     }
-    if shape == nil, editingTextID == nil, pending == nil { cachedImage = image }
+    if background == nil, shape == nil, editingTextID == nil, pending == nil { cachedImage = image }
     return image
   }
-  func png() throws -> Data {
+  func png(background: CGImage? = nil) throws -> Data {
     guard
-      let data = NSBitmapImageRep(cgImage: try rendered(includingDraft: true)).representation(
+      let data = NSBitmapImageRep(
+        cgImage: try rendered(includingDraft: true, background: background)
+      ).representation(
         using: .png, properties: [:])
     else {
       throw PolkaCoreError.invalid(localized("Could not render the screenshot"))

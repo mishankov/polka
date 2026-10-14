@@ -69,13 +69,32 @@ import AppKit
         ]
       }
     }
-    for panel in panels { panel.orderOut(nil) }
     let shot = try captures.insert(
-      capture.image, area: capture.area, screenFrame: capture.screenFrame)
+      capture.image, area: capture.area, screenFrame: capture.screenFrame,
+      desktopFrame: capture.desktopFrame)
     guard let editor = captures.editors[shot.id], let window = editor.window else {
       return ["real multi-display capture did not open editor"]
     }
-    await screenshot(window, "screenshot-real-multiple-displays")
+    // The desktop changes after selection; the overlay must show and export the new pixels.
+    for panel in panels { panel.backgroundColor = NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1) }
+    try await Task.sleep(nanoseconds: 250_000_000)
+    await screenshot(window, "screenshot-live-desktop-main")
+    if let other = editor.mirrors.first?.window {
+      await screenshot(other, "screenshot-live-desktop-second")
+    }
+    var data: Data?
+    editor.preparePNG { data = $0 }
+    for _ in 0..<1000 where data == nil && shot.busy {
+      try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    guard let data, let exported = NSBitmapImageRep(data: data),
+      let pixel = exported.colorAt(x: exported.pixelsWide / 2, y: exported.pixelsHigh / 2)?
+        .usingColorSpace(.sRGB),
+      pixel.greenComponent > 0.7, pixel.redComponent < 0.4, pixel.blueComponent < 0.4
+    else {
+      editor.discard()
+      return ["live desktop export used stale pixels or included overlay chrome"]
+    }
     editor.discard()
     return []
   } catch { return ["real display capture failed: \(error)"] }

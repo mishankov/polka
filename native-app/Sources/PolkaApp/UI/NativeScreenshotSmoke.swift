@@ -96,9 +96,19 @@ import PolkaCore
     let url = directory.appendingPathComponent(name + ".png")
     if ProcessInfo.processInfo.environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1" {
       do {
+        var arguments = ["-x", "-o", "-l", String(window.windowNumber), url.path]
+        if !window.isOpaque {
+          let frame = NativeScreenshotCapture.captureRect(
+            window.frame,
+            desktopTop: NSScreen.screens.first?.frame.maxY ?? 0)
+          arguments = [
+            "-x",
+            "-R\(Int(frame.minX)),\(Int(frame.minY)),\(Int(frame.width)),\(Int(frame.height))",
+            url.path,
+          ]
+        }
         _ = try await NativeCommand.run(
-          URL(fileURLWithPath: "/usr/sbin/screencapture"),
-          arguments: ["-x", "-o", "-l", String(window.windowNumber), url.path], timeout: 10)
+          URL(fileURLWithPath: "/usr/sbin/screencapture"), arguments: arguments, timeout: 10)
         return
       } catch { failures.append("cannot capture screenshot UI: \(error)") }
     }

@@ -10,16 +10,53 @@ private final class NativeScreenshotWindow: NSWindow {
   }
 }
 
+private final class NativeScreenshotHostingView<Content: View>: NSHostingView<Content> {
+  override var isOpaque: Bool { false }
+}
+
 @MainActor final class NativeScreenshotEditor: NSWindowController, NSWindowDelegate {
   let shot: NativeScreenshotDocument
   var onClose: (() -> Void)?
+  let desktopFrame: CGRect?
+  var mirrors: [NativeScreenshotEditor] = []
+  weak var overlayRoot: NativeScreenshotEditor?
+  var liveImage: (() async throws -> CGImage)?
+  var showsTools: Bool {
+    guard let desktopFrame else { return true }
+    let area = shot.areaPreview ?? shot.area
+    let scale = desktopFrame.width / shot.fullBounds.width
+    let selected = CGRect(
+      x: desktopFrame.minX + area.minX * scale,
+      y: desktopFrame.minY + area.minY * scale, width: area.width * scale,
+      height: area.height * scale)
+    func overlap(_ editor: NativeScreenshotEditor) -> CGFloat {
+      let part = selected.intersection(editor.window?.frame ?? .zero)
+      return part.isNull ? 0 : part.width * part.height
+    }
+    return group.max { overlap($0) < overlap($1) } === self
+  }
+  var group: [NativeScreenshotEditor] {
+    let root = overlayRoot ?? self
+    return [root] + root.mirrors
+  }
+  func hide() { for editor in group { editor.window?.orderOut(nil) } }
+  func fullImageRect(in bounds: CGRect) -> CGRect {
+    if let desktopFrame, let frame = window?.frame {
+      return desktopFrame.offsetBy(dx: -frame.minX, dy: -frame.minY)
+    }
+    return NativeScreenshotCanvas.fullImageRect(in: bounds, size: shot.fullBounds.size)
+  }
   var copyImage: ((Data) throws -> Void)?
   var addToShelf: ((Data, String) throws -> Void)?
   private(set) var savePanel: NSSavePanel?
   private var monitor: Any?
+  private var exportTask: Task<Void, Never>?
   weak var canvas: NativeScreenshotCanvas?
-  init(shot: NativeScreenshotDocument, screenFrame: CGRect? = nil) {
+  init(
+    shot: NativeScreenshotDocument, screenFrame: CGRect? = nil, desktopFrame: CGRect? = nil
+  ) {
     self.shot = shot
+    self.desktopFrame = desktopFrame
     let window = NativeScreenshotWindow(
       contentRect: screenFrame ?? NSScreen.main?.frame
         ?? NSRect(x: 0, y: 0, width: 1280, height: 800),
@@ -31,9 +68,15 @@ private final class NativeScreenshotWindow: NSWindow {
     window.minSize = NSSize(width: 740, height: 440)
     window.isReleasedWhenClosed = false
     window.delegate = self
-    window.contentView = NSHostingView(
+    window.contentView = NativeScreenshotHostingView(
       rootView: NativeScreenshotEditorView(document: shot, editor: self))
-    window.level = .floating
+    window.level = desktopFrame == nil ? .floating : .screenSaver
+    if desktopFrame != nil {
+      window.backgroundColor = .clear
+      window.isOpaque = false
+      window.hasShadow = false
+      window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+    }
     monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
       guard let self, event.window === self.window, self.window?.isKeyWindow == true else {
         return event
@@ -50,6 +93,7 @@ private final class NativeScreenshotWindow: NSWindow {
   deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
   func present() {
     NSApp.activate(ignoringOtherApps: true)
+    for mirror in mirrors { mirror.window?.orderFrontRegardless() }
     showWindow(nil)
     window?.makeKeyAndOrderFront(nil)
   }
@@ -61,6 +105,12 @@ private final class NativeScreenshotWindow: NSWindow {
     return true
   }
   func windowWillClose(_ notification: Notification) {
+    exportTask?.cancel()
+    for mirror in mirrors {
+      mirror.onClose = nil
+      mirror.close()
+    }
+    mirrors.removeAll()
     window?.contentView = nil
     canvas = nil
     onClose?()
@@ -144,7 +194,12 @@ private final class NativeScreenshotWindow: NSWindow {
       guard !text.hasMarkedText() else { return false }
       if text.isFieldEditor, let canvas { window?.makeFirstResponder(canvas) }
     }
-    if let canvas, !canvas.finishText() { return false }
+    for editor in group {
+      if editor.canvas?.textEditor?.hasMarkedText() == true { return false }
+    }
+    for editor in group where editor.canvas?.textEditor != nil {
+      if editor.canvas?.finishText() == false { return false }
+    }
     shot.commitText()
     shot.finishObject()
     return true
@@ -199,47 +254,80 @@ private final class NativeScreenshotWindow: NSWindow {
     canvas?.stopArea()
     shot.tool = tool
   }
+  func preparePNG(_ completed: @escaping (Data) -> Void) {
+    guard finishText() else { return }
+    guard let liveImage else {
+      do { completed(try shot.png()) } catch { shot.message = error.localizedDescription }
+      return
+    }
+    shot.busy = true
+    exportTask = Task { @MainActor in
+      do {
+        let full = try await liveImage()
+        try Task.checkCancellation()
+        guard full.width == shot.fullSource.width, full.height == shot.fullSource.height,
+          let cropped = full.cropping(
+            to: CGRect(
+              x: shot.area.minX,
+              y: CGFloat(full.height) - shot.area.maxY, width: shot.area.width,
+              height: shot.area.height))
+        else { throw PolkaCoreError.invalid(localized("Could not render the screenshot")) }
+        let data = try shot.png(background: cropped)
+        shot.busy = false
+        completed(data)
+      } catch {
+        shot.busy = false
+        shot.message = error.localizedDescription
+      }
+    }
+  }
   func copyScreenshot() {
     guard !shot.busy, nativeCommandInteractionAllowed, let copyImage else { return }
-    guard finishText() else { return }
-    do {
-      try copyImage(shot.png())
-      window?.performClose(nil)
-    } catch { shot.message = error.localizedDescription }
+    preparePNG { [weak self] data in
+      guard let self else { return }
+      do {
+        try copyImage(data)
+        self.window?.performClose(nil)
+      } catch { self.shot.message = error.localizedDescription }
+    }
   }
   func shelf() {
     guard !shot.busy, nativeCommandInteractionAllowed, let addToShelf else { return }
-    guard finishText() else { return }
-    do {
-      try addToShelf(shot.png(), shot.id)
-      window?.performClose(nil)
-    } catch { shot.message = error.localizedDescription }
+    preparePNG { [weak self] data in
+      guard let self else { return }
+      do {
+        try addToShelf(data, self.shot.id)
+        self.window?.performClose(nil)
+      } catch { self.shot.message = error.localizedDescription }
+    }
   }
   func save() {
     guard !shot.busy, nativeCommandInteractionAllowed, let window else { return }
-    guard finishText() else { return }
-    do {
-      let data = try shot.png()
-      let panel = NSSavePanel()
-      panel.allowedContentTypes = [.png]
-      panel.nameFieldStringValue =
-        "Polka-\(shot.createdAt.formatted(.iso8601).replacingOccurrences(of: ":", with: "-" )).png"
-      panel.canCreateDirectories = true
-      shot.busy = true
-      savePanel = panel
-      panel.beginSheetModal(for: window) { [weak self] response in
-        guard let self else { return }
-        defer {
-          self.shot.busy = false
-          self.savePanel = nil
-        }
-        guard response == .OK, let url = panel.url else { return }
-        do {
-          try data.write(to: url, options: .atomic)
-          self.shot.message = localized("Image Saved")
-        } catch { self.shot.message = nativeImageSaveError(error) }
+    preparePNG { [weak self] data in
+      guard let self else { return }
+      self.showSavePanel(data, window: window)
+    }
+  }
+  private func showSavePanel(_ data: Data, window: NSWindow) {
+    let panel = NSSavePanel()
+    panel.allowedContentTypes = [.png]
+    panel.nameFieldStringValue =
+      "Polka-\(shot.createdAt.formatted(.iso8601).replacingOccurrences(of: ":", with: "-" )).png"
+    panel.canCreateDirectories = true
+    shot.busy = true
+    savePanel = panel
+    panel.beginSheetModal(for: window) { [weak self] response in
+      guard let self else { return }
+      defer {
+        self.shot.busy = false
+        self.savePanel = nil
       }
-    } catch { shot.message = error.localizedDescription }
+      guard response == .OK, let url = panel.url else { return }
+      do {
+        try data.write(to: url, options: .atomic)
+        self.shot.message = localized("Image Saved")
+      } catch { self.shot.message = nativeImageSaveError(error) }
+    }
   }
 }
 
@@ -266,8 +354,10 @@ private struct NativeScreenshotEditorView: View {
   @State private var actionsSize = CGSize(width: 470, height: 40)
   var body: some View {
     GeometryReader { geometry in
-      let full = NativeScreenshotCanvas.fullImageRect(
-        in: CGRect(origin: .zero, size: geometry.size), size: document.fullBounds.size)
+      let full =
+        editor?.fullImageRect(in: CGRect(origin: .zero, size: geometry.size))
+        ?? NativeScreenshotCanvas.fullImageRect(
+          in: CGRect(origin: .zero, size: geometry.size), size: document.fullBounds.size)
       let area = document.areaPreview ?? document.area
       let scale = full.width / document.fullBounds.width
       let selected = CGRect(
@@ -355,6 +445,8 @@ private struct NativeScreenshotEditorView: View {
             )
         )
         .position(x: toolsFrame.midX, y: toolsFrame.midY)
+        .opacity(editor?.showsTools == false ? 0 : 1)
+        .allowsHitTesting(editor?.showsTools != false)
         HStack(spacing: 6) {
           NativeCommandButton(title: localized("Copy"), shortcut: "⌘C", disabled: document.busy) {
             editor?.copyScreenshot()
@@ -382,7 +474,9 @@ private struct NativeScreenshotEditorView: View {
           actionsSize = $0
         }
         .position(x: actionsFrame.midX, y: actionsFrame.midY)
-        if !document.message.isEmpty {
+        .opacity(editor?.showsTools == false ? 0 : 1)
+        .allowsHitTesting(editor?.showsTools != false)
+        if !document.message.isEmpty, editor?.showsTools != false {
           Text(document.message).font(.system(size: 11)).foregroundStyle(.secondary)
             .multilineTextAlignment(.center).lineLimit(2)
             .frame(width: actionsSize.width - 16, height: 30).padding(.horizontal, 8)
@@ -440,6 +534,7 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
   func makeNSView(context: Context) -> NativeScreenshotCanvas {
     let view = NativeScreenshotCanvas()
     view.document = document
+    view.editor = editor
     view.toolTip = localized(
       "Drag boundary handles anytime · ⌘R focuses handles · Tab chooses · Arrow keys resize")
     editor?.canvas = view
@@ -447,6 +542,7 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
   }
   func updateNSView(_ view: NativeScreenshotCanvas, context: Context) {
     view.document = document
+    view.editor = editor
     editor?.canvas = view
     view.updateTextEditor()
     view.needsDisplay = true
@@ -455,6 +551,7 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
 
 @MainActor final class NativeScreenshotCanvas: NSView, NSTextViewDelegate {
   var document: NativeScreenshotDocument?
+  weak var editor: NativeScreenshotEditor?
   private(set) var textEditor: NSTextView?
   private var start: CGPoint?
   private var end: CGPoint?
@@ -475,7 +572,8 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
   }
   var fullImageRect: CGRect {
     guard let document else { return .zero }
-    return Self.fullImageRect(in: bounds, size: document.fullBounds.size)
+    return editor?.fullImageRect(in: bounds)
+      ?? Self.fullImageRect(in: bounds, size: document.fullBounds.size)
   }
   func areaRect(_ area: CGRect) -> CGRect {
     guard let document else { return .zero }
@@ -517,6 +615,7 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
   }
 
   override var acceptsFirstResponder: Bool { true }
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
   var imageRect: CGRect {
     guard let document else { return .zero }
     return areaRect(document.area)
@@ -536,10 +635,29 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
   }
   override func draw(_ dirtyRect: NSRect) {
     guard let document, let context = NSGraphicsContext.current?.cgContext,
-      let image = try? document.rendered(), !imageRect.isEmpty
+      !imageRect.isEmpty
     else { return }
-    context.draw(document.fullSource, in: fullImageRect)
-    context.draw(image, in: imageRect)
+    context.clear(bounds)
+    if editor?.desktopFrame != nil {
+      context.saveGState()
+      context.translateBy(x: imageRect.minX, y: imageRect.minY)
+      context.scaleBy(
+        x: imageRect.width / document.size.width, y: imageRect.height / document.size.height)
+      context.clip(to: CGRect(origin: .zero, size: document.size))
+      let pending = document.pendingObject
+      for original in document.marks where original.id != document.editingTextID {
+        NativeScreenshotDocument.draw(
+          original.id == pending?.id ? pending! : original,
+          in: context, size: document.size)
+      }
+      if textEditor == nil, let text = document.pendingText {
+        NativeScreenshotDocument.draw(text, in: context, size: document.size)
+      }
+      context.restoreGState()
+    } else if let image = try? document.rendered() {
+      context.draw(document.fullSource, in: fullImageRect)
+      context.draw(image, in: imageRect)
+    }
     let selection = areaRect(document.areaPreview ?? document.area)
     context.setFillColor(NSColor.black.withAlphaComponent(0.55).cgColor)
     context.addRect(bounds)

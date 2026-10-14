@@ -6,6 +6,7 @@ struct NativeScreenshotCaptureResult {
   let image: CGImage
   let area: CGRect
   var screenFrame: CGRect? = nil
+  var desktopFrame: CGRect? = nil
 }
 
 /// No clipboard or temporary image file is used by capture.
@@ -23,9 +24,11 @@ struct NativeScreenshotCaptureResult {
     try Task.checkCancellation()
     // Give WindowServer time to remove selection overlays before capture.
     try await Task.sleep(nanoseconds: 120_000_000)
-    return try await captureDesktop(rect)
+    return try await captureDesktop(rect, includeAllDisplays: true)
   }
-  func captureDesktop(_ rect: CGRect) async throws -> NativeScreenshotCaptureResult? {
+  func captureDesktop(_ rect: CGRect, includeAllDisplays: Bool = false) async throws
+    -> NativeScreenshotCaptureResult?
+  {
     let top = NSScreen.screens.first?.frame.maxY ?? 0
     let displays = NSScreen.screens.map {
       NativeScreenshotDisplay(
@@ -35,7 +38,8 @@ struct NativeScreenshotCaptureResult {
     }
     guard
       let layout = NativeScreenshotCaptureLayout(
-        selection: rect, displays: displays, desktopTop: top)
+        selection: rect, displays: displays, desktopTop: top, includeAllDisplays: includeAllDisplays
+      )
     else { return nil }
     let content = try await SCShareableContent.excludingDesktopWindows(
       false, onScreenWindowsOnly: true)
@@ -58,7 +62,7 @@ struct NativeScreenshotCaptureResult {
     return NativeScreenshotCaptureResult(
       image: image,
       area: layout.pixelArea(imageSize: CGSize(width: image.width, height: image.height)),
-      screenFrame: layout.editorFrame)
+      screenFrame: layout.editorFrame, desktopFrame: layout.desktopFrame)
   }
   func selectRegion(screenFrames: [CGRect]? = nil) async -> CGRect? {
     guard continuation == nil else { return nil }
@@ -186,13 +190,17 @@ struct NativeScreenshotCaptureLayout {
   let displays: [NativeScreenshotDisplay]
   let desktopFrame: CGRect
 
-  init?(selection: CGRect, displays: [NativeScreenshotDisplay], desktopTop: CGFloat) {
+  init?(
+    selection: CGRect, displays: [NativeScreenshotDisplay], desktopTop: CGFloat,
+    includeAllDisplays: Bool = false
+  ) {
     let involved = displays.filter {
       let frame = CGRect(
         x: $0.frame.minX, y: desktopTop - $0.frame.maxY,
         width: $0.frame.width, height: $0.frame.height)
       let intersection = frame.intersection(selection)
-      return !intersection.isNull && intersection.width > 0 && intersection.height > 0
+      return includeAllDisplays
+        || (!intersection.isNull && intersection.width > 0 && intersection.height > 0)
     }
     guard
       let primary = involved.max(by: {

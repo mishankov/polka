@@ -15,6 +15,32 @@ final class NativeScreenshotTests: XCTestCase {
     context.fill(CGRect(x: 0, y: 0, width: 100, height: 80))
     return try XCTUnwrap(context.makeImage())
   }
+  @MainActor func testLiveOverlayUsesDesktopCoordinatesAndFreshExportPixels() async throws {
+    let shot = NativeScreenshotDocument(source: try image())
+    let desktop = CGRect(x: -800, y: 0, width: 1800, height: 800)
+    let display = CGRect(x: 0, y: 0, width: 1000, height: 800)
+    let editor = NativeScreenshotEditor(shot: shot, screenFrame: display, desktopFrame: desktop)
+    defer { editor.close() }
+    XCTAssertFalse(try XCTUnwrap(editor.window).isOpaque)
+    XCTAssertEqual(editor.fullImageRect(in: display), desktop)
+    let context = try XCTUnwrap(
+      CGContext(
+        data: nil, width: 100, height: 80,
+        bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.setFillColor(NSColor.blue.cgColor)
+    context.fill(CGRect(x: 0, y: 0, width: 100, height: 80))
+    let fresh = try XCTUnwrap(context.makeImage())
+    editor.liveImage = { fresh }
+    var result: Data?
+    editor.preparePNG { result = $0 }
+    XCTAssertTrue(shot.busy)
+    for _ in 0..<100 where result == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+    let exported = try XCTUnwrap(NSBitmapImageRep(data: XCTUnwrap(result)))
+    XCTAssertGreaterThan(try XCTUnwrap(exported.colorAt(x: 50, y: 40)).blueComponent, 0.95)
+    XCTAssertLessThan(try XCTUnwrap(exported.colorAt(x: 50, y: 40)).redComponent, 0.05)
+    XCTAssertFalse(shot.busy)
+  }
   @MainActor func testRectangleHasFourIndependentlyResizableCorners() throws {
     let shot = NativeScreenshotDocument(source: try image())
     let canvas = NativeScreenshotCanvas()

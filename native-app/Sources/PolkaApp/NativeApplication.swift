@@ -251,6 +251,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
           mediaPreviewWindow = nativeMediaGlassPreviewWindow()
         }
         if CommandLine.arguments.contains("--native-smoke") { await smoke() }
+        if CommandLine.arguments.contains("--native-screenshot-smoke") {
+          await smoke(screenshotsOnly: true)
+        }
         if CommandLine.arguments.contains("--native-system-status-smoke") {
           await smoke(systemStatusOnly: true)
         }
@@ -917,7 +920,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   }
   private func smoke(
     settingsOnly: Bool = false, previewsOnly: Bool = false, mediaOnly: Bool = false,
-    browsingOnly: Bool = false, systemStatusOnly: Bool = false
+    browsingOnly: Bool = false, systemStatusOnly: Bool = false, screenshotsOnly: Bool = false
   ) async {
     guard fixture, let path = ProcessInfo.processInfo.environment["POLKA_NATIVE_SMOKE_RESULT"]
     else { return }
@@ -963,7 +966,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       }
     }
     await show("clipboard")
-    if !settingsOnly && !previewsOnly && !browsingOnly && !systemStatusOnly {
+    if !settingsOnly && !previewsOnly && !browsingOnly && !systemStatusOnly && !screenshotsOnly {
       if let media {
         failures += await nativeMediaSmokeOverlay(application: self, shelf: shelf, monitor: media)
       }
@@ -976,7 +979,8 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       failures += await nativeSmokeAdditionalFlows(
         application: self, shelf: shelf, model: model, platform: platform,
         settingsOnly: settingsOnly,
-        previewsOnly: previewsOnly, browsingOnly: browsingOnly, systemStatusOnly: systemStatusOnly)
+        previewsOnly: previewsOnly, browsingOnly: browsingOnly, systemStatusOnly: systemStatusOnly,
+        screenshotsOnly: screenshotsOnly)
     }
     _ = media?.showFixture(.init(camera: "inactive", microphone: "inactive"))
     let result: [String: Any] = [
