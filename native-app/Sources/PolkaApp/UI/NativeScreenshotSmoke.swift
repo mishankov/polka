@@ -562,16 +562,25 @@ import PolkaCore
   if await wait({ editor.savePanel != nil && window.attachedSheet != nil }),
     let panel = editor.savePanel
   {
-    // Save panels use an out-of-process view service. Send a real Return
-    // through WindowServer in the isolated guest, then read its chosen URL.
+    // Complete the real sheet through AppKit's modal-response API. Remote save
+    // panels cannot reliably receive synthetic keys on hosted runners; opening
+    // and cancelling the sheet above still exercise the keyboard path.
+    let saveDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "polka-screenshot-save-" + UUID().uuidString, isDirectory: true)
+    do {
+      try FileManager.default.createDirectory(
+        at: saveDirectory, withIntermediateDirectories: true)
+    } catch { return failures + ["could not create screenshot save fixture: \(error)"] }
+    defer { try? FileManager.default.removeItem(at: saveDirectory) }
+    panel.directoryURL = saveDirectory
     await settle()
     trace("confirm save")
-    let source = CGEventSource(stateID: .hidSystemState)
-    for down in [true, false] {
-      CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: down)?.post(tap: .cghidEventTap)
-    }
+    window.endSheet(panel, returnCode: .OK)
     trace("save confirmed")
-    if !(await wait { !shot.busy }) { failures.append("saving screenshot did not finish") }
+    if !(await wait { !shot.busy }) {
+      panel.cancel(nil)
+      return failures + ["saving screenshot did not finish"]
+    }
     do {
       guard let saved = panel.url else {
         throw PolkaCoreError.invalid("Save panel returned no destination")
