@@ -23,8 +23,8 @@ import SwiftUI
   func move(_ original: CGRect, handle: Int, delta: CGPoint) {
     if handle == 8 {
       rect = original.offsetBy(
-        dx: max(-original.minX, min(bounds.maxX - original.maxX, delta.x)),
-        dy: max(-original.minY, min(bounds.maxY - original.maxY, delta.y)))
+        dx: max(-original.minX, min(bounds.maxX - original.maxX, delta.x.rounded())),
+        dy: max(-original.minY, min(bounds.maxY - original.maxY, delta.y.rounded())))
       return
     }
     var left = original.minX

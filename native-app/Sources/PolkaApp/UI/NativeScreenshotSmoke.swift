@@ -509,6 +509,20 @@ import PolkaCore
   if shot.area.width >= originalArea.width || window.attachedSheet != nil {
     failures.append("direct resize did not shrink area without a sheet")
   }
+  let beforeMove = shot.area
+  let side = canvas.convert(
+    CGPoint(x: canvas.imageRect.minX, y: canvas.imageRect.minY + canvas.imageRect.height * 0.25),
+    to: nil)
+  mouse(.leftMouseDown, side, window)
+  mouse(.leftMouseDragged, CGPoint(x: side.x - 20, y: side.y - 15), window)
+  mouse(.leftMouseUp, CGPoint(x: side.x - 20, y: side.y - 15), window)
+  await settle()
+  if shot.area.size != beforeMove.size || shot.area.origin == beforeMove.origin {
+    failures.append("dragging selection border did not move area without resizing")
+  }
+  key(6, .command, "я", window)
+  await settle()
+  if shot.area != beforeMove { failures.append("undo did not restore moved screenshot area") }
   await screenshot(window, name: "screenshot-direct-resize")
   key(6, .command, "я", window)
   await settle()
@@ -661,6 +675,42 @@ import PolkaCore
     }
   }
   platform.refresh()
+  // Exercise the live overlay too: static preview fixtures cannot catch a
+  // transparent WindowServer input surface or live coordinate regressions.
+  do {
+    let live = try platform.screenshots.insert(
+      image, area: CGRect(x: 100, y: 100, width: 800, height: 400),
+      screenFrame: desktop, desktopFrame: desktop)
+    if let liveEditor = platform.screenshots.editors[live.id], let liveWindow = liveEditor.window {
+      await settle()
+      guard let liveCanvas = liveEditor.canvas else {
+        return failures + ["live screenshot canvas missing"]
+      }
+      let center = liveWindow.convertPoint(
+        toScreen: liveCanvas.convert(
+          CGPoint(x: liveCanvas.imageRect.midX, y: liveCanvas.imageRect.midY), to: nil))
+      if NSWindow.windowNumber(at: center, belowWindowWithWindowNumber: 0)
+        != liveWindow.windowNumber
+      {
+        failures.append("live screenshot area does not receive WindowServer mouse input")
+      }
+      var from = liveCanvas.convert(
+        CGPoint(x: liveCanvas.imageRect.midX - 40, y: liveCanvas.imageRect.midY), to: nil)
+      for tool in [NativeScreenshotMark.Kind.arrow, .rectangle] {
+        let to = CGPoint(x: from.x + 80, y: from.y + 30)
+        live.finishObject()
+        live.tool = tool
+        mouse(.leftMouseDown, from, liveWindow)
+        mouse(.leftMouseDragged, to, liveWindow)
+        mouse(.leftMouseUp, to, liveWindow)
+        await settle()
+        from.y -= 50
+      }
+      if live.marks.count != 2 { failures.append("live overlay did not create annotations") }
+      await screenshot(liveWindow, name: "screenshot-live-interaction")
+      liveEditor.discard()
+    }
+  } catch { failures.append("live overlay interaction failed: \(error)") }
   await application.show("clipboard")
   return failures
 }

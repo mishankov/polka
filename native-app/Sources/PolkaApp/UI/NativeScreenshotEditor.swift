@@ -72,7 +72,9 @@ private final class NativeScreenshotHostingView<Content: View>: NSHostingView<Co
       rootView: NativeScreenshotEditorView(document: shot, editor: self))
     window.level = desktopFrame == nil ? .floating : .screenSaver
     if desktopFrame != nil {
-      window.backgroundColor = .clear
+      // WindowServer ignores fully transparent pixels when routing mouse input.
+      // Keep the desktop visible while retaining an input surface for drawing.
+      window.backgroundColor = NSColor.black.withAlphaComponent(0.001)
       window.isOpaque = false
       window.hasShadow = false
       window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -536,7 +538,8 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
     view.document = document
     view.editor = editor
     view.toolTip = localized(
-      "Drag boundary handles anytime · ⌘R focuses handles · Tab chooses · Arrow keys resize")
+      "Drag borders to move · Drag handles to resize · ⌘R focuses handles · Tab chooses · Arrow keys adjust"
+    )
     editor?.canvas = view
     return view
   }
@@ -707,9 +710,14 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
     guard let document, !document.busy, nativeCommandInteractionAllowed else { return }
     let point = convert(event.locationInWindow, from: nil)
     let handles = NativeScreenshotArea(document).points(areaRect(document.area))
-    if let index = handles.indices.first(where: {
+    let selection = areaRect(document.area)
+    let onBorder =
+      selection.insetBy(dx: -6, dy: -6).contains(point)
+      && !selection.insetBy(dx: 6, dy: 6).contains(point)
+    let handle = handles.indices.first(where: {
       hypot(handles[$0].x - point.x, handles[$0].y - point.y) <= 12
-    }) {
+    })
+    if let index = handle ?? (onBorder ? 8 : nil) {
       guard finishText() else { return }
       window?.makeFirstResponder(self)
       document.finishObject()

@@ -636,7 +636,7 @@
 
 "Discard" = "Удалить снимок";
 
-"Drag boundary handles anytime · ⌘R focuses handles · Tab chooses · Arrow keys resize" = "Маркеры границ доступны всегда · ⌘R выбирает границу · Tab меняет маркер · Стрелки меняют размер";
+"Drag borders to move · Drag handles to resize · ⌘R focuses handles · Tab chooses · Arrow keys adjust" = "Тяните границу для перемещения, маркеры — для размера · ⌘R выбирает маркеры · Tab меняет маркер · Стрелки изменяют область";
 
 "Drag handles or the object · Tab selects a handle · Arrow keys move · Backspace deletes" = "Потяните маркеры или объект · Tab выбирает маркер · Стрелки перемещают · Backspace удаляет";
 

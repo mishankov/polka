@@ -636,7 +636,7 @@
 
 "Discard" = "Discard";
 
-"Drag boundary handles anytime · ⌘R focuses handles · Tab chooses · Arrow keys resize" = "Drag boundary handles anytime · ⌘R focuses handles · Tab chooses · Arrow keys resize";
+"Drag borders to move · Drag handles to resize · ⌘R focuses handles · Tab chooses · Arrow keys adjust" = "Drag borders to move · Drag handles to resize · ⌘R focuses handles · Tab chooses · Arrow keys adjust";
 
 "Drag handles or the object · Tab selects a handle · Arrow keys move · Backspace deletes" = "Drag handles or the object · Tab selects a handle · Arrow keys move · Backspace deletes";
 
