@@ -18,7 +18,7 @@ inputs:
 outputs:
   native-cache-key:
     description: Exact native build cache key for an early checkpoint after compilation.
-    value: swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('native-app/Package.swift', 'native-app/Sources/**', 'native-app/Tests/**') }}
+    value: ${{ steps.cache-key.outputs.native }}
 
 runs:
   using: composite
@@ -74,6 +74,13 @@ runs:
           swift-tools-v2-${{ runner.os }}-${{ runner.arch }}-tooling-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-
           swift-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.legacy_build_key }}-${{ hashFiles('tools/Package.swift') }}-
 
+    - name: Compute native cache key
+      id: cache-key
+      shell: bash
+      env:
+        NATIVE_CACHE_KEY: swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('native-app/Package.swift', 'native-app/Sources/**', 'native-app/Tests/**') }}
+      run: echo "native=$NATIVE_CACHE_KEY" >> "$GITHUB_OUTPUT"
+
     - name: Cache Swift app intermediates
       id: native-cache
       if: inputs.build-cache != '' && inputs.tools-only != 'true'
@@ -85,7 +92,7 @@ runs:
         # across source and manifest revisions with identical resolved dependencies,
         # but never cross compilers, SDK builds, paths or build profiles. Manifest
         # resource changes must not discard compiled third-party dependencies.
-        key: swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('native-app/Package.swift', 'native-app/Sources/**', 'native-app/Tests/**') }}
+        key: ${{ steps.cache-key.outputs.native }}
         restore-keys: |
           swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-
           swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-
