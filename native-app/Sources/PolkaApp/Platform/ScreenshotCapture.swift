@@ -84,6 +84,7 @@ struct NativeScreenshotCaptureResult {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false
+        panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let view = NativeScreenshotSelectionView(
           frame: CGRect(origin: .zero, size: frame.size))
@@ -128,7 +129,19 @@ private final class NativeScreenshotSelectionPanel: NSPanel {
   var selection: NativeScreenshotRegionSelection?
   override var acceptsFirstResponder: Bool { true }
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+  private var cursorTracking: NSTrackingArea?
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+    if let cursorTracking { removeTrackingArea(cursorTracking) }
+    let tracking = NSTrackingArea(
+      rect: .zero, options: [.activeAlways, .inVisibleRect, .cursorUpdate, .mouseMoved],
+      owner: self, userInfo: nil)
+    cursorTracking = tracking
+    addTrackingArea(tracking)
+  }
   override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+  override func cursorUpdate(with event: NSEvent) { NSCursor.crosshair.set() }
+  override func mouseMoved(with event: NSEvent) { NSCursor.crosshair.set() }
   override func draw(_ dirtyRect: NSRect) {
     NSColor.black.withAlphaComponent(0.25).setFill()
     bounds.fill()
@@ -156,6 +169,7 @@ private final class NativeScreenshotSelectionPanel: NSPanel {
     selection?.begin(window.convertPoint(toScreen: event.locationInWindow))
   }
   override func mouseDragged(with event: NSEvent) {
+    NSCursor.crosshair.set()
     guard let window else { return }
     // Drag events keep arriving at the starting panel after crossing a display edge.
     selection?.update(window.convertPoint(toScreen: event.locationInWindow))

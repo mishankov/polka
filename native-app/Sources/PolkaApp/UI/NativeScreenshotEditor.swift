@@ -67,6 +67,7 @@ private final class NativeScreenshotHostingView<Content: View>: NSHostingView<Co
     window.identifier = NSUserInterfaceItemIdentifier("screenshot-editor")
     window.minSize = NSSize(width: 740, height: 440)
     window.isReleasedWhenClosed = false
+    window.acceptsMouseMovedEvents = true
     window.delegate = self
     window.contentView = NativeScreenshotHostingView(
       rootView: NativeScreenshotEditorView(document: shot, editor: self))
@@ -566,6 +567,44 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
   private var resizeOrigin: CGPoint?
   private var areaHandle = 4
   private(set) var areaKeyboard = false
+  private var cursorTracking: NSTrackingArea?
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+    if let cursorTracking { removeTrackingArea(cursorTracking) }
+    let tracking = NSTrackingArea(
+      rect: .zero, options: [.activeAlways, .inVisibleRect, .cursorUpdate, .mouseMoved],
+      owner: self, userInfo: nil)
+    cursorTracking = tracking
+    addTrackingArea(tracking)
+  }
+  func areaTarget(at point: CGPoint) -> Int? {
+    guard let document else { return nil }
+    let selection = areaRect(document.area)
+    let handles = NativeScreenshotArea(document).points(selection)
+    if let index = handles.indices.first(where: {
+      hypot(handles[$0].x - point.x, handles[$0].y - point.y) <= 12
+    }) {
+      return index
+    }
+    return selection.insetBy(dx: -6, dy: -6).contains(point)
+      && !selection.insetBy(dx: 6, dy: 6).contains(point) ? 8 : nil
+  }
+  func pointer(at point: CGPoint) -> NSCursor {
+    guard let document, !document.busy else { return .arrow }
+    if let target = resizeDraft == nil ? areaTarget(at: point) : areaHandle {
+      if target == 8 { return resizeDraft == nil ? .openHand : .closedHand }
+      let positions: [NSCursor.FrameResizePosition] = [
+        .bottomLeft, .bottom, .bottomRight, .right, .topRight, .top, .topLeft, .left,
+      ]
+      return .frameResize(position: positions[target], directions: .all)
+    }
+    guard imageRect.contains(point) else { return .arrow }
+    return document.tool == .text ? .iBeam : .crosshair
+  }
+  override func cursorUpdate(with event: NSEvent) {
+    pointer(at: convert(event.locationInWindow, from: nil)).set()
+  }
+  override func mouseMoved(with event: NSEvent) { cursorUpdate(with: event) }
   static func fullImageRect(in bounds: CGRect, size: CGSize) -> CGRect {
     let scale = min((bounds.width - 32) / size.width, (bounds.height - 32) / size.height)
     let rendered = CGSize(width: size.width * scale, height: size.height * scale)
@@ -709,15 +748,7 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
   override func mouseDown(with event: NSEvent) {
     guard let document, !document.busy, nativeCommandInteractionAllowed else { return }
     let point = convert(event.locationInWindow, from: nil)
-    let handles = NativeScreenshotArea(document).points(areaRect(document.area))
-    let selection = areaRect(document.area)
-    let onBorder =
-      selection.insetBy(dx: -6, dy: -6).contains(point)
-      && !selection.insetBy(dx: 6, dy: 6).contains(point)
-    let handle = handles.indices.first(where: {
-      hypot(handles[$0].x - point.x, handles[$0].y - point.y) <= 12
-    })
-    if let index = handle ?? (onBorder ? 8 : nil) {
+    if let index = areaTarget(at: point) {
       guard finishText() else { return }
       window?.makeFirstResponder(self)
       document.finishObject()
@@ -726,6 +757,7 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
       resizeDraft = NativeScreenshotArea(document)
       resizeOriginal = document.area
       resizeOrigin = point
+      pointer(at: point).set()
       return
     }
     areaKeyboard = false
@@ -825,6 +857,7 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
     guard let document, !document.busy, nativeCommandInteractionAllowed else { return }
     if let draft = resizeDraft, let original = resizeOriginal, let origin = resizeOrigin {
       let point = convert(event.locationInWindow, from: nil)
+      pointer(at: point).set()
       let scale = fullImageRect.width / document.fullBounds.width
       draft.move(
         original, handle: areaHandle,
@@ -850,6 +883,7 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
       resizeDraft = nil
       resizeOriginal = nil
       resizeOrigin = nil
+      cursorUpdate(with: event)
       needsDisplay = true
       return
     }

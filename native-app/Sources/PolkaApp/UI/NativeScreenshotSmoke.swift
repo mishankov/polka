@@ -186,6 +186,10 @@ import PolkaCore
       $0.contentView is NativeScreenshotSelectionView && $0.frame == displayFrames[0]
     })
   else { return ["missing region selection window"] }
+  NSCursor.arrow.set()
+  mouse(.mouseMoved, CGPoint(x: 120, y: 130), selection)
+  await settle()
+  if NSCursor.current != .crosshair { failures.append("capture movement lost crosshair cursor") }
   mouse(.leftMouseDown, CGPoint(x: 100, y: 100), selection)
   mouse(.leftMouseDragged, CGPoint(x: 700, y: 500), selection)
   await settle()
@@ -513,7 +517,21 @@ import PolkaCore
   let side = canvas.convert(
     CGPoint(x: canvas.imageRect.minX, y: canvas.imageRect.minY + canvas.imageRect.height * 0.25),
     to: nil)
+  let localSide = canvas.convert(side, from: nil)
+  if canvas.pointer(at: localSide) != .openHand {
+    failures.append("selection border did not offer move cursor")
+  }
+  let handlePoints = NativeScreenshotArea(shot).points(canvas.imageRect)
+  for (index, point) in handlePoints.enumerated() {
+    if canvas.areaTarget(at: point) != index || canvas.pointer(at: point) == .openHand {
+      failures.append("selection handle did not offer resize cursor")
+    }
+  }
   mouse(.leftMouseDown, side, window)
+  await settle()
+  if canvas.pointer(at: localSide) != .closedHand {
+    failures.append("moving selection did not retain closed-hand cursor")
+  }
   mouse(.leftMouseDragged, CGPoint(x: side.x - 20, y: side.y - 15), window)
   mouse(.leftMouseUp, CGPoint(x: side.x - 20, y: side.y - 15), window)
   await settle()
