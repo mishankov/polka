@@ -95,6 +95,7 @@ private final class NativeScreenshotHostingView<Content: View>: NSHostingView<Co
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
   deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
   func present() {
+    NSCursor.arrow.set()
     NSApp.activate(ignoringOtherApps: true)
     for mirror in mirrors { mirror.window?.orderFrontRegardless() }
     showWindow(nil)
@@ -589,17 +590,44 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
     return selection.insetBy(dx: -6, dy: -6).contains(point)
       && !selection.insetBy(dx: 6, dy: 6).contains(point) ? 8 : nil
   }
+  static let moveCursor: NSCursor = {
+    let image = NSImage(size: NSSize(width: 24, height: 24), flipped: false) { _ in
+      let path = NSBezierPath()
+      let lines: [[CGPoint]] = [
+        [CGPoint(x: 3, y: 12), CGPoint(x: 21, y: 12)],
+        [CGPoint(x: 12, y: 3), CGPoint(x: 12, y: 21)],
+        [CGPoint(x: 7, y: 8), CGPoint(x: 3, y: 12), CGPoint(x: 7, y: 16)],
+        [CGPoint(x: 17, y: 8), CGPoint(x: 21, y: 12), CGPoint(x: 17, y: 16)],
+        [CGPoint(x: 8, y: 7), CGPoint(x: 12, y: 3), CGPoint(x: 16, y: 7)],
+        [CGPoint(x: 8, y: 17), CGPoint(x: 12, y: 21), CGPoint(x: 16, y: 17)],
+      ]
+      for points in lines {
+        path.move(to: points[0])
+        for point in points.dropFirst() { path.line(to: point) }
+      }
+      path.lineJoinStyle = .round
+      path.lineCapStyle = .round
+      NSColor.white.setStroke()
+      path.lineWidth = 4
+      path.stroke()
+      NSColor.black.setStroke()
+      path.lineWidth = 2
+      path.stroke()
+      return true
+    }
+    return NSCursor(image: image, hotSpot: NSPoint(x: 12, y: 12))
+  }()
   func pointer(at point: CGPoint) -> NSCursor {
     guard let document, !document.busy else { return .arrow }
     if let target = resizeDraft == nil ? areaTarget(at: point) : areaHandle {
-      if target == 8 { return resizeDraft == nil ? .openHand : .closedHand }
+      if target == 8 { return Self.moveCursor }
       let positions: [NSCursor.FrameResizePosition] = [
         .bottomLeft, .bottom, .bottomRight, .right, .topRight, .top, .topLeft, .left,
       ]
       return .frameResize(position: positions[target], directions: .all)
     }
     guard imageRect.contains(point) else { return .arrow }
-    return document.tool == .text ? .iBeam : .crosshair
+    return .arrow
   }
   override func cursorUpdate(with event: NSEvent) {
     pointer(at: convert(event.locationInWindow, from: nil)).set()

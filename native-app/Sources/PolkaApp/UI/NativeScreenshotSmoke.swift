@@ -517,20 +517,25 @@ import PolkaCore
   let side = canvas.convert(
     CGPoint(x: canvas.imageRect.minX, y: canvas.imageRect.minY + canvas.imageRect.height * 0.25),
     to: nil)
+  if canvas.pointer(at: CGPoint(x: canvas.imageRect.midX, y: canvas.imageRect.midY)) != .arrow {
+    failures.append("selected screenshot area did not use regular arrow cursor")
+  }
   let localSide = canvas.convert(side, from: nil)
-  if canvas.pointer(at: localSide) != .openHand {
+  if canvas.pointer(at: localSide) != NativeScreenshotCanvas.moveCursor {
     failures.append("selection border did not offer move cursor")
   }
   let handlePoints = NativeScreenshotArea(shot).points(canvas.imageRect)
   for (index, point) in handlePoints.enumerated() {
-    if canvas.areaTarget(at: point) != index || canvas.pointer(at: point) == .openHand {
+    if canvas.areaTarget(at: point) != index
+      || canvas.pointer(at: point) == NativeScreenshotCanvas.moveCursor
+    {
       failures.append("selection handle did not offer resize cursor")
     }
   }
   mouse(.leftMouseDown, side, window)
   await settle()
-  if canvas.pointer(at: localSide) != .closedHand {
-    failures.append("moving selection did not retain closed-hand cursor")
+  if canvas.pointer(at: localSide) != NativeScreenshotCanvas.moveCursor {
+    failures.append("moving selection did not retain four-direction cursor")
   }
   mouse(.leftMouseDragged, CGPoint(x: side.x - 20, y: side.y - 15), window)
   mouse(.leftMouseUp, CGPoint(x: side.x - 20, y: side.y - 15), window)
