@@ -362,9 +362,21 @@ final class DesktopVMTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: root) }
     let context = try fixture(root)
     let config = try DesktopVM.Configuration(context: context)
+    // Compiler startup is setup, not part of the cancellation/startup deadline.
+    // Keep the real helper, but build it before the five-second expectation.
+    let prepared = root.appendingPathComponent("prepared")
+    try FileManager.default.createDirectory(at: prepared, withIntermediateDirectories: true)
+    try DesktopVM.compileDisplay(to: prepared, context: context)
     let started = expectation(description: "Guest operation started")
     let worker = Task {
-      try await DesktopVM.withGuest(config, context: context) { _ in
+      try await DesktopVM.withGuest(
+        config, context: context,
+        prepareDisplay: { destination, _ in
+          try FileManager.default.copyItem(
+            at: prepared.appendingPathComponent("prepare-display"),
+            to: destination.appendingPathComponent("prepare-display"))
+        }
+      ) { _ in
         started.fulfill()
         try await Task.sleep(nanoseconds: 20_000_000_000)
       }

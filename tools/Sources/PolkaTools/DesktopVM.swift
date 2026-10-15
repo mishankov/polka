@@ -244,11 +244,14 @@ public enum DesktopVM {
   static func withGuest<T>(
     _ config: Configuration, source: URL? = nil, output: URL? = nil, context: ToolContext,
     readinessTimeout: TimeInterval = 180, probeTimeout: TimeInterval = 15,
+    prepareDisplay: (URL, ToolContext) throws -> Void = {
+      try compileDisplay(to: $0, context: $1)
+    },
     operation: (DesktopChild) async throws -> T
   ) async throws -> T {
     let bootstrap = try Files.temporary("polka-vm-bootstrap")
     defer { try? FileManager.default.removeItem(at: bootstrap) }
-    try compileDisplay(to: bootstrap, context: context)
+    try prepareDisplay(bootstrap, context)
     let info = try await checked(
       config, ["get", config.name, "--format", "json"], context: context)
     guard let json = try JSONSerialization.jsonObject(with: Data(info.utf8)) as? [String: Any],
