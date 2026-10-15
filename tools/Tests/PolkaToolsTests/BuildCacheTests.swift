@@ -12,13 +12,14 @@ final class BuildCacheTests: XCTestCase {
     let changed = package.appendingPathComponent("Sources/Library/Changed.swift")
     let removed = package.appendingPathComponent("Tests/LibraryTests/Removed.swift")
     let resource = package.appendingPathComponent("Sources/Library/data.json")
+    let dependency = package.appendingPathComponent(".build/checkouts/dependency/Sources/shim.c")
     let outside = root.appendingPathComponent("outside.swift")
-    for path in [unchanged, changed, removed, resource, outside] {
+    for path in [unchanged, changed, removed, resource, dependency, outside] {
       try TestSupport.write("original", to: path)
     }
     let past = Date(timeIntervalSince1970: 1_600_000_000.125)
     let checkout = past.addingTimeInterval(100)
-    for path in [unchanged, changed, removed, resource] {
+    for path in [unchanged, changed, removed, resource, dependency] {
       try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: path.path)
     }
     try FileManager.default.createSymbolicLink(
@@ -42,11 +43,11 @@ final class BuildCacheTests: XCTestCase {
     try FileManager.default.removeItem(at: removed)
     let added = package.appendingPathComponent("Sources/Library/Added.swift")
     try TestSupport.write("new source", to: added)
-    for path in [unchanged, changed, resource, added] {
+    for path in [unchanged, changed, resource, added, dependency] {
       try FileManager.default.setAttributes([.modificationDate: checkout], ofItemAtPath: path.path)
     }
     try prepare()
-    for path in [unchanged, resource] {
+    for path in [unchanged, resource, dependency] {
       XCTAssertEqual(
         try modified(path).timeIntervalSince1970, past.timeIntervalSince1970, accuracy: 0.000001)
     }

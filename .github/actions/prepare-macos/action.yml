@@ -15,6 +15,11 @@ inputs:
     required: false
     default: release
 
+outputs:
+  native-cache-key:
+    description: Exact native build cache key for an early checkpoint after compilation.
+    value: swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('native-app/Package.swift', 'native-app/Sources/**', 'native-app/Tests/**') }}
+
 runs:
   using: composite
   steps:
@@ -70,6 +75,7 @@ runs:
           swift-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.legacy_build_key }}-${{ hashFiles('tools/Package.swift') }}-
 
     - name: Cache Swift app intermediates
+      id: native-cache
       if: inputs.build-cache != '' && inputs.tools-only != 'true'
       uses: actions/cache@v6
       with:
@@ -82,6 +88,7 @@ runs:
         key: swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('native-app/Package.swift', 'native-app/Sources/**', 'native-app/Tests/**') }}
         restore-keys: |
           swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-
+          swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-
           swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-
           swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-
           swift-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.legacy_build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved') }}-
