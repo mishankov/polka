@@ -195,8 +195,17 @@ import PolkaCore
       panel.resetCursorRects()
       mouse(.mouseMoved, CGPoint(x: x, y: 130), panel)
       await settle()
-      if NSCursor.current != .crosshair {
-        failures.append("capture movement lost crosshair cursor")
+      let view = panel.contentView as? NativeScreenshotSelectionView
+      if !platform.screenshots.captureService.cursorHidden {
+        failures.append("capture exposed system pointer during movement")
+      }
+      if view?.selection?.pointer != panel.convertPoint(toScreen: CGPoint(x: x, y: 130)) {
+        failures.append("capture crosshair did not follow movement across displays")
+      }
+      // A competing cursor request between movement events must stay invisible.
+      NSCursor.arrow.set()
+      if !platform.screenshots.captureService.cursorHidden {
+        failures.append("competing cursor update exposed an arrow during capture")
       }
     }
   }
@@ -227,7 +236,11 @@ import PolkaCore
   else { return ["missing screenshot editor"] }
   let shot = editor.shot
   await settle()
-  if NSCursor.current != .arrow { failures.append("completed capture retained crosshair cursor") }
+  if NSCursor.current != .arrow || platform.screenshots.captureService.cursorHidden
+
+  {
+    failures.append("completed capture did not restore regular system pointer")
+  }
   guard let canvas = canvas(window.contentView) else { return ["missing annotation canvas"] }
   key(20, .command, "3", window)
   await settle()

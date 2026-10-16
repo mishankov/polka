@@ -12,6 +12,7 @@ struct NativeScreenshotCaptureResult {
 /// No clipboard or temporary image file is used by capture.
 @MainActor final class NativeScreenshotCapture {
   private var panels: [NSPanel] = []
+  private(set) var cursorHidden = false
   private var continuation: CheckedContinuation<CGRect?, Never>?
   func capture() async throws -> NativeScreenshotCaptureResult? {
     guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
@@ -108,7 +109,9 @@ struct NativeScreenshotCaptureResult {
         panel.makeKey()
         panel.makeFirstResponder(panel.contentView)
       }
-      NSCursor.crosshair.set()
+      selection.movePointer(NSEvent.mouseLocation)
+      NSCursor.hide()
+      cursorHidden = true
     }
   }
   static func captureRect(_ appKitRect: CGRect, desktopTop: CGFloat) -> CGRect {
@@ -119,6 +122,10 @@ struct NativeScreenshotCaptureResult {
   func finish(_ rect: CGRect?) {
     for panel in panels { panel.orderOut(nil) }
     panels.removeAll()
+    if cursorHidden {
+      cursorHidden = false
+      NSCursor.unhide()
+    }
     NSCursor.arrow.set()
     let pending = continuation
     continuation = nil
@@ -128,14 +135,7 @@ struct NativeScreenshotCaptureResult {
 
 private final class NativeScreenshotSelectionPanel: NSPanel {
   override var canBecomeKey: Bool { true }
-  override func sendEvent(_ event: NSEvent) {
-    super.sendEvent(event)
-    switch event.type {
-    case .mouseMoved, .cursorUpdate, .leftMouseDown, .leftMouseDragged:
-      if isVisible { NSCursor.crosshair.set() }
-    default: break  // Mouse-up can finish capture; do not restore its crosshair.
-    }
-  }
+
 }
 
 @MainActor final class NativeScreenshotSelectionView: NSView {
@@ -153,8 +153,12 @@ private final class NativeScreenshotSelectionPanel: NSPanel {
     cursorTracking = tracking
     addTrackingArea(tracking)
   }
-  override func cursorUpdate(with event: NSEvent) { NSCursor.crosshair.set() }
-  override func mouseMoved(with event: NSEvent) { NSCursor.crosshair.set() }
+  override func cursorUpdate(with event: NSEvent) { updatePointer(event) }
+  override func mouseMoved(with event: NSEvent) { updatePointer(event) }
+  private func updatePointer(_ event: NSEvent) {
+    guard let window else { return }
+    selection?.movePointer(window.convertPoint(toScreen: event.locationInWindow))
+  }
   override func draw(_ dirtyRect: NSRect) {
     NSColor.black.withAlphaComponent(0.25).setFill()
     bounds.fill()
@@ -174,15 +178,28 @@ private final class NativeScreenshotSelectionPanel: NSPanel {
         .font: NSFont.systemFont(ofSize: 16, weight: .semibold),
         .foregroundColor: NSColor.white, .backgroundColor: NSColor.black,
       ])
+    // Use the system crosshair artwork, but draw it in our overlay while the
+    // hardware pointer is hidden. AppKit/other-window cursor resets cannot flash
+    // an arrow between input events. Never included in the captured image.
+    if let pointer = selection?.pointer, let window {
+      let point = convert(window.convertPoint(fromScreen: pointer), from: nil)
+      let cursor = NSCursor.crosshair
+      cursor.image.draw(
+        in: CGRect(
+          x: point.x - cursor.hotSpot.x,
+          y: point.y - (cursor.image.size.height - cursor.hotSpot.y),
+          width: cursor.image.size.width, height: cursor.image.size.height))
+    }
   }
   override func mouseDown(with event: NSEvent) {
+    updatePointer(event)
     window?.makeKey()
     window?.makeFirstResponder(self)
     guard let window else { return }
     selection?.begin(window.convertPoint(toScreen: event.locationInWindow))
   }
   override func mouseDragged(with event: NSEvent) {
-    NSCursor.crosshair.set()
+    updatePointer(event)
     guard let window else { return }
     // Drag events keep arriving at the starting panel after crossing a display edge.
     selection?.update(window.convertPoint(toScreen: event.locationInWindow))
@@ -296,6 +313,11 @@ struct NativeScreenshotCaptureLayout {
   var changed: (() -> Void)?
   private var start: CGPoint?
   private var end: CGPoint?
+  private(set) var pointer: CGPoint?
+  func movePointer(_ point: CGPoint) {
+    pointer = point
+    changed?()
+  }
   var rect: CGRect? {
     guard let start, let end else { return nil }
     return NativeScreenshotDocument.rect(start, end)
