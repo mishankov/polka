@@ -22,7 +22,7 @@ Open Polka with **⌘⇧Space**, its menu bar icon, or by hovering over the came
 
 ### Clipboard history and snippets
 
-Find text and images you copied earlier with **⌘⇧V**. Search, preview, pin useful entries, and paste them back into your work. Polka recognizes text in images on your Mac, so you can search a screenshot or copy its text.
+Find text and images you copied earlier with **⌘⇧V**. Search, preview, pin useful entries, and paste them back into your work. Polka recognizes text in images on your Mac, so you can search a screenshot or copy its text. Filter history by All, Text, Images, Links, or Colors while keeping your search. Use **⌘⌃1–5** to switch types; **⌘⌃1** returns to All.
 
 Save addresses, standard replies, and other text you use often as **Snippets**. Give them an optional title, search by title or content, and edit them whenever you need. Snippets stay separate from clipboard history and its retention settings.
 

@@ -647,3 +647,17 @@
 "Size" = "Размер";
 
 "Width" = "Толщина";
+
+"All" = "Все";
+
+"Images" = "Изображения";
+
+"Links" = "Ссылки";
+
+"Colors" = "Цвета";
+
+"Content type" = "Тип содержимого";
+
+"No items match the selected type and search." = "Нет записей, соответствующих выбранному типу и поиску.";
+
+"Show All Types" = "Показать все типы";

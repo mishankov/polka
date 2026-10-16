@@ -126,6 +126,10 @@ final class NativeBuiltinAppTests: XCTestCase {
   @MainActor func testDisablePreservesDraftBrowseAndFilesBeyondResumeTimeout() async throws {
     try await withPlatform { platform, root in
       let model = platform.model
+      let historyText = "saved query history"
+      try platform.history.add(.text, content: historyText, preview: historyText)
+      let historyID = clipId(.text, historyText)
+      let snippetID = try platform.history.createSnippet(content: "saved query snippet")
       let file = root.appendingPathComponent("synthetic.txt")
       try Data("fixture".utf8).write(to: file)
       try platform.files.add([file.path])
@@ -133,7 +137,10 @@ final class NativeBuiltinAppTests: XCTestCase {
       for destination in ["snippets", "clipboard", "emoji", "files"] {
         model.present(destination: destination)
         model.query = "saved query"
-        model.selectedID = "selection"
+        let selection =
+          destination == "clipboard"
+          ? historyID : destination == "snippets" ? snippetID : "selection"
+        model.selectedID = selection
         model.listScrollOffset = 123
         model.previewScrollOffset = 45
         model.emojiCategory = "Symbols"
@@ -147,7 +154,7 @@ final class NativeBuiltinAppTests: XCTestCase {
         try await set(platform, destination, true)
         model.present(destination: destination, now: Date().addingTimeInterval(3600))
         XCTAssertEqual(model.query, "saved query")
-        XCTAssertEqual(model.selectedID, "selection")
+        XCTAssertEqual(model.selectedID, selection)
         XCTAssertEqual(model.listScrollOffset, 123)
         XCTAssertEqual(model.previewScrollOffset, 45)
         XCTAssertEqual(model.emojiCategory, "Symbols")

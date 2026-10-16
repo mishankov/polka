@@ -1,4 +1,5 @@
 import AppKit
+import PolkaCore
 import SwiftUI
 
 struct NativeKeyInput {
@@ -26,8 +27,13 @@ extension NativeUIModel {
     let escape = key.code == 53
     let cmd = flags == .command
     // Native menus, attached sheets, and shortcut recording own keyboard input.
+    let filterShortcut =
+      destination == "clipboard" && !key.isSettings
+      && flags == [.command, .control]
+      && nativeNumber(key).map { $0 < ClipboardFilter.allCases.count } == true
     let known =
-      escape || (enter && (!key.editing || key.searchEditing || command || previewID != nil))
+      filterShortcut || escape
+      || (enter && (!key.editing || key.searchEditing || command || previewID != nil))
       || (command && (delete || [45, 1, 14, 35, 0, 43, 15, 32, 13].contains(key.code)))
       || (command && nativeNumber(key) != nil)
     if busy { return known }
@@ -110,6 +116,10 @@ extension NativeUIModel {
     }
     if escape {
       if previewID != nil { back() } else { perform(NativeUICommand("launcher.hide")) }
+      return true
+    }
+    if filterShortcut, let index = nativeNumber(key) {
+      chooseClipboardFilter(ClipboardFilter.allCases[index])
       return true
     }
     if destination == "files" {

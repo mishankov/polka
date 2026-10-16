@@ -186,7 +186,9 @@ public func clipboardTextEqual(_ left: String?, _ right: String?) -> Bool {
   default: return false
   }
 }
-public func clipboardResults(_ clips: [ClipboardClip], query: String) -> [ClipboardClip] {
+public func clipboardResults(
+  _ clips: [ClipboardClip], query: String, filter: ClipboardFilter = .all
+) -> [ClipboardClip] {
   let whitespace = CharacterSet(
     charactersIn:
       "\u{0009}\u{000A}\u{000B}\u{000C}\u{000D}\u{0020}\u{00A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}"
@@ -198,6 +200,7 @@ public func clipboardResults(_ clips: [ClipboardClip], query: String) -> [Clipbo
       ? "\(clip.name ?? "") \(clip.content)"
       : localized("Image {0}", String(describing: clip.ocr?.text ?? ""))).lowercased()
     return terms.allSatisfy { text.range(of: $0, options: .literal) != nil }
+      && filter.matches(kind: clip.kind, content: clip.content)
   }.sorted { $0.pinned != $1.pinned ? $0.pinned : $0.createdAt > $1.createdAt }
 }
 public struct Stamp: Codable, Equatable {

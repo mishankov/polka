@@ -136,6 +136,7 @@ struct NativeSnippetDraft: Equatable {
 }
 struct NativeBrowseContext {
   var query: String
+  var clipboardFilter: ClipboardFilter
   var selectedID: String?
   var previewID: String?
   var transformation: String?
@@ -155,20 +156,34 @@ struct NativeBrowseContext {
   @Published var systemStatus = SystemStatusSnapshot()
   @Published var visible = false
   @Published var topInset: CGFloat = 0
-  @Published var query = ""
+  @Published var query = "" {
+    didSet {
+      guard query != oldValue else { return }
+      selectedID = nil
+      scrollID = nil
+      listScrollOffset = 0
+      notice = ""
+      searchRevision += 1
+    }
+  }
+  @Published private(set) var clipboardFilter = ClipboardFilter.all
   @Published var clips: [NativeUIClip] = [] {
     didSet {
       if clips != oldValue {
+        let previous = destination == "clipboard" ? filteredClips(oldValue) : []
         cachedSearch = nil
         cachedClips = nil
+        if destination == "clipboard" { reconcileClipSelection(previous: previous) }
       }
     }
   }
   @Published var snippets: [NativeUIClip] = [] {
     didSet {
       if snippets != oldValue {
+        let previous = destination == "snippets" ? filteredClips(oldValue) : []
         cachedSearch = nil
         cachedClips = nil
+        if destination == "snippets" { reconcileClipSelection(previous: previous) }
       }
     }
   }
@@ -228,7 +243,8 @@ struct NativeBrowseContext {
   var fileDragURLs: (([String]) throws -> [URL])?
   var fileDragStarted: (() -> Void)?
   var fileDragEnded: (() -> Void)?
-  private var cachedClips: (destination: String, query: String, rows: [NativeUIClip])?
+  private var cachedClips:
+    (destination: String, query: String, filter: ClipboardFilter, rows: [NativeUIClip])?
   private var cachedEmoji: (query: String, category: String, tone: String, rows: [NativeUIEmoji])?
   private var cachedSearch: (query: String, revision: Int, rows: [NativeUISearchRow])?
   private var cachedCalculationStatus: (query: String, revision: Int, value: String?)?
@@ -243,20 +259,52 @@ struct NativeBrowseContext {
   var writable: Bool { storageStatus == "ready" }
   var canPaste: Bool { settings.pasteOnSelect && pasteAccess == "granted" && pasteReady }
   var preview: NativeUIClip? { (clips + snippets).first { $0.id == previewID } }
+  private func filteredClips(_ source: [NativeUIClip]) -> [NativeUIClip] {
+    let records = source.map { clip in
+      ClipboardClip(
+        id: clip.id, kind: clip.kind == "image" ? .image : .text, content: clip.content,
+        preview: clip.preview, createdAt: clip.createdAt, pinned: clip.pinned, name: clip.name,
+        ocr: ImageText(version: "", status: .ready, text: clip.ocrText, languages: []))
+    }
+    let matches = clipboardResults(
+      records, query: query, filter: destination == "clipboard" ? clipboardFilter : .all)
+    let byID = Dictionary(uniqueKeysWithValues: source.map { ($0.id, $0) })
+    return matches.compactMap { byID[$0.id] }
+  }
   var clipResults: [NativeUIClip] {
-    if let cachedClips, cachedClips.destination == destination, cachedClips.query == query {
+    if let cachedClips, cachedClips.destination == destination, cachedClips.query == query,
+      cachedClips.filter == clipboardFilter
+    {
       return cachedClips.rows
     }
-    let terms = query.lowercased().split(whereSeparator: \.isWhitespace)
-    let rows = (destination == "snippets" ? snippets : clips).filter { clip in
-      let text =
-        (clip.name + " "
-        + (clip.kind == "image" ? localized("Image ") + clip.ocrText : clip.content))
-        .lowercased()
-      return terms.allSatisfy { text.contains($0) }
-    }.sorted { $0.pinned != $1.pinned ? $0.pinned : $0.createdAt > $1.createdAt }
-    cachedClips = (destination, query, rows)
+    let rows = filteredClips(destination == "snippets" ? snippets : clips)
+    cachedClips = (destination, query, clipboardFilter, rows)
     return rows
+  }
+  var canChangeClipboardFilter: Bool {
+    visible && destination == "clipboard" && !busy && !commandPending
+      && draft == nil && previewID == nil && !confirmClear && nativeCommandInteractionAllowed
+  }
+  func chooseClipboardFilter(_ filter: ClipboardFilter) {
+    guard canChangeClipboardFilter, filter != clipboardFilter else { return }
+    let previous = clipResults
+    clipboardFilter = filter
+    reconcileClipSelection(previous: previous)
+    listScrollOffset = 0
+    scrollID = selectedClip?.id
+  }
+  private func reconcileClipSelection(previous: [NativeUIClip]) {
+    let rows = clipResults
+    if let selectedID, !rows.contains(where: { $0.id == selectedID }) {
+      let index = previous.firstIndex(where: { $0.id == selectedID }) ?? 0
+      self.selectedID = rows.isEmpty ? nil : rows[min(index, rows.count - 1)].id
+      scrollID = self.selectedID
+    }
+    if let previewID, !rows.contains(where: { $0.id == previewID }) {
+      self.previewID = nil
+      previewImage = nil
+      transformation = nil
+    }
   }
   // Rendering, hover selection and scrolling share one result snapshot. Only
   // search inputs invalidate it; selection must never repeat catalog ranking.
@@ -356,7 +404,8 @@ struct NativeBrowseContext {
     guard ["apps", "clipboard", "snippets", "emoji", "files", "screenshots"].contains(destination)
     else { return }
     contexts[destination] = NativeBrowseContext(
-      query: query, selectedID: selectedID, previewID: previewID, transformation: transformation,
+      query: query, clipboardFilter: clipboardFilter, selectedID: selectedID, previewID: previewID,
+      transformation: transformation,
       draft: draft, category: emojiCategory, tone: emojiTone, scrollID: scrollID,
       listScrollOffset: listScrollOffset, previewScrollOffset: previewScrollOffset,
       selectedFiles: selectedFiles, fileAnchor: fileAnchor, savedAt: now)
@@ -379,6 +428,7 @@ struct NativeBrowseContext {
     error = ""
     notice = ""
     confirmClear = false
+    clipboardFilter = .all
     query = searchQuery ?? ""
     selectedID = nil
     previewID = nil
@@ -395,6 +445,7 @@ struct NativeBrowseContext {
     if let context = contexts[next],
       suspended || (resume && now.timeIntervalSince(context.savedAt) <= 60)
     {
+      clipboardFilter = context.clipboardFilter
       query = context.query
       selectedID = context.selectedID
       previewID = context.previewID
@@ -408,6 +459,8 @@ struct NativeBrowseContext {
       let currentFiles = Set(files.map(\.id))
       selectedFiles = context.selectedFiles.intersection(currentFiles)
       fileAnchor = context.fileAnchor.flatMap { currentFiles.contains($0) ? $0 : nil }
+      // Retention, sync or OCR may have changed the saved results while hidden.
+      if ["clipboard", "snippets"].contains(next) { reconcileClipSelection(previous: []) }
     }
     // An unsaved editor survives fresh invocations too; deliberate cancellation
     // is the only local operation that discards its text.
@@ -621,17 +674,7 @@ func nativeClipDate(_ milliseconds: Double) -> String {
     : Calendar.current.isDateInYesterday(date) ? localized("'Yesterday,' HH:mm") : "d MMM, HH:mm"
   return formatter.string(from: date)
 }
-func nativeWebURL(_ text: String) -> URL? {
-  let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-  guard
-    !value.contains(where: {
-      $0.isWhitespace || $0 == "\\"
-        || $0.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 })
-    }), let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
-    let host = url.host, !host.isEmpty, url.user == nil, url.password == nil
-  else { return nil }
-  return url
-}
+func nativeWebURL(_ text: String) -> URL? { clipboardWebURL(text) }
 
 func nativeClipboardSnippet(_ clip: NativeUIClip, query: String) -> String {
   if clip.kind == "image", clip.ocrText.isEmpty { return localized("Image") }
