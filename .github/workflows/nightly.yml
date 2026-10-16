@@ -159,8 +159,7 @@ jobs:
           name: nightly-macos-arm64-smoke-screenshots
           path: |
             artifacts/**/*.png
-            artifacts/desktop/**/*.zip
-            artifacts/desktop/**/failure.json
+            artifacts/desktop/
           if-no-files-found: ignore
           retention-days: 7
 
