@@ -49,13 +49,20 @@ import PolkaCore
       key(code, character == lower ? [] : .shift, String(character), window)
     }
   }
-  func mouse(_ type: NSEvent.EventType, _ point: CGPoint, _ window: NSWindow) {
+  func mouse(
+    _ type: NSEvent.EventType, _ point: CGPoint, _ window: NSWindow,
+    immediate: Bool = false
+  ) {
     if let event = NSEvent.mouseEvent(
       with: type, location: point, modifierFlags: [],
       timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
       context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)
     {
-      NSApp.postEvent(event, atStart: false)
+      if immediate {
+        NSApp.sendEvent(event)
+      } else {
+        NSApp.postEvent(event, atStart: false)
+      }
     }
   }
   func accessible(_ id: String, in source: Any) -> AnyObject? {
@@ -193,20 +200,26 @@ import PolkaCore
     for x in [120.0, 140.0, 160.0] {
       NSCursor.arrow.set()
       panel.resetCursorRects()
-      mouse(.mouseMoved, CGPoint(x: x, y: 130), panel)
-      await settle()
+      // Dispatch through AppKit and inspect the result in the same main-actor
+      // turn. A delayed check can observe a subsequent WindowServer cursor
+      // update rather than the synthetic move we are testing.
+      mouse(.mouseMoved, CGPoint(x: x, y: 130), panel, immediate: true)
       let view = panel.contentView as? NativeScreenshotSelectionView
       if !platform.screenshots.captureService.cursorHidden {
         failures.append("capture exposed system pointer during movement")
       }
-      if view?.selection?.pointer != panel.convertPoint(toScreen: CGPoint(x: x, y: 130)) {
-        failures.append("capture crosshair did not follow movement across displays")
+      let expected = panel.convertPoint(toScreen: CGPoint(x: x, y: 130))
+      if view?.selection?.pointer != expected {
+        failures.append(
+          "capture crosshair did not follow movement across displays: expected=\(expected), actual=\(String(describing: view?.selection?.pointer)), panel=\(panel.frame), key=\(panel.isKeyWindow), mouse=\(NSEvent.mouseLocation)"
+        )
       }
       // A competing cursor request between movement events must stay invisible.
       NSCursor.arrow.set()
       if !platform.screenshots.captureService.cursorHidden {
         failures.append("competing cursor update exposed an arrow during capture")
       }
+      await settle()
     }
   }
   mouse(.leftMouseDown, CGPoint(x: 100, y: 100), selection)
