@@ -19,11 +19,6 @@ struct NativeShelfView: View {
     .environment(\.colorScheme, .dark)
     .background(NativeKeyboardBridge(model: model).frame(width: 0, height: 0))
     .background(Color.black)
-    .onChange(of: model.query) { _, _ in
-      model.selectedID = nil
-      model.notice = ""
-      model.searchRevision += 1
-    }
     .modifier(NativeFileDropModifier(model: model))
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("native-shelf")
@@ -222,6 +217,7 @@ struct NativeClipboardView: View {
           model: model,
           placeholder: isSnippets
             ? localized("Find text or a name…") : localized("Find text, including text in images…"))
+        if !isSnippets { filterBar }
       }
       Divider()
       NativePasteAccessHint(model: model)
@@ -287,6 +283,23 @@ struct NativeClipboardView: View {
     }.accessibilityElement(children: .contain).accessibilityIdentifier(
       isSnippets ? "native-snippets" : "native-clipboard")
   }
+  private var filterBar: some View {
+    HStack(spacing: 8) {
+      ForEach(Array(ClipboardFilter.allCases.enumerated()), id: \.element) { index, filter in
+        NativeCommandButton(
+          title: filter.label, disabled: !model.canChangeClipboardFilter,
+          prominent: model.clipboardFilter == filter
+        ) { model.chooseClipboardFilter(filter) }
+        .help(filter.label + " · ⌘⌃\(index + 1)")
+        .accessibilityHint(localized("Keyboard shortcut: ") + "⌘⌃\(index + 1)")
+        .accessibilityIdentifier("clipboard-filter-" + filter.rawValue)
+        .accessibilityAddTraits(model.clipboardFilter == filter ? [.isSelected] : [])
+        .accessibilityCustomContent(Text(localized("Keyboard shortcut")), Text("⌘⌃\(index + 1)"))
+      }
+      Spacer(minLength: 0)
+    }.padding(.horizontal, 12).padding(.bottom, 10)
+      .accessibilityElement(children: .contain).accessibilityLabel(localized("Content type"))
+  }
   private var editor: some View {
     VStack(alignment: .leading, spacing: 10) {
       Text(localized("Name (optional)")).font(.system(size: 12))
@@ -335,7 +348,7 @@ struct NativeClipboardView: View {
               Text(
                 model.storageStatus == "failed"
                   ? localized("History Unavailable")
-                  : !model.query.isEmpty
+                  : (!isSnippets && model.clipboardFilter != .all) || !model.query.isEmpty
                     ? localized("Nothing Found")
                     : isSnippets
                       ? localized("Save Ready-to-Use Text") : localized("Copied Items Appear Here")
@@ -343,14 +356,24 @@ struct NativeClipboardView: View {
               Text(
                 model.storageStatus == "failed"
                   ? localized("Restore access to storage and restart Polka.")
-                  : !model.query.isEmpty
-                    ? localized("Try another word.")
-                    : isSnippets
-                      ? localized("Create a snippet for an address, details, or a standard reply.")
-                      : model.settings.paused
-                        ? localized("Enable clipboard recording in app settings.")
-                        : localized("Copy text or an image in any app.")
+                  : !isSnippets && model.clipboardFilter != .all
+                    ? localized("No items match the selected type and search.")
+                    : !model.query.isEmpty
+                      ? localized("Try another word.")
+                      : isSnippets
+                        ? localized(
+                          "Create a snippet for an address, details, or a standard reply.")
+                        : model.settings.paused
+                          ? localized("Enable clipboard recording in app settings.")
+                          : localized("Copy text or an image in any app.")
               ).font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+              if model.storageStatus != "failed", !isSnippets, model.clipboardFilter != .all {
+                NativeCommandButton(
+                  title: localized("Show All Types"), shortcut: "⌘⌃1",
+                  disabled: !model.canChangeClipboardFilter
+                ) { model.chooseClipboardFilter(.all) }
+                .accessibilityIdentifier("clipboard-filter-reset")
+              }
             }.padding(32)
           }
           ForEach(Array(model.clipResults.enumerated()), id: \.element.id) { position, clip in
@@ -447,7 +470,8 @@ struct NativeClipboardView: View {
         }.padding(.vertical, 8).background(
           NativeScrollPositionBridge(
             offset: $model.listScrollOffset,
-            token: model.destination + "-list-" + String(model.visible)))
+            token: model.destination + "-list-" + model.clipboardFilter.rawValue + "-"
+              + String(model.visible)))
       }.onChange(of: model.scrollID) { _, id in if let id { reader.scrollTo(id, anchor: .center) } }
     }
   }

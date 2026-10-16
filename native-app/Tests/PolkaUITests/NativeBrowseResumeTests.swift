@@ -9,6 +9,10 @@ final class NativeBrowseResumeTests: XCTestCase {
     for destination in [ShelfDestination.apps, .clipboard, .snippets, .emoji, .files] {
       let lifecycle = ShelfLifecycle()
       let model = NativeUIModel()
+      model.clips = [NativeUIClip(id: "remembered-selection", content: "Remembered query")]
+      model.snippets = [
+        NativeUIClip(id: "remembered-selection", content: "Remembered query", snippet: true)
+      ]
       let start = Date(timeIntervalSince1970: 100)
       let (initial, _) = lifecycle.begin(destination, now: 0)
       XCTAssertTrue(lifecycle.commit(initial.revision))

@@ -163,7 +163,8 @@ import SwiftUI
     view.needsDisplay = true
     view.displayIfNeeded()
     if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1",
-      name.hasPrefix("controls-") || name.hasPrefix("settings-update-") || name == "snippet-editor"
+      name.hasPrefix("controls-") || name.hasPrefix("settings-update-")
+        || name.hasPrefix("clipboard-filter-") || name == "snippet-editor"
         || name == "clipboard-clear-confirmation"
     {
       // Opt-in, window-only capture includes SwiftUI's compositor-backed glass.
@@ -202,6 +203,7 @@ import SwiftUI
     trace("color and plain-text previews")
     let previewFixtures: [(String, String)] = [
       ("color", "rgba(100, 160, 255, 0.5)"),
+      ("structured-text", "{\"enabled\": true, \"count\": 42}\r\n"),
       ("plain", "Цвет #64a0ff упоминается в тексте.\nОбычный текст остаётся обычным текстом."),
       ("large", String(repeating: "x", count: 1_048_500)),
     ]
@@ -271,6 +273,12 @@ import SwiftUI
       }
     }
     await screenshot("clipboard-color-history")
+    failures.append(
+      contentsOf: await nativeClipboardFilterSmoke(
+        application: application, model: model, platform: platform,
+        post: { post($0, $1, $2) }, wait: wait,
+        screenshot: { await screenshot($0) },
+        hasControl: { accessible($0) != nil }, click: clickAccessible))
     await application.show("clipboard")
     await settle()
     return failures
