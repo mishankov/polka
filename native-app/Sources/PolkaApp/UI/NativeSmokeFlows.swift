@@ -30,7 +30,7 @@ import SwiftUI
 @MainActor func nativeSmokeAdditionalFlows(
   application: NativeApplication, shelf: NSWindow, model: NativeUIModel, platform: NativePlatform,
   settingsOnly: Bool = false, previewsOnly: Bool = false, browsingOnly: Bool = false,
-  systemStatusOnly: Bool = false
+  systemStatusOnly: Bool = false, screenshotsOnly: Bool = false
 ) async -> [String] {
   guard NativeProfile.isolatedFixture else { return ["native smoke requires an isolated profile"] }
   // Ask this fixture process to materialize SwiftUI's virtual accessibility
@@ -49,6 +49,11 @@ import SwiftUI
   if let screenshotDirectory {
     try? FileManager.default.createDirectory(
       at: screenshotDirectory, withIntermediateDirectories: true)
+  }
+  if screenshotsOnly {
+    return await nativeScreenshotSmoke(
+      application: application, shelf: shelf,
+      platform: platform, directory: screenshotDirectory)
   }
   func post(
     _ code: UInt16, _ flags: NSEvent.ModifierFlags = [], _ characters: String = "",
@@ -1150,6 +1155,10 @@ import SwiftUI
           return $0.isEnabled && $0.state == .off
         })
       {
+        // A growing catalog can place this row outside the shortened test
+        // viewport. Reveal it before measuring stability of consecutive clicks.
+        button.scrollToVisible(button.bounds.insetBy(dx: 0, dy: -12))
+        await settle()
         trace("post pointer events for \(app.id)")
         let verifyStability = settingsStability(excluding: button)
         for enabled in [true, false, true] {

@@ -20,7 +20,10 @@ func prepareCache(_ package: URL) throws {
   var inputs: [URL] = ["Package.swift", "Package.resolved"].map {
     package.appendingPathComponent($0)
   }
-  for directory in ["Sources", "Tests"] {
+  // Cache archives can lose subsecond timestamps for dependency checkout files
+  // too. llbuild compares these against its stored input signatures; restoring
+  // only our own sources makes unchanged C/Swift dependencies compile again.
+  for directory in ["Sources", "Tests", ".build/checkouts"] {
     if let enumerator = manager.enumerator(
       at: package.appendingPathComponent(directory), includingPropertiesForKeys: nil)
     {

@@ -186,6 +186,21 @@ struct NativeSettingsView: View {
           ) { model.perform(NativeUICommand("launcher.setShortcut", strings: ["accelerator": ""])) }
         }
       }
+      NativeSettingsGroup(localized("Screenshot Shortcut")) {
+        shortcutRow(
+          localized("Capture Region"), value: model.settings.screenshotShortcut,
+          disabled: model.busy
+        ) {
+          model.perform(NativeUICommand("screenshots.shortcut", strings: ["accelerator": $0]))
+        }
+        NativeErrorNotice(text: model.settings.screenshotShortcutError)
+        NativeCommandButton(
+          title: localized("Disable Shortcut"),
+          disabled: model.busy || model.settings.screenshotShortcut.isEmpty
+        ) {
+          model.perform(NativeUICommand("screenshots.shortcut", strings: ["accelerator": ""]))
+        }
+      }
       NativeSettingsGroup(localized("Activity Indicators")) {
         settingToggle(
           localized("Camera"), value: model.settings.cameraEnabled, enabled: !model.busy

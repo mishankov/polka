@@ -14,6 +14,7 @@ final class SmokeReportTests: XCTestCase {
     XCTAssertNoThrow(try Desktop.validateSmoke(report, phase: "notice"))
     XCTAssertNoThrow(try Desktop.validateSmoke(report, phase: "startup"))
     XCTAssertThrowsError(try Desktop.validateSmoke(report, phase: "core"))
+    XCTAssertThrowsError(try Desktop.validateSmoke(report, phase: "screenshots"))
     XCTAssertThrowsError(try Desktop.validateSmoke(report, phase: "resources"))
     XCTAssertThrowsError(try Desktop.validateSmoke(report, phase: "browse"))
     XCTAssertThrowsError(try Desktop.validateSmoke(report, phase: "media"))
@@ -31,6 +32,7 @@ final class SmokeReportTests: XCTestCase {
       "ok": true, "failures": [], "nativeVisible": true, "destination": "clipboard", "snippets": 2,
     ]
     XCTAssertNoThrow(try Desktop.validateSmoke(core, phase: "core"))
+    XCTAssertNoThrow(try Desktop.validateSmoke(core, phase: "screenshots"))
     XCTAssertNoThrow(try Desktop.validateSmoke(core, phase: "resources"))
     XCTAssertNoThrow(try Desktop.validateSmoke(core, phase: "browse"))
     XCTAssertNoThrow(try Desktop.validateSmoke(core, phase: "media"))
@@ -39,6 +41,7 @@ final class SmokeReportTests: XCTestCase {
     var missing = core
     missing["snippets"] = 0
     XCTAssertThrowsError(try Desktop.validateSmoke(missing, phase: "core"))
+    XCTAssertThrowsError(try Desktop.validateSmoke(missing, phase: "screenshots"))
     XCTAssertThrowsError(try Desktop.validateSmoke(missing, phase: "resources"))
     XCTAssertThrowsError(try Desktop.validateSmoke(missing, phase: "browse"))
     XCTAssertThrowsError(try Desktop.validateSmoke(missing, phase: "media"))

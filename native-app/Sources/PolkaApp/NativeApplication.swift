@@ -251,6 +251,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
           mediaPreviewWindow = nativeMediaGlassPreviewWindow()
         }
         if CommandLine.arguments.contains("--native-smoke") { await smoke() }
+        if CommandLine.arguments.contains("--native-screenshot-smoke") {
+          await smoke(screenshotsOnly: true)
+        }
         if CommandLine.arguments.contains("--native-system-status-smoke") {
           await smoke(systemStatusOnly: true)
         }
@@ -406,6 +409,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       (localized("Clipboard History"), #selector(historyAction)),
       (localized("Snippets"), #selector(snippetsAction)),
       (localized("Files on the Shelf"), #selector(filesAction)),
+      (localized("Screenshots"), #selector(screenshotsAction)),
       (localized("Settings…"), #selector(settingsAction)),
       (localized("About and Updates"), #selector(aboutAction)),
     ] { trayMenu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self }
@@ -417,6 +421,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     tray?.menu = trayMenu
   }
   private func refreshLanguage() {
+    platform?.screenshots.refreshLanguage()
     NSApp.mainMenu = makeMainMenu()
     installTrayMenu()
     shelf?.title = localized("Polka")
@@ -430,6 +435,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   }
   @objc private func historyAction() { Task { await show("clipboard") } }
   @objc private func snippetsAction() { Task { await show("snippets") } }
+  @objc private func screenshotsAction() { Task { await show("screenshots") } }
   @objc private func filesAction() { Task { await show("files") } }
   @objc private func settingsAction() { openSettings(nil) }
   @objc private func aboutAction() { openSettings("about") }
@@ -458,7 +464,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   func validateMenuItem(_ item: NSMenuItem) -> Bool {
     let destinations: [Selector: String] = [
       #selector(historyAction): "clipboard", #selector(snippetsAction): "snippets",
-      #selector(filesAction): "files",
+      #selector(filesAction): "files", #selector(screenshotsAction): "screenshots",
     ]
     if let destination = item.action.flatMap({ destinations[$0] }) {
       return model.settings.builtinApps.allows(destination: destination) && !model.busy
@@ -515,6 +521,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     let navigationCommands: Set<String> = [
       "launcher.show", "launcher.openMac", "clipboardHistory.show", "shelf.showSnippets",
       "shelf.showEmoji", "shelf.showFiles", "shelf.files.add", "builtinApps.setEnabled",
+      "screenshots.capture",
     ]
     guard
       !model.busy || model.pendingCommand.map(navigationCommands.contains) == true
@@ -529,8 +536,15 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       await show(destination, query: query)
       return
     }
-    guard !terminating, suspensions.isEmpty, NSApp.modalWindow == nil, shelf.attachedSheet == nil
+    guard !terminating, !model.screenshotCapturing, suspensions.isEmpty, NSApp.modalWindow == nil,
+      shelf.attachedSheet == nil
     else { return }
+    if destination == "screenshots" {
+      do { try await platform.handle(NativeUICommand("screenshots.capture")) } catch {
+        model.error = error.localizedDescription
+      }
+      return
+    }
     if !drag {
       cancelIncomingEnd()
       incomingEndDeferred = false
@@ -707,7 +721,8 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     hide(reason: reason)
   }
   private func stepHover() {
-    guard shelf != nil, suspensions.isEmpty, platform.history.preferencesAvailable,
+    guard shelf != nil, !model.screenshotCapturing, suspensions.isEmpty,
+      platform.history.preferencesAvailable,
       model.settings.hoverEnabled, !model.busy, !incomingDrag, !NSMenuTrackingState.shared.active,
       NSApp.modalWindow == nil, shelf.attachedSheet == nil
     else { return }
@@ -905,7 +920,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   }
   private func smoke(
     settingsOnly: Bool = false, previewsOnly: Bool = false, mediaOnly: Bool = false,
-    browsingOnly: Bool = false, systemStatusOnly: Bool = false
+    browsingOnly: Bool = false, systemStatusOnly: Bool = false, screenshotsOnly: Bool = false
   ) async {
     guard fixture, let path = ProcessInfo.processInfo.environment["POLKA_NATIVE_SMOKE_RESULT"]
     else { return }
@@ -951,7 +966,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       }
     }
     await show("clipboard")
-    if !settingsOnly && !previewsOnly && !browsingOnly && !systemStatusOnly {
+    if !settingsOnly && !previewsOnly && !browsingOnly && !systemStatusOnly && !screenshotsOnly {
       if let media {
         failures += await nativeMediaSmokeOverlay(application: self, shelf: shelf, monitor: media)
       }
@@ -964,7 +979,8 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       failures += await nativeSmokeAdditionalFlows(
         application: self, shelf: shelf, model: model, platform: platform,
         settingsOnly: settingsOnly,
-        previewsOnly: previewsOnly, browsingOnly: browsingOnly, systemStatusOnly: systemStatusOnly)
+        previewsOnly: previewsOnly, browsingOnly: browsingOnly, systemStatusOnly: systemStatusOnly,
+        screenshotsOnly: screenshotsOnly)
     }
     _ = media?.showFixture(.init(camera: "inactive", microphone: "inactive"))
     let result: [String: Any] = [

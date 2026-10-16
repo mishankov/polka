@@ -238,7 +238,8 @@ public enum Desktop {
       : only
         ? ["scroll"]
         : [
-          "scroll", "core", "resources", "browse", "media", "previews", "settings", "startup",
+          "scroll", "core", "screenshots", "resources", "browse", "media", "previews", "settings",
+          "startup",
           "notice",
         ]
     for phase in phases {
@@ -278,6 +279,7 @@ public enum Desktop {
       try FileManager.default.createDirectory(at: artifacts, withIntermediateDirectories: true)
       let flag = [
         "scroll": "--native-scroll-smoke", "core": "--native-smoke",
+        "screenshots": "--native-screenshot-smoke",
         "resources": "--native-system-status-smoke",
         "media": "--native-media-smoke",
         "browse": "--native-browse-smoke", "previews": "--native-preview-smoke",
@@ -341,7 +343,8 @@ public enum Desktop {
   static func validateSmoke(_ result: [String: Any], phase: String) throws {
     try require(
       [
-        "core", "resources", "browse", "media", "previews", "settings", "scroll", "startup",
+        "core", "screenshots", "resources", "browse", "media", "previews", "settings", "scroll",
+        "startup",
         "notice",
       ].contains(
         phase),
@@ -352,10 +355,13 @@ public enum Desktop {
     try require(result["nativeVisible"] as? Bool == true, "Native shelf is not visible")
     try require(
       result["destination"] as? String
-        == (["core", "resources", "browse", "media", "previews", "settings"].contains(phase)
+        == (["core", "screenshots", "resources", "browse", "media", "previews", "settings"]
+          .contains(phase)
           ? "clipboard" : "apps"),
       "Unexpected native destination")
-    if ["core", "resources", "browse", "media", "previews", "settings"].contains(phase) {
+    if ["core", "screenshots", "resources", "browse", "media", "previews", "settings"].contains(
+      phase)
+    {
       try require((result["snippets"] as? Int ?? 0) > 0, "Missing synthetic snippets")
     } else if phase == "startup" || phase == "notice" {
       try require(

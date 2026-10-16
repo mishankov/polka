@@ -545,3 +545,105 @@
 "Recent network traffic" = "Недавний сетевой трафик";
 "Collecting recent activity…" = "Сбор данных для графика…";
 "<{0}" = "<{0}";
+
+"Add to File Shelf" = "Добавить на полку файлов";
+
+"Added to File Shelf" = "Добавлено на полку файлов";
+
+"Allow Polka in System Settings → Privacy & Security → Screen & System Audio Recording, then try again." = "Разрешите Полке запись экрана в Системных настройках → Конфиденциальность и безопасность → Запись экрана и системного аудио, затем повторите попытку.";
+
+"Arrow" = "Стрелка";
+
+"Capture Region" = "Снять область";
+
+"Capture a region, add arrows or text, and hide private information before sharing." = "Снимите область экрана, добавьте стрелки или текст и скройте личные данные перед отправкой.";
+
+"Capture, mark up, and share" = "Снимайте, поясняйте и отправляйте";
+
+"Click the image to place text" = "Нажмите на изображение, чтобы разместить текст";
+
+"Could not render the screenshot" = "Не удалось обработать снимок экрана";
+
+"Delete" = "Удалить";
+
+"Drafts stay on the screenshot shelf until you quit Polka." = "Черновики хранятся на полке снимков до выхода из Полки.";
+
+"Drag over information to hide" = "Выделите область, которую нужно скрыть";
+
+"Drag to capture a region · Esc to cancel" = "Выделите область для снимка · Esc — отмена";
+
+"Drag to draw an arrow" = "Потяните, чтобы нарисовать стрелку";
+
+"Redact" = "Скрыть";
+
+"Save…" = "Сохранить…";
+
+"Screenshot Shortcut" = "Сочетание для снимка экрана";
+
+"Screenshot capture is unavailable in this test profile" = "Съёмка экрана недоступна в этом тестовом профиле";
+
+"Screenshot {0}" = "Снимок {0}";
+
+"Screenshots" = "Снимки экрана";
+
+"Text to place on the image" = "Текст на изображении";
+
+"The screenshot shelf is full. Remove a screenshot before capturing another." = "Полка снимков заполнена. Удалите снимок, прежде чем сделать новый.";
+
+"Arrow color" = "Цвет стрелки";
+
+"Thickness" = "Толщина";
+
+"Text color" = "Цвет текста";
+
+"Text background" = "Фон текста";
+
+"Text size" = "Размер текста";
+
+"Click the image and type · ⌘Return to finish · Esc to cancel" = "Нажмите на изображение и введите текст · ⌘Return — готово · Esc — отмена";
+
+"Text on the image" = "Текст на изображении";
+
+"⌘Return to finish · Esc to cancel" = "⌘Return — готово · Esc — отмена";
+
+"Click to add or edit text · ⌘Return to finish · Esc to cancel" = "Нажмите, чтобы добавить или изменить текст · ⌘Return — готово · Esc — отмена";
+
+"Click to add text · Click any object to edit · Esc or ⌘Return finishes" = "Нажмите, чтобы добавить текст · Нажмите на объект для правки · Esc или ⌘Return — готово";
+
+"Esc or ⌘Return to finish" = "Esc или ⌘Return — готово";
+
+"Drag handles or the object · Tab selects a handle · Arrow keys move · Esc finishes" = "Перетаскивайте маркеры или объект · Tab — выбор маркера · Стрелки — сдвиг · Esc — готово";
+
+"Click any object to edit" = "Нажмите на любой объект для правки";
+
+"Drag text to move · Double-click or Return to edit · Arrow keys move" = "Перетаскивайте текст · Двойной щелчок или Return — правка · Стрелки — сдвиг";
+
+"Rectangle" = "Прямоугольник";
+"Rectangle color" = "Цвет фигуры";
+"Filled" = "Заливка";
+"Drag to draw a rectangle" = "Потяните, чтобы нарисовать прямоугольник";
+
+"Closing this window discards the screenshot. Copy or save it to keep it." = "При закрытии окна снимок исчезнет. Скопируйте или сохраните его.";
+"Close a screenshot window before capturing another." = "Закройте окно снимка перед созданием нового.";
+
+"Adjust Area" = "Изменить область";
+
+"Apply" = "Применить";
+
+"Drag edges to include more or less · Drag inside to move · Tab selects a handle · Arrow keys adjust" = "Потяните границы или переместите область · Tab выбирает маркер · Стрелки меняют область";
+
+"Resize" = "Размер области";
+
+"Discard" = "Удалить снимок";
+
+"Drag borders to move · Drag handles to resize · ⌘R focuses handles · Tab chooses · Arrow keys adjust" = "Тяните границу для перемещения, маркеры — для размера · ⌘R выбирает маркеры · Tab меняет маркер · Стрелки изменяют область";
+
+"Drag handles or the object · Tab selects a handle · Arrow keys move · Backspace deletes" = "Потяните маркеры или объект · Tab выбирает маркер · Стрелки перемещают · Backspace удаляет";
+
+"Color" = "Цвет";
+
+"Background" = "Фон";
+
+"Size" = "Размер";
+
+"Width" = "Толщина";

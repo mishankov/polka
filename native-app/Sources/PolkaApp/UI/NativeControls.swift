@@ -54,6 +54,7 @@ struct NativeIconButton: View {
   var symbol: String
   var shortcut = ""
   var disabled = false
+  var prominent = false
   var action: () -> Void
   var body: some View {
     Button {
@@ -61,7 +62,9 @@ struct NativeIconButton: View {
     } label: {
       Image(systemName: symbol).foregroundStyle(.primary).frame(width: 20, height: 20)
     }
-    .modifier(NativeCommandStyle()).buttonBorderShape(.circle).disabled(disabled)
+    .modifier(NativeCommandStyle(prominent: prominent)).buttonBorderShape(.circle).disabled(
+      disabled
+    )
     .help(label + (shortcut.isEmpty ? "" : " · " + shortcut))
     .accessibilityLabel(label).accessibilityHint(
       shortcut.isEmpty ? "" : localized("Keyboard shortcut: ") + shortcut

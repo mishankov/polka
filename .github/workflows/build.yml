@@ -68,11 +68,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/prepare-macos
+        id: prepare
         with:
           build-cache: optimized-native
           tools-configuration: debug
-      - name: Build optimized app, package ZIP and DMG and smoke-test the relocated app
-        run: ./polka package --desktop
+      - name: Build optimized app
+        run: ./polka build --release
+      # Retain expensive compilation even if a later integration check fails or
+      # the runner reaches its deadline. The post-job cache save then skips it.
+      - name: Checkpoint compiled native cache
+        uses: actions/cache/save@v6
+        with:
+          path: native-app/.build
+          key: ${{ steps.prepare.outputs.native-cache-key }}
+      - name: Package ZIP and DMG and smoke-test the relocated app
+        run: ./polka package --desktop --prebuilt
       - name: Verify authenticated native update, held installation and relaunch
         run: ./polka desktop updates --prebuilt --release
       - name: Report desktop coverage
