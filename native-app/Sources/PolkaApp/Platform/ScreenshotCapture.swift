@@ -81,10 +81,14 @@ struct NativeScreenshotCaptureResult {
         let panel = NativeScreenshotSelectionPanel(
           contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         panel.level = .screenSaver
-        panel.backgroundColor = .clear
+        // Retain WindowServer input ownership even inside the undimmed region.
+        panel.backgroundColor = NSColor.black.withAlphaComponent(0.001)
         panel.isOpaque = false
         panel.hasShadow = false
         panel.acceptsMouseMovedEvents = true
+        // Capture owns one cursor across every display. Automatic cursor-rect
+        // resets otherwise race explicit tracking updates and flash the arrow.
+        panel.disableCursorRects()
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let view = NativeScreenshotSelectionView(
           frame: CGRect(origin: .zero, size: frame.size))
@@ -104,6 +108,7 @@ struct NativeScreenshotCaptureResult {
         panel.makeKey()
         panel.makeFirstResponder(panel.contentView)
       }
+      NSCursor.crosshair.set()
     }
   }
   static func captureRect(_ appKitRect: CGRect, desktopTop: CGFloat) -> CGRect {
@@ -114,6 +119,7 @@ struct NativeScreenshotCaptureResult {
   func finish(_ rect: CGRect?) {
     for panel in panels { panel.orderOut(nil) }
     panels.removeAll()
+    NSCursor.arrow.set()
     let pending = continuation
     continuation = nil
     pending?.resume(returning: rect)
@@ -122,6 +128,14 @@ struct NativeScreenshotCaptureResult {
 
 private final class NativeScreenshotSelectionPanel: NSPanel {
   override var canBecomeKey: Bool { true }
+  override func sendEvent(_ event: NSEvent) {
+    super.sendEvent(event)
+    switch event.type {
+    case .mouseMoved, .cursorUpdate, .leftMouseDown, .leftMouseDragged:
+      if isVisible { NSCursor.crosshair.set() }
+    default: break  // Mouse-up can finish capture; do not restore its crosshair.
+    }
+  }
 }
 
 @MainActor final class NativeScreenshotSelectionView: NSView {
@@ -139,7 +153,6 @@ private final class NativeScreenshotSelectionPanel: NSPanel {
     cursorTracking = tracking
     addTrackingArea(tracking)
   }
-  override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
   override func cursorUpdate(with event: NSEvent) { NSCursor.crosshair.set() }
   override func mouseMoved(with event: NSEvent) { NSCursor.crosshair.set() }
   override func draw(_ dirtyRect: NSRect) {

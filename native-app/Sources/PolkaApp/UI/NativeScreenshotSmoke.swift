@@ -186,10 +186,20 @@ import PolkaCore
       $0.contentView is NativeScreenshotSelectionView && $0.frame == displayFrames[0]
     })
   else { return ["missing region selection window"] }
-  NSCursor.arrow.set()
-  mouse(.mouseMoved, CGPoint(x: 120, y: 130), selection)
-  await settle()
-  if NSCursor.current != .crosshair { failures.append("capture movement lost crosshair cursor") }
+  for panel in NSApp.windows where panel.contentView is NativeScreenshotSelectionView {
+    if panel.areCursorRectsEnabled {
+      failures.append("capture panel allows automatic cursor resets")
+    }
+    for x in [120.0, 140.0, 160.0] {
+      NSCursor.arrow.set()
+      panel.resetCursorRects()
+      mouse(.mouseMoved, CGPoint(x: x, y: 130), panel)
+      await settle()
+      if NSCursor.current != .crosshair {
+        failures.append("capture movement lost crosshair cursor")
+      }
+    }
+  }
   mouse(.leftMouseDown, CGPoint(x: 100, y: 100), selection)
   mouse(.leftMouseDragged, CGPoint(x: 700, y: 500), selection)
   await settle()
@@ -217,6 +227,7 @@ import PolkaCore
   else { return ["missing screenshot editor"] }
   let shot = editor.shot
   await settle()
+  if NSCursor.current != .arrow { failures.append("completed capture retained crosshair cursor") }
   guard let canvas = canvas(window.contentView) else { return ["missing annotation canvas"] }
   key(20, .command, "3", window)
   await settle()
