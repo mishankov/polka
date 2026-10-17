@@ -72,6 +72,7 @@ public struct EmojiCatalog: Sendable {
   }()
   public let emojis: [NativeEmoji]
   private let index: [String: NativeEmoji]
+  private let defaultEmojis: [NativeEmoji]
   public enum CatalogError: Error { case invalidData }
   public init(data: Data) throws {
     guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -98,6 +99,7 @@ public struct EmojiCatalog: Sendable {
     guard Set(emojis.map(\.id)).count == emojis.count else { throw CatalogError.invalidData }
     self.emojis = emojis
     self.index = Dictionary(uniqueKeysWithValues: emojis.map { ($0.id, $0) })
+    self.defaultEmojis = emojis.filter { $0.tones.isEmpty }
   }
   public static func normalize(_ value: String) -> String {
     value.precomposedStringWithCompatibilityMapping.lowercased(with: Locale(identifier: "ru"))
@@ -113,8 +115,10 @@ public struct EmojiCatalog: Sendable {
     -> [NativeEmoji]
   {
     let normalized = Self.normalize(query)
-    let terms = Self.normalize(query).split(whereSeparator: \.isWhitespace).map(String.init)
-    let exact = emojis.first { $0.value == query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    if normalized.isEmpty, category == "all", tone == "default" { return defaultEmojis }
+    let terms = normalized.split(whereSeparator: \.isWhitespace).map(String.init)
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    let exact = trimmed.isEmpty ? nil : emojis.first { $0.value == trimmed }
     let matches = emojis.enumerated().filter { _, emoji in
       guard category == "all" || emoji.category == category else { return false }
       if exact == nil && tone != "all"
@@ -136,11 +140,13 @@ public struct EmojiCatalog: Sendable {
       }
       return 3
     }
-    return matches.sorted { a, b in
-      let sa = score(a.element)
-      let sb = score(b.element)
-      return sa == sb ? a.offset < b.offset : sa < sb
-    }.map { $0.element }
+    let ranked: [(offset: Int, emoji: NativeEmoji, rank: Int)] = matches.map {
+      (offset: $0.offset, emoji: $0.element, rank: score($0.element))
+    }
+    let sorted = ranked.sorted { a, b in
+      a.rank == b.rank ? a.offset < b.offset : a.rank < b.rank
+    }
+    return sorted.map { $0.emoji }
   }
   public static func gridIndex(index: Int, key: String, count: Int, columns: Int) -> Int {
     if key == "Home" { return 0 }

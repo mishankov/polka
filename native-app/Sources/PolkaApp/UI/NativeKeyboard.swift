@@ -248,8 +248,7 @@ extension NativeUIModel {
         let next =
           key.code == 115
           ? 0 : key.code == 119 ? results.count - 1 : min(results.count - 1, max(0, current + step))
-        selectedID = results[next].id
-        scrollID = selectedID
+        selectNavigatedItem(results[next].id)
         return true
       }
       if [125, 126].contains(key.code) {
@@ -262,8 +261,7 @@ extension NativeUIModel {
           destination == "apps"
           ? (current + (key.code == 125 ? 1 : -1) + ids.count) % ids.count
           : min(ids.count - 1, max(0, current + (key.code == 125 ? 1 : -1)))
-        selectedID = ids[next]
-        scrollID = selectedID
+        selectNavigatedItem(ids[next])
         return true
       }
     }

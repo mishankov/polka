@@ -5,7 +5,7 @@ import SwiftUI
 /// Animate only the clipping layer. SwiftUI and native controls keep their final
 /// layout while Core Animation reveals them independently of main-thread work.
 final class NativeShelfPresentationView: NSView {
-  static let openingDuration: TimeInterval = 0.2
+  static let openingDuration: TimeInterval = 0.1
   static let closingDuration: TimeInterval = 0.15
   static let animationKey = "shelf-reveal"
   let revealMask = CAShapeLayer()

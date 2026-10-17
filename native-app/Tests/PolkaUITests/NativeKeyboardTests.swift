@@ -4,6 +4,77 @@ import XCTest
 @testable import PolkaApp
 
 final class NativeKeyboardTests: XCTestCase {
+  @MainActor func testNavigationIgnoresStationaryHoverUntilPointerMoves() throws {
+    for destination in ["apps", "clipboard", "snippets", "emoji"] {
+      let model = NativeUIModel()
+      var pointer = NSPoint(x: 100, y: 100)
+      model.selectionPointerLocation = { pointer }
+      model.searchProvider = { _ in
+        (0..<30).map { NativeUISearchRow(id: "\($0)", kind: "app", title: "App \($0)") }
+      }
+      model.emojiProvider = { _, _, _ in
+        (0..<30).map { NativeUIEmoji(id: "\($0)", value: "😀", name: "Emoji \($0)") }
+      }
+      model.clips = (0..<30).map {
+        NativeUIClip(id: "\($0)", content: "Clip \($0)", createdAt: Double(30 - $0))
+      }
+      model.snippets = model.clips.map {
+        var clip = $0
+        clip.snippet = true
+        return clip
+      }
+      model.present(destination: destination)
+      model.selectHoveredItem("0")
+      XCTAssertEqual(model.selectedID, "0", destination)
+      let down = NativeKeyInput(
+        code: 125, characters: "", modifiers: [], editing: true, searchEditing: true)
+      for index in 1...2 {
+        var key = down
+        key.repeatKey = index > 1
+        XCTAssertTrue(model.handleKeyboard(key), destination)
+        let expected = String(index * (destination == "emoji" ? 10 : 1))
+        XCTAssertEqual(model.selectedID, expected, destination)
+        // Relayout/scrolling can enter multiple rows without moving the mouse.
+        for hovered in ["0", "4", "8"] { model.selectHoveredItem(hovered) }
+        XCTAssertEqual(model.selectedID, expected, destination)
+        XCTAssertEqual(model.scrollID, expected, destination)
+      }
+      pointer.x += 1
+      model.selectHoveredItem("4")
+      XCTAssertEqual(model.selectedID, "4", destination)
+      model.selectHoveredItem("8")
+      XCTAssertEqual(model.selectedID, "8", destination)
+      XCTAssertTrue(model.handleKeyboard(down), destination)
+      let navigated = try XCTUnwrap(model.selectedID)
+      model.selectHoveredItem("0")
+      XCTAssertEqual(model.selectedID, navigated, destination)
+      model.conceal()
+      model.present(destination: destination, resume: true)
+      model.selectHoveredItem("0")
+      XCTAssertEqual(model.selectedID, "0", "Reopening restores hover: \(destination)")
+    }
+  }
+
+  @MainActor func testTextEditingAndCompositionDoNotSuppressHover() {
+    let model = NativeUIModel()
+    model.present(destination: "apps")
+    model.selectionPointerLocation = { NSPoint(x: 100, y: 100) }
+    model.searchProvider = { _ in
+      (0..<3).map { NativeUISearchRow(id: "\($0)", kind: "app", title: "App \($0)") }
+    }
+    for key in [
+      NativeKeyInput(code: 125, characters: "", modifiers: [], composing: true),
+      NativeKeyInput(code: 125, characters: "", modifiers: [], editing: true),
+      NativeKeyInput(
+        code: 124, characters: "", modifiers: [], editing: true, searchEditing: true),
+    ] {
+      XCTAssertFalse(model.handleKeyboard(key))
+      model.selectHoveredItem("1")
+      XCTAssertEqual(model.selectedID, "1")
+      model.selectHoveredItem("0")
+    }
+  }
+
   @MainActor func testSettingsShortcutRespectsInputGuardsAndPreservesDraft() async {
     let model = NativeUIModel()
     model.storageStatus = "ready"

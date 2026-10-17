@@ -6,6 +6,33 @@ import XCTest
 @testable import PolkaApp
 
 final class NativeLauncherPerformanceTests: XCTestCase {
+  @MainActor func testEmojiPreparationDoesNotBlockPresentationAndKeepsFiltersFresh() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "polka-native-emoji-preparation-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let model = NativeUIModel()
+    let platform = try NativePlatform(model: model, root: root, fixture: true)
+    XCTAssertTrue(model.emojiLoading)
+    model.present(destination: "emoji")
+    XCTAssertTrue(model.visible)
+    XCTAssertTrue(
+      model.emojiResults.isEmpty, "Presentation must not synchronously load the catalog")
+    model.query = "heart"
+    await platform.waitForEmojiPreparation()
+    XCTAssertFalse(model.emojiLoading)
+    XCTAssertTrue(model.emojiResults.contains { $0.value == "❤️" })
+    model.query = ""
+    model.emojiCategory = "Flags"
+    let flags = model.emojiResults
+    XCTAssertFalse(flags.isEmpty)
+    XCTAssertTrue(flags.allSatisfy { EmojiCatalog.shared.byID($0.id)?.category == "Flags" })
+    model.settings.language = .russian
+    AppLocalization.configure(.russian)
+    XCTAssertEqual(model.emojiResults.first?.name, EmojiCatalog.shared.byID(flags[0].id)?.name)
+    await platform.shutdown()
+    AppLocalization.configure(.system)
+  }
+
   @MainActor func testSelectionAndRenderingReuseSearchWhileInputChangesStayFresh() {
     let model = NativeUIModel()
     var searches = 0

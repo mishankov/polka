@@ -102,7 +102,9 @@ struct NativeLauncherView: View {
                     ? localized("Open: ⌘{0}", String(describing: position + 1))
                     : localized("Open: Enter")
                 )
-                .onHover { if $0, model.selectedID != result.id { model.selectedID = result.id } }
+                .onContinuousHover { phase in
+                  if case .active = phase { model.selectHoveredItem(result.id) }
+                }
             }
             if results.isEmpty {
               if model.storageStatus == "starting" || model.catalogLoading {
@@ -336,12 +338,14 @@ struct NativeClipboardView: View {
     }.padding(12).accessibilityIdentifier("clear-history-confirmation")
   }
   private var clipList: some View {
-    ScrollViewReader { reader in
+    let results = model.clipResults
+    let selectedID = results.first(where: { $0.id == model.selectedID })?.id ?? results.first?.id
+    return ScrollViewReader { reader in
       ScrollView {
         LazyVStack(spacing: 2) {
           if model.storageStatus == "starting" {
             ProgressView().padding(24)
-          } else if model.clipResults.isEmpty {
+          } else if results.isEmpty {
             VStack(spacing: 10) {
               Image(systemName: isSnippets ? "text.bubble" : "clipboard").font(.system(size: 34))
                 .foregroundStyle(.secondary)
@@ -376,7 +380,7 @@ struct NativeClipboardView: View {
               }
             }.padding(32)
           }
-          ForEach(Array(model.clipResults.enumerated()), id: \.element.id) { position, clip in
+          ForEach(Array(results.enumerated()), id: \.element.id) { position, clip in
             HStack(spacing: 8) {
               Button {
                 model.selectedID = clip.id
@@ -463,9 +467,11 @@ struct NativeClipboardView: View {
                 Text("⌘\(position + 1)").font(.system(size: 10)).foregroundStyle(.tertiary)
               }
             }.padding(10).background(
-              model.selectedClip?.id == clip.id ? Color.accentColor.opacity(0.12) : .clear,
+              selectedID == clip.id ? Color.accentColor.opacity(0.12) : .clear,
               in: RoundedRectangle(cornerRadius: 7)
-            ).padding(.horizontal, 5).id(clip.id).onHover { if $0 { model.selectedID = clip.id } }
+            ).padding(.horizontal, 5).id(clip.id).onContinuousHover { phase in
+              if case .active = phase { model.selectHoveredItem(clip.id) }
+            }
           }
         }.padding(.vertical, 8).background(
           NativeScrollPositionBridge(

@@ -229,7 +229,9 @@ var nativeEmojiTones: [(String, String)] {
 struct NativeEmojiView: View {
   @ObservedObject var model: NativeUIModel
   var body: some View {
-    VStack(spacing: 0) {
+    let results = model.emojiResults
+    let selected = results.first(where: { $0.id == model.selectedID }) ?? results.first
+    return VStack(spacing: 0) {
       NativeBuiltinHeader(model: model, title: localized("Emoji")) {
         Text(localized("English / Русский")).font(.system(size: 11)).foregroundStyle(.secondary)
       }
@@ -246,7 +248,7 @@ struct NativeEmojiView: View {
           model.query.isEmpty
             ? nativeEmojiCategories.first(where: { $0.id == model.emojiCategory })?.label
               ?? localized("All emoji") : localized("Search results"))
-        Text("\(model.emojiResults.count)")
+        Text("\(results.count)")
         Spacer(minLength: 8)
         Picker(localized("Skin tone"), selection: $model.emojiTone) {
           ForEach(nativeEmojiTones, id: \.0) { tone in Text(tone.1).tag(tone.0) }
@@ -258,7 +260,7 @@ struct NativeEmojiView: View {
           LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 10), spacing: 3
           ) {
-            ForEach(Array(model.emojiResults.enumerated()), id: \.element.id) { index, emoji in
+            ForEach(Array(results.enumerated()), id: \.element.id) { index, emoji in
               Button {
                 model.selectedID = emoji.id
                 model.chooseEmoji(emoji)
@@ -269,7 +271,7 @@ struct NativeEmojiView: View {
                     .tertiary)
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 3).background(
-                  model.selectedEmoji?.id == emoji.id ? Color.accentColor.opacity(0.16) : .clear,
+                  selected?.id == emoji.id ? Color.accentColor.opacity(0.16) : .clear,
                   in: RoundedRectangle(cornerRadius: 6))
               }.buttonStyle(.plain).disabled(model.busy).help(emoji.name).accessibilityLabel(
                 emoji.name == emoji.englishName
@@ -280,13 +282,17 @@ struct NativeEmojiView: View {
                   : localized("Select: Enter")
               ).id(
                 emoji.id
-              ).onHover { if $0 { model.selectedID = emoji.id } }
+              ).onContinuousHover { phase in
+                if case .active = phase { model.selectHoveredItem(emoji.id) }
+              }
             }
           }.padding(10).background(
             NativeScrollPositionBridge(
               offset: $model.listScrollOffset,
               token: "emoji-" + String(model.visible) + "-" + model.emojiCategory))
-          if model.emojiResults.isEmpty {
+          if model.emojiLoading {
+            ProgressView().padding(24)
+          } else if results.isEmpty {
             VStack(spacing: 10) {
               Text(localized("Nothing Found")).font(.system(size: 15, weight: .semibold))
               Text(localized("Try another word in English or Russian.")).foregroundStyle(.secondary)
@@ -305,20 +311,20 @@ struct NativeEmojiView: View {
       }
       Divider()
       NativeToolbar {
-        Text(model.selectedEmoji?.value ?? "⌕").font(.system(size: 30)).frame(width: 40, height: 32)
+        Text(selected?.value ?? "⌕").font(.system(size: 30)).frame(width: 40, height: 32)
         VStack(alignment: .leading, spacing: 3) {
-          Text(model.selectedEmoji?.name ?? localized("Select an Emoji")).font(
+          Text(selected?.name ?? localized("Select an Emoji")).font(
             .system(size: 13, weight: .semibold)
           ).lineLimit(1)
-          Text(model.selectedEmoji?.englishName ?? localized("Search by names and keywords")).font(
+          Text(selected?.englishName ?? localized("Search by names and keywords")).font(
             .system(size: 11)
           ).foregroundStyle(.secondary).lineLimit(1)
         }
         Spacer()
         NativeSelectionActions(
-          canPaste: model.canPaste, disabled: model.selectedEmoji == nil || model.busy
+          canPaste: model.canPaste, disabled: selected == nil || model.busy
         ) { copyOnly in
-          if let emoji = model.selectedEmoji { model.chooseEmoji(emoji, copyOnly: copyOnly) }
+          if let selected { model.chooseEmoji(selected, copyOnly: copyOnly) }
         }
       }
     }.onChange(of: model.query) { _, _ in model.emojiCategory = "all" }.onChange(
@@ -421,9 +427,10 @@ final class NativeEmojiCategoryBar: NSView {
   }
   func synchronizeSelection() {
     setAccessibilityLabel(localized("Emoji categories"))
-    let selected = nativeEmojiCategories.firstIndex { $0.id == model?.emojiCategory } ?? 0
+    let categories = nativeEmojiCategories
+    let selected = categories.firstIndex { $0.id == model?.emojiCategory } ?? 0
     for (index, button) in buttons.enumerated() {
-      let category = nativeEmojiCategories[index]
+      let category = categories[index]
       button.toolTip =
         category.label + localized(" · ← → select category · Home / End first / last")
       button.setAccessibilityLabel(category.label)
