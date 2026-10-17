@@ -140,6 +140,50 @@ import SwiftUI
     return nil
   }
   func settle() async { try? await Task.sleep(nanoseconds: 230_000_000) }
+  func checkKeyboardSelectionAgainstHover() async {
+    let destination = model.destination
+    let ids =
+      destination == "emoji"
+      ? model.emojiResults.map(\.id)
+      : ["clipboard", "snippets"].contains(destination)
+        ? model.clipResults.map(\.id) : model.searchResults.map(\.id)
+    let step = destination == "emoji" ? 10 : 1
+    guard !ids.isEmpty else {
+      failures.append("\(destination) has no synthetic rows for hover navigation regression")
+      return
+    }
+    let previousPointer = model.selectionPointerLocation
+    let previousSelection = model.selectedID
+    let previousScroll = model.scrollID
+    defer {
+      model.selectionPointerLocation = previousPointer
+      model.selectedID = previousSelection
+      model.scrollID = previousScroll
+    }
+    var pointer = NSPoint(x: 100, y: 100)
+    model.selectionPointerLocation = { pointer }
+    model.selectHoveredItem(ids[0])
+    for index in 1...2 {
+      post(125, repeatKey: index > 1)
+      await settle()
+      let next = destination == "apps" ? index % ids.count : min(index * step, ids.count - 1)
+      let expected = ids[next]
+      if !(await wait({ model.selectedID == expected })) {
+        failures.append("\(destination) posted arrow navigation failed: \(keyboardState())")
+        return
+      }
+      shelf.contentView?.layoutSubtreeIfNeeded()
+      model.selectHoveredItem(ids[0])
+      if model.selectedID != expected || model.scrollID != expected {
+        failures.append("\(destination) stationary hover overrode arrow navigation")
+      }
+    }
+    pointer.x += 1
+    model.selectHoveredItem(ids[0])
+    if model.selectedID != ids[0] {
+      failures.append("\(destination) pointer movement did not restore hover selection")
+    }
+  }
   func trace(_ message: String) {
     // stdout is buffered when the harness captures pipes. Keep the last step
     // available even if a hosted AppKit call hangs and the child is terminated.
@@ -450,11 +494,19 @@ import SwiftUI
     var backFrame: NSRect?
     var selectFrame: NSRect?
     for destination in ["clipboard", "snippets", "emoji", "files"] {
+      let openingStarted = ProcessInfo.processInfo.systemUptime
       await application.show(destination)
+      shelf.contentView?.layoutSubtreeIfNeeded()
+      let openingMilliseconds = (ProcessInfo.processInfo.systemUptime - openingStarted) * 1000
+      trace("\(destination) presentation/layout: \(String(format: "%.1f", openingMilliseconds)) ms")
       if ["clipboard", "snippets"].contains(destination) {
         model.selectedID = model.clipResults.first(where: { $0.kind == "text" })?.id
       }
       await settle()
+      if destination != "files" {
+        await checkKeyboardSelectionAgainstHover()
+        await settle()
+      }
       guard let back = accessible("builtin-back"), let close = accessible("builtin-close") else {
         failures.append("\(destination) is missing accessible shared navigation")
         continue
@@ -570,6 +622,7 @@ import SwiftUI
       failures.append(
         "Arrow Down from enlarged search field did not select launcher result: \(keyboardState())")
     }
+    await checkKeyboardSelectionAgainstHover()
     for destination in ["apps", "clipboard", "snippets", "emoji", "files"] {
       await application.show(destination)
       await settle()

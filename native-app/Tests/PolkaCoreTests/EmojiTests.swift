@@ -61,6 +61,18 @@ final class EmojiTests: XCTestCase {
     XCTAssertTrue(catalog.results(query: "", tone: "all").contains { Set($0.tones).count > 1 })
     XCTAssertTrue(catalog.results(query: "❤️", tone: "🏽").contains { $0.value == "❤️" })
   }
+  func testDefaultBrowseRetainsCatalogOrderAndQueryRankingIsStable() {
+    let catalog = EmojiCatalog.shared
+    let expected = catalog.emojis.filter { $0.tones.isEmpty }
+    XCTAssertEqual(catalog.results(query: ""), expected)
+    XCTAssertEqual(catalog.results(query: " \n "), expected)
+    XCTAssertEqual(catalog.results(query: "", tone: "all"), catalog.emojis)
+    for query in ["heart", "smile", "лайк", "красное сердце"] {
+      let rows = catalog.results(query: query)
+      XCTAssertFalse(rows.isEmpty)
+      XCTAssertEqual(catalog.results(query: query), rows)
+    }
+  }
   func testGridKeyboardClamping() {
     for (index, key, expected) in [
       (0, "ArrowRight", 1), (1, "ArrowDown", 11), (18, "ArrowDown", 22), (22, "ArrowUp", 12),

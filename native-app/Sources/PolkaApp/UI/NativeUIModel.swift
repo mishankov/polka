@@ -224,6 +224,7 @@ struct NativeBrowseContext {
   @Published var confirmClear = false
   @Published var selectedFiles: Set<String> = []
   @Published var emojiCategory = "all"
+  @Published var emojiLoading = false
   @Published var emojiTone = "default"
   @Published var listScrollOffset: CGFloat = 0
   @Published var previewScrollOffset: CGFloat = 0
@@ -237,6 +238,7 @@ struct NativeBrowseContext {
   var settingsFocusRevision = 0
   var settingsPaneChanged: ((String) -> Void)?
   var action: ((NativeUICommand) async throws -> Void)?
+  var selectionPointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
   var searchProvider: ((String) -> [NativeUISearchRow])? { didSet { cachedSearch = nil } }
   var emojiProvider: ((String, String, String) -> [NativeUIEmoji])? { didSet { cachedEmoji = nil } }
   var calculationStatusProvider: ((String) -> String?)? { didSet { cachedCalculationStatus = nil } }
@@ -245,6 +247,7 @@ struct NativeBrowseContext {
   var fileDragEnded: (() -> Void)?
   private var cachedClips:
     (destination: String, query: String, filter: ClipboardFilter, rows: [NativeUIClip])?
+  private var keyboardSelectionPointerLocation: NSPoint?
   private var cachedEmoji: (query: String, category: String, tone: String, rows: [NativeUIEmoji])?
   private var cachedSearch: (query: String, revision: Int, rows: [NativeUISearchRow])?
   private var cachedCalculationStatus: (query: String, revision: Int, value: String?)?
@@ -342,15 +345,32 @@ struct NativeBrowseContext {
   }
   var selectedClip: NativeUIClip? {
     let rows = clipResults
+    guard let selectedID else { return rows.first }
     return rows.first { $0.id == selectedID } ?? rows.first
   }
   var selectedSearch: NativeUISearchRow? {
     let rows = searchResults
+    guard let selectedID else { return rows.first }
     return rows.first { $0.id == selectedID } ?? rows.first
   }
   var selectedEmoji: NativeUIEmoji? {
     let rows = emojiResults
+    guard let selectedID else { return rows.first }
     return rows.first { $0.id == selectedID } ?? rows.first
+  }
+  func selectNavigatedItem(_ id: String) {
+    keyboardSelectionPointerLocation = selectionPointerLocation()
+    selectedID = id
+    scrollID = id
+  }
+  func selectHoveredItem(_ id: String) {
+    guard !busy, nativeCommandInteractionAllowed, !NSMenuTrackingState.shared.active,
+      keyboardSelectionPointerLocation != selectionPointerLocation()
+    else { return }
+    // Scrolling or relayout can put another row under a stationary pointer.
+    // Only actual pointer movement hands selection back to hover.
+    keyboardSelectionPointerLocation = nil
+    if selectedID != id { selectedID = id }
   }
   var previewText: String {
     guard let clip = preview else { return "" }
@@ -424,6 +444,7 @@ struct NativeBrowseContext {
     incomingFileDropPending = false
     incomingFileDropToken = nil
     destination = next
+    keyboardSelectionPointerLocation = nil
     visible = true
     error = ""
     notice = ""

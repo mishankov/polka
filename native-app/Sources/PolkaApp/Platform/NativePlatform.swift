@@ -28,6 +28,7 @@ import UserNotifications
   private var disposed = false
   private var startupTask: Task<Void, Never>?
   private var initializationTask: Task<Void, Never>?
+  private var emojiPreparationTask: Task<Void, Never>?
   private var maintenance: Timer?
   private var launcherRegistered = false
   private(set) var clipboardRegistered = false
@@ -128,13 +129,22 @@ import UserNotifications
     }
     model.settings.screenshotShortcut = screenshotAccelerator
     model.searchProvider = { [weak self] query in self?.search(query) ?? [] }
-    model.emojiProvider = { query, category, tone in
-      EmojiCatalog.shared.results(query: query, category: category, tone: tone).map {
-        NativeUIEmoji(
-          id: $0.id, value: $0.value,
-          name: AppLocalization.language == .russian ? $0.name : $0.englishName,
-          englishName: $0.englishName)
+    // Decode and normalize the bundled catalogue before it is needed, without
+    // blocking the shelf's first layout or a navigation command.
+    model.emojiLoading = true
+    emojiPreparationTask = Task { [weak self] in
+      let catalog = await Task.detached(priority: .userInitiated) { EmojiCatalog.shared }.value
+      guard let self, !disposed, !Task.isCancelled else { return }
+      self.model.emojiProvider = { query, category, tone in
+        let russian = AppLocalization.language == .russian
+        return catalog.results(query: query, category: category, tone: tone).map {
+          NativeUIEmoji(
+            id: $0.id, value: $0.value,
+            name: russian ? $0.name : $0.englishName,
+            englishName: $0.englishName)
+        }
       }
+      self.model.emojiLoading = false
     }
     model.calculationStatusProvider = { [weak self] query in
       Calculator.calculate(
@@ -288,6 +298,7 @@ import UserNotifications
     }
   }
   func waitForInitialization() async { await initializationTask?.value }
+  func waitForEmojiPreparation() async { await emojiPreparationTask?.value }
   func updateSystemLanguage(preferredLanguages: [String] = Locale.preferredLanguages) {
     guard !disposed else { return }
     AppLocalization.configure(
@@ -1102,6 +1113,7 @@ import UserNotifications
     systemStatusMonitor.stop()
     startupTask?.cancel()
     initializationTask?.cancel()
+    emojiPreparationTask?.cancel()
     maintenance?.invalidate()
     capture.stop()
     probe.stop()
