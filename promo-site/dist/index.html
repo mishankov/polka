@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f3ed">
+  <title>Polka — A shelf for your Mac</title>
+  <meta name="description" content="Launch apps, search your clipboard, and move files between windows. Polka is a free, open-source utility for macOS.">
+  <meta property="og:title" content="Polka — A shelf for your Mac">
+  <meta property="og:description" content="Your apps, clipboard, and files, one shortcut away. Free and open source.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://mishankov.github.io/polka/">
+  <meta property="og:image" content="https://mishankov.github.io/polka/assets/polka-icon.png">
+  <link rel="canonical" href="https://mishankov.github.io/polka/">
+  <link rel="alternate" hreflang="en" href="https://mishankov.github.io/polka/">
+  <link rel="alternate" hreflang="ru" href="https://mishankov.github.io/polka/ru/">
+  <link rel="alternate" hreflang="x-default" href="https://mishankov.github.io/polka/">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="ru_RU">
+  <link rel="icon" type="image/png" href="assets/polka-icon.png">
+  <link rel="stylesheet" href="styles.css?v=11">
+  <script src="site.js?v=6" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header wrap">
+    <a href="#" class="brand" aria-label="Polka home">
+      <img src="assets/polka-icon.png" alt="" width="40" height="40">
+      <span>Polka</span>
+    </a>
+    <nav aria-label="Main navigation">
+      <a href="#features">What it does</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/mishankov/polka" class="github-link">GitHub <span aria-hidden="true">↗</span></a>
+      <a class="language-link" href="ru/" lang="ru" hreflang="ru" aria-label="Читать по-русски">Русский</a>
+    </nav>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <h1 id="hero-title">A shelf at the<br>top of your Mac.</h1>
+        <p class="lead">Launch an app. Find something you copied.<br class="wide-only"> Move a file between windows.</p>
+        <p class="hero-detail">Polka keeps your apps, clipboard, and files together in a small panel at the top of your screen.</p>
+        <a class="download-link" href="https://github.com/mishankov/polka/releases/latest">Download for Mac <span aria-hidden="true">↓</span></a>
+        <p class="requirements">Free & open source<br>macOS 27 or later · Apple silicon</p>
+      </div>
+
+      <figure class="showcase">
+        <div class="screenshot-mount">
+          <img src="assets/shelf-open.png" alt="Actual Polka window on macOS: the open clipboard shelf is a rectangular black panel flush with the screen’s top edge, with rounded bottom corners" width="560" height="510" fetchpriority="high">
+        </div>
+        <figcaption>The open shelf sits flush with the top edge, covering the notch.</figcaption>
+      </figure>
+    </section>
+
+    <section class="features wrap" id="features" aria-labelledby="features-title">
+      <div class="section-heading">
+        <h2 id="features-title">What goes on the shelf.</h2>
+        <p>A few things you do many times a day.</p>
+      </div>
+      <div class="feature-list">
+        <article>
+          <div class="feature-copy">
+            <h3>Smart input and search</h3>
+            <p>One field to launch apps, search your clipboard and snippets, or get a quick answer. Search by name or initials, even with a typo or the wrong keyboard layout. Type a calculation, a measurement, or a time conversion to see the result.</p>
+            <p class="example"><code>10 inches in cm</code><span aria-hidden="true">→</span><span>25.4 cm</span></p>
+          </div>
+          <img class="feature-screenshot" src="assets/feature-search.png" alt="Polka’s smart input converting 10 inches to centimeters" width="560" height="510" loading="lazy" decoding="async">
+        </article>
+        <article>
+          <div class="feature-copy">
+            <h3>Clipboard History</h3>
+            <p>Find text and images you’ve copied, preview an entry, and paste it back into your work. Pin the things you want to keep. Text recognition lets you search inside copied images, too.</p>
+            <p class="feature-note">Open clipboard history with <kbd aria-label="Command Shift V">⌘ ⇧ V</kbd></p>
+          </div>
+          <img class="feature-screenshot" src="assets/feature-clipboard.png" alt="Clipboard History with a saved text entry and search filters" width="560" height="510" loading="lazy" decoding="async">
+        </article>
+        <article>
+          <div class="feature-copy">
+            <h3>Snippets</h3>
+            <p>Keep addresses, standard replies, and other text you use often. Give a snippet a title, find it by title or content, and paste it when you need it.</p>
+          </div>
+          <img class="feature-screenshot" src="assets/feature-snippets.png" alt="Snippets with saved reusable text and copy and paste controls" width="560" height="510" loading="lazy" decoding="async">
+        </article>
+        <article>
+          <div class="feature-copy">
+            <h3>Files on the Shelf</h3>
+            <p>Drag a file or folder to the top of your screen, then pick it up in another app. Select several to move them together. The shelf holds references; your original files stay where they are.</p>
+            <p class="feature-note">Files stay on the shelf until you quit Polka.</p>
+          </div>
+          <img class="feature-screenshot" src="assets/feature-files.png" alt="Files on the Shelf with two files selected for dragging" width="560" height="510" loading="lazy" decoding="async">
+        </article>
+        <article>
+          <div class="feature-copy">
+            <h3>Screenshots</h3>
+            <p>Capture a region of your screen and mark it up with arrows, text, and rectangles. Copy the result, save a PNG, or add it to the file shelf to drag into another app.</p>
+          </div>
+          <img class="feature-screenshot" src="assets/feature-screenshots.png" alt="Polka’s screenshot editor with an arrow, text, and a rectangle annotation" width="1920" height="1080" loading="lazy" decoding="async">
+        </article>
+        <article>
+          <div class="feature-copy">
+            <h3>Emoji</h3>
+            <p>Find emoji by name or keyword, browse categories, and choose a skin tone. Copy or paste your selection straight from the keyboard.</p>
+          </div>
+          <img class="feature-screenshot" src="assets/feature-emoji.png" alt="Emoji browser with categories, skin tones, and a grid of emoji" width="560" height="510" loading="lazy" decoding="async">
+        </article>
+        <article>
+          <div class="feature-copy">
+            <h3>System Status</h3>
+            <p>Check battery charge, memory pressure, storage space, and network traffic. Meters and small charts show what’s happening while you work.</p>
+          </div>
+          <img class="feature-screenshot" src="assets/feature-system-status.png" alt="System Status showing battery, memory, storage, and network charts" width="560" height="510" loading="lazy" decoding="async">
+        </article>
+      </div>
+    </section>
+
+    <section class="install wrap" id="install" aria-labelledby="install-title">
+      <div class="install-heading">
+        <img src="assets/polka-icon.png" alt="Polka app icon" width="76" height="76" loading="lazy">
+        <h2 id="install-title">Install Polka.</h2>
+        <p>For Apple silicon Macs<br>running macOS 27 or later.</p>
+        <a class="inline-link releases-link" href="https://github.com/mishankov/polka/releases">Release notes <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="install-methods">
+        <p class="install-intro">Choose how you’d like to install it. If Polka is already running, quit it from its menu bar menu first.</p>
+        <div class="install-tabs" role="tablist" aria-label="Installation method" aria-describedby="install-tab-help" hidden>
+          <button id="tab-script" type="button" role="tab" aria-selected="true" aria-controls="install-script" aria-keyshortcuts="ArrowLeft ArrowRight Home End" tabindex="0">Installer script</button>
+          <button id="tab-terminal" type="button" role="tab" aria-selected="false" aria-controls="install-terminal" aria-keyshortcuts="ArrowLeft ArrowRight Home End" tabindex="-1">DMG + Terminal</button>
+          <button id="tab-settings" type="button" role="tab" aria-selected="false" aria-controls="install-settings" aria-keyshortcuts="ArrowLeft ArrowRight Home End" tabindex="-1">DMG + Settings</button>
+        </div>
+        <p id="install-tab-help" class="visually-hidden">Use the left and right arrow keys to choose an installation method. Home selects the first method; End selects the last.</p>
+
+        <section class="install-panel" id="install-script" role="tabpanel" aria-labelledby="tab-script" tabindex="0">
+          <h3>Install from Terminal.</h3>
+          <p>Open Terminal, paste this command, and press Return.</p>
+          <pre class="install-command"><code>curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/install.sh | /bin/bash</code></pre>
+          <p>The script downloads the latest stable release, checks its checksum and signature, installs Polka in Applications, and opens it. It asks for your Mac password if needed.</p>
+          <p class="install-note">No Homebrew or Xcode needed.</p>
+          <a class="inline-link" href="https://github.com/mishankov/polka/blob/master/scripts/install.sh">Read the installer script <span aria-hidden="true">↗</span></a>
+        </section>
+
+        <section class="install-panel" id="install-terminal" role="tabpanel" aria-labelledby="tab-terminal" tabindex="0">
+          <h3>Download, then open from Terminal.</h3>
+          <ol>
+            <li><span>Download the DMG.</span><p>Open it, drag Polka into Applications, then eject the disk image.</p></li>
+            <li><span>Open Terminal and run:</span></li>
+          </ol>
+          <pre class="install-command"><code>xattr -dr com.apple.quarantine "/Applications/Polka.app"
+open "/Applications/Polka.app"</code></pre>
+          <p>This removes the quarantine flag only from Polka and opens the app. If it’s installed elsewhere, use that path instead.</p>
+          <details>
+            <summary>If Terminal reports a permission error <span aria-hidden="true">+</span></summary>
+            <p>Run the first command with administrator privileges, then open Polka again:</p>
+            <pre class="install-command"><code>sudo xattr -dr com.apple.quarantine "/Applications/Polka.app"</code></pre>
+          </details>
+          <a class="download-link" href="https://github.com/mishankov/polka/releases/latest">Download the DMG <span aria-hidden="true">↓</span></a>
+        </section>
+
+        <section class="install-panel" id="install-settings" role="tabpanel" aria-labelledby="tab-settings" tabindex="0">
+          <h3>Download and approve in Settings.</h3>
+          <ol>
+            <li><span>Download the DMG.</span><p>Open it, drag Polka into Applications, then eject the disk image.</p></li>
+            <li><span>Try opening Polka.</span><p>If macOS blocks it, dismiss the alert.</p></li>
+            <li><span>Allow it in System Settings.</span><p>Go to Privacy & Security → Security. Click Open Anyway next to Polka, confirm with your password or Touch ID if prompted, then click Open.</p></li>
+          </ol>
+          <p class="install-note">Open Anyway appears after you’ve tried to launch the app. On a managed Mac, your administrator may need to approve it.</p>
+          <a class="download-link" href="https://github.com/mishankov/polka/releases/latest">Download the DMG <span aria-hidden="true">↓</span></a>
+        </section>
+
+        <div class="installation-help">
+          <p>Releases are self-signed and aren’t notarized by Apple, so macOS may ask you to approve the first launch.</p>
+          <a class="inline-link" href="https://github.com/mishankov/polka/blob/master/docs/installation.md">Full installation guide <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer wrap">
+    <p>Polka <span>Free software for your Mac.</span></p>
+    <div><a href="https://github.com/mishankov/polka">Source code</a><a href="https://github.com/mishankov/polka/issues">Report an issue</a><a href="https://github.com/mishankov/polka/blob/master/LICENSE">MIT license</a></div>
+  </footer>
+</body>
+</html>
