@@ -1,0 +1,52 @@
+name: Promo site
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    paths:
+      - 'promo-site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Check and package site
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check English and Russian pages and local links
+        run: python3 promo-site/check.py
+      - name: Upload site
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: promo-site/dist
+          include-hidden-files: true
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+      - name: Deploy site
+        id: deployment
+        uses: actions/deploy-pages@v5
