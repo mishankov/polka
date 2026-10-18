@@ -26,7 +26,7 @@ final class DiskImageTests: XCTestCase {
           XCTAssertEqual(
             arguments,
             [
-              "create", "-ov", "-volname", "Polka", "-srcfolder", root.path,
+              "create", "-verbose", "-ov", "-volname", "Polka", "-srcfolder", root.path,
               "-format", "UDZO", image.path,
             ])
           XCTAssertFalse(FileManager.default.fileExists(atPath: image.path))
