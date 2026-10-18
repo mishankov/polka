@@ -6,7 +6,7 @@ Polka is a native macOS utility that puts an app launcher, clipboard history, re
 
 **macOS 27+ · Apple silicon · English and Russian · [MIT license](LICENSE)**
 
-[Download the latest release](https://github.com/mishankov/polka/releases/latest) · [Report a bug or suggest a feature](https://github.com/mishankov/polka/issues)
+[Website](https://mishankov.github.io/polka/) · [Download the latest release](https://github.com/mishankov/polka/releases/latest) · [Report a bug or suggest a feature](https://github.com/mishankov/polka/issues)
 
 ![Polka's launcher with search and built-in tools](docs/screenshots/launcher.png)
 
