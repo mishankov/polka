@@ -55,12 +55,14 @@ public enum PackageTool {
     for attempt in 1...3 {
       try ToolFiles.remove(image)
       let result = try run([
-        "create", "-ov", "-volname", volumeName, "-srcfolder", stage.path,
+        "create", "-verbose", "-ov", "-volname", volumeName, "-srcfolder", stage.path,
         "-format", "UDZO", image.path,
       ])
       if result.status == 0 { break }
       guard attempt < 3, result.error.contains("create failed - Resource busy") else {
-        throw ToolError("DMG creation failed (\(result.status)).", exitCode: result.status)
+        throw ToolError(
+          "DMG creation failed (\(result.status)); source: \(stage.path); output: \(image.path).",
+          exitCode: result.status)
       }
       try ToolFiles.remove(image)
       let delay = TimeInterval(attempt * 2)
