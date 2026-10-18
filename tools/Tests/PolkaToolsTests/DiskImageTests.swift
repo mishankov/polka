@@ -56,6 +56,7 @@ final class DiskImageTests: XCTestCase {
     for (message, expectedAttempts) in [
       ("hdiutil: create failed - Resource busy\n", 3),
       ("hdiutil: create failed - Permission denied\n", 1),
+      ("hdiutil: create failed - No such file or directory\n", 1),
     ] {
       let root = try Files.temporary("polka-dmg-failure-test")
       defer { try? ToolFiles.remove(root) }
@@ -72,6 +73,8 @@ final class DiskImageTests: XCTestCase {
           }, wait: { _, _ in })
       ) { error in
         XCTAssertEqual((error as? ToolError)?.exitCode, 1)
+        XCTAssertTrue(String(describing: error).contains(root.path))
+        XCTAssertTrue(String(describing: error).contains(image.path))
       }
       XCTAssertEqual(attempts, expectedAttempts)
       XCTAssertFalse(FileManager.default.fileExists(atPath: image.path))
