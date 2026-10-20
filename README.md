@@ -22,11 +22,13 @@ Open Polka with **⌘⇧Space**, its menu bar icon, or by hovering over the came
 
 ### Clipboard history and snippets
 
-Find text and images you copied earlier with **⌘⇧V**. Search, preview, pin useful entries, and paste them back into your work. Polka recognizes text in images on your Mac, so you can search a screenshot or copy its text. Filter history by All, Text, Images, Links, or Colors while keeping your search. Use **⌘⌃1–5** to switch types; **⌘⌃1** returns to All.
+Find text, images, and files you copied earlier with **⌘⇧V**. Search, preview, pin useful entries, and paste them back into your work. Polka recognizes text in images on your Mac, so you can search a screenshot or copy its text. Filter history by All, Text, Images, Links, Colors, or Files while keeping your search. Use **⌘⌃1–6** to switch types; **⌘⌃1** returns to All.
 
 Save addresses, standard replies, and other text you use often as **Snippets**. Give them an optional title, search by title or content, and edit them whenever you need. Snippets stay separate from clipboard history and its retention settings.
 
 ![Polka's clipboard history with saved entries and keyboard actions](docs/screenshots/clipboard.png)
+
+Copied files are saved as references to their originals on this Mac. Linked Macs receive file names and sizes first; choosing a remote record downloads its files before copying or pasting. Cancel a download with **Esc**. Downloads are encrypted in a bounded cache and can be pasted offline after the first transfer. The source Mac must be online for the first download, and modified originals must be copied again. This version transfers regular files in groups of up to 32 MB; folders, symbolic links, and larger groups stay local.
 
 ### Files between apps
 

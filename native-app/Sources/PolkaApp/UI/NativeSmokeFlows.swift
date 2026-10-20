@@ -208,7 +208,8 @@ import SwiftUI
     view.displayIfNeeded()
     if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1",
       name.hasPrefix("controls-") || name.hasPrefix("settings-update-")
-        || name.hasPrefix("clipboard-filter-") || name == "snippet-editor"
+        || name.hasPrefix("clipboard-filter-") || name.hasPrefix("clipboard-files-")
+        || name == "snippet-editor"
         || name == "clipboard-clear-confirmation"
     {
       // Opt-in, window-only capture includes SwiftUI's compositor-backed glass.
@@ -323,6 +324,14 @@ import SwiftUI
         post: { post($0, $1, $2) }, wait: wait,
         screenshot: { await screenshot($0) },
         hasControl: { accessible($0) != nil }, click: clickAccessible))
+    failures.append(
+      contentsOf: await nativeClipboardFilesSmoke(
+        application: application, model: model, platform: platform,
+        post: { post($0, $1, $2) }, wait: wait, screenshot: { await screenshot($0) }))
+    failures.append(
+      contentsOf: await nativeClipboardLazyFilesSmoke(
+        application: application, model: model, platform: platform,
+        post: { post($0, $1, $2) }, wait: wait, screenshot: { await screenshot($0) }))
     await application.show("clipboard")
     await settle()
     return failures

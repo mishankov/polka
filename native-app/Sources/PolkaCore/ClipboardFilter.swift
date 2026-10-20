@@ -1,8 +1,8 @@
 import Foundation
 
-/// Views of existing text/image records, never new storage or sync kinds.
+/// Content views of saved clipboard records.
 public enum ClipboardFilter: String, CaseIterable, Sendable {
-  case all, text, images, links, colors
+  case all, text, images, links, colors, files
 
   public var label: String {
     switch self {
@@ -11,6 +11,7 @@ public enum ClipboardFilter: String, CaseIterable, Sendable {
     case .images: return localized("Images")
     case .links: return localized("Links")
     case .colors: return localized("Colors")
+    case .files: return localized("Files")
     }
   }
 
@@ -19,6 +20,7 @@ public enum ClipboardFilter: String, CaseIterable, Sendable {
     case .all: return true
     case .text: return kind == .text
     case .images: return kind == .image
+    case .files: return kind == .files
     case .links: return kind == .text && clipboardWebURL(content) != nil
     case .colors: return kind == .text && ClipboardColor.parse(content) != nil
     }

@@ -36,6 +36,12 @@ extension NativeUIModel {
       || (enter && (!key.editing || key.searchEditing || command || previewID != nil))
       || (command && (delete || [45, 1, 14, 35, 0, 43, 15, 32, 13].contains(key.code)))
       || (command && nativeNumber(key) != nil)
+    if escape, !key.isSettings, ["apps", "clipboard"].contains(destination),
+      fileDownloadProgress != nil
+    {
+      if !key.repeatKey { cancelFileDownload() }
+      return true
+    }
     if busy { return known }
     if key.repeatKey, known { return true }
     if cmd, key.code == 43 {

@@ -37,9 +37,10 @@ final class NativeClipboardFilterTests: XCTestCase {
       model.handleKeyboard(
         NativeKeyInput(code: 23, characters: "5", modifiers: [.command, .control])))
     XCTAssertEqual(model.clipboardFilter, .colors)
-    XCTAssertFalse(
+    XCTAssertTrue(
       model.handleKeyboard(
         NativeKeyInput(code: 22, characters: "6", modifiers: [.command, .control])))
+    XCTAssertEqual(model.clipboardFilter, .files)
     model.query = "needle"
     model.chooseClipboardFilter(.images)
     XCTAssertEqual(model.clipResults.map(\.id), ["image"])

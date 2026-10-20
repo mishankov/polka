@@ -35,12 +35,13 @@ struct NativeLauncherView: View {
         NativeSearchField(
           text: $model.query, placeholder: localized("Find or calculate…"),
           focusToken: "apps-\(model.visible)-\(model.sessionRevision)"
-        ).frame(maxWidth: .infinity).frame(height: 44)
+        ).frame(maxWidth: .infinity).frame(height: 44).disabled(model.fileDownloadProgress != nil)
         NativeIconButton(
           label: localized("Settings"), symbol: "gearshape", shortcut: "⌘,", disabled: model.busy
         ) { model.perform(NativeUICommand("shelf.settings")) }
       }.padding(14)
       Divider()
+      NativeFileDownloadProgress(model: model)
       ScrollViewReader { reader in
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 2) {
@@ -218,7 +219,7 @@ struct NativeClipboardView: View {
         NativeBuiltinSearch(
           model: model,
           placeholder: isSnippets
-            ? localized("Find text or a name…") : localized("Find text, including text in images…"))
+            ? localized("Find text or a name…") : localized("Find text, files, or text in images…"))
         if !isSnippets { filterBar }
       }
       Divider()
@@ -226,6 +227,7 @@ struct NativeClipboardView: View {
       NativeStorageNotice(model: model).padding(.horizontal, 10)
       NativeErrorNotice(text: model.error.isEmpty ? model.helperError : model.error).padding(
         .horizontal, 10)
+      NativeFileDownloadProgress(model: model)
       if !model.notice.isEmpty {
         Text(model.notice).font(.system(size: 12)).foregroundStyle(.secondary).padding(8)
       }
@@ -369,7 +371,7 @@ struct NativeClipboardView: View {
                           "Create a snippet for an address, details, or a standard reply.")
                         : model.settings.paused
                           ? localized("Enable clipboard recording in app settings.")
-                          : localized("Copy text or an image in any app.")
+                          : localized("Copy text, an image, or files in any app.")
               ).font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center)
               if model.storageStatus != "failed", !isSnippets, model.clipboardFilter != .all {
                 NativeCommandButton(
@@ -393,7 +395,10 @@ struct NativeClipboardView: View {
                   } else if clip.kind == "text", let color = ClipboardColor.parse(clip.content) {
                     NativeColorSwatch(color: color).frame(width: 38, height: 38)
                   } else {
-                    Image(systemName: clip.kind == "image" ? "photo" : "textformat").font(
+                    Image(
+                      systemName: clip.kind == "image"
+                        ? "photo" : clip.kind == "files" ? "doc.on.doc" : "textformat"
+                    ).font(
                       .system(size: 23)
                     ).foregroundStyle(.secondary).frame(width: 38, height: 38)
                   }

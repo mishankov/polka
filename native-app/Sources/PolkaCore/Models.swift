@@ -72,7 +72,7 @@ public struct ImageText: Codable, Equatable {
   }
 }
 public struct ClipboardClip: Codable, Equatable, Identifiable {
-  public enum Kind: String, Codable { case text, image }
+  public enum Kind: String, Codable { case text, image, files }
   public var id: String
   public var kind: Kind
   public var content: String
@@ -83,10 +83,11 @@ public struct ClipboardClip: Codable, Equatable, Identifiable {
   public var name: String?
   public var sourceDevice: String?
   public var ocr: ImageText?
+  public var fileSource: ClipboardFileSource?
   public init(
     id: String, kind: Kind, content: String, preview: String, createdAt: Double,
     pinned: Bool = false, snippet: Bool? = nil, name: String? = nil, sourceDevice: String? = nil,
-    ocr: ImageText? = nil
+    ocr: ImageText? = nil, fileSource: ClipboardFileSource? = nil
   ) {
     self.id = id
     self.kind = kind
@@ -98,9 +99,10 @@ public struct ClipboardClip: Codable, Equatable, Identifiable {
     self.name = name
     self.sourceDevice = sourceDevice
     self.ocr = ocr
+    self.fileSource = fileSource
   }
   private enum CodingKeys: String, CodingKey {
-    case id, kind, content, preview, createdAt, pinned, snippet, name, sourceDevice, ocr
+    case id, kind, content, preview, createdAt, pinned, snippet, name, sourceDevice, ocr, fileSource
   }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -114,6 +116,7 @@ public struct ClipboardClip: Codable, Equatable, Identifiable {
     name = try c.decodeOptional(String.self, forKey: .name)
     sourceDevice = try c.decodeOptional(String.self, forKey: .sourceDevice)
     ocr = try c.decodeOptional(ImageText.self, forKey: .ocr)
+    fileSource = try c.decodeOptional(ClipboardFileSource.self, forKey: .fileSource)
   }
   public var isSnippet: Bool { snippet == true }
   public func validate(requireSnippet: Bool = false) throws {
@@ -126,6 +129,16 @@ public struct ClipboardClip: Codable, Equatable, Identifiable {
         content.utf16.count <= ClipboardLimits.maxSnippetTextBytes,
         content.utf8.count <= ClipboardLimits.maxSnippetTextBytes
       else { throw PolkaCoreError.invalid(localized("Invalid snippet")) }
+    }
+    if kind == .files {
+      if !content.isEmpty { _ = try ClipboardFiles(content: content) }
+      try fileSource?.validate()
+      guard !isSnippet, ocr == nil, !content.isEmpty || fileSource != nil else {
+        throw PolkaCoreError.invalid(localized("Invalid copied file references"))
+      }
+    }
+    guard kind == .files || fileSource == nil else {
+      throw PolkaCoreError.invalid(localized("Invalid file transfer metadata"))
     }
     try ocr?.validate()
   }
@@ -174,7 +187,7 @@ public func clipboardContentType(_ types: [String]) -> String? {
       of: "public\\.file-url|NSFilenamesPboardType",
       options: [.regularExpression, .caseInsensitive]) != nil
   }) {
-    return nil
+    return "public.file-url"
   }
   return types.contains("text/plain") ? "text/plain" : nil
 }
@@ -195,11 +208,24 @@ public func clipboardResults(
   )
   let terms = query.lowercased().components(separatedBy: whitespace).filter { !$0.isEmpty }
   return clips.filter { clip in
+    let searchable: String
+    switch clip.kind {
+    case .text: searchable = "\(clip.name ?? "") \(clip.content)"
+    case .image: searchable = localized("Image {0}", clip.ocr?.text ?? "")
+    case .files:
+      searchable =
+        (try? ClipboardFiles(content: clip.content).searchText) ?? clip.fileSource?.names ?? ""
+    }
+    // File URLs use the filesystem's decomposed spelling; typed names may use
+    // composed Unicode. Preserve the existing literal semantics for text clips.
     let text =
-      (clip.kind == .text
-      ? "\(clip.name ?? "") \(clip.content)"
-      : localized("Image {0}", String(describing: clip.ocr?.text ?? ""))).lowercased()
-    return terms.allSatisfy { text.range(of: $0, options: .literal) != nil }
+      clip.kind == .files
+      ? searchable.lowercased().precomposedStringWithCanonicalMapping : searchable.lowercased()
+    return terms.allSatisfy {
+      text.range(
+        of: clip.kind == .files ? $0.precomposedStringWithCanonicalMapping : $0, options: .literal)
+        != nil
+    }
       && filter.matches(kind: clip.kind, content: clip.content)
   }.sorted { $0.pinned != $1.pinned ? $0.pinned : $0.createdAt > $1.createdAt }
 }
@@ -235,31 +261,37 @@ public struct SyncPin: Codable, Equatable {
 }
 public struct SyncEntry: Codable, Equatable {
   public var snippet: Bool?
+  public var files: Bool?
   public var added: Stamp?
   public var deleted: Stamp?
   public var pin: SyncPin?
   public var seen: Stamp?
   public init(
-    snippet: Bool? = nil, added: Stamp? = nil, deleted: Stamp? = nil, pin: SyncPin? = nil,
+    snippet: Bool? = nil, files: Bool? = nil, added: Stamp? = nil, deleted: Stamp? = nil,
+    pin: SyncPin? = nil,
     seen: Stamp? = nil
   ) {
     self.snippet = snippet
+    self.files = files
     self.added = added
     self.deleted = deleted
     self.pin = pin
     self.seen = seen
   }
-  private enum CodingKeys: String, CodingKey { case snippet, added, deleted, pin, seen }
+  private enum CodingKeys: String, CodingKey { case snippet, files, added, deleted, pin, seen }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     snippet = try c.decodeOptional(Bool.self, forKey: .snippet)
+    files = try c.decodeOptional(Bool.self, forKey: .files)
     added = try c.decodeOptional(Stamp.self, forKey: .added)
     deleted = try c.decodeOptional(Stamp.self, forKey: .deleted)
     pin = try c.decodeOptional(SyncPin.self, forKey: .pin)
     seen = try c.decodeOptional(Stamp.self, forKey: .seen)
   }
   public func validate() throws {
-    guard snippet != false else { throw PolkaCoreError.invalid(localized("Invalid sync type")) }
+    guard snippet != false, files != false, !(snippet == true && files == true) else {
+      throw PolkaCoreError.invalid(localized("Invalid sync type"))
+    }
     try added?.validate()
     try deleted?.validate()
     try seen?.validate()
@@ -272,29 +304,36 @@ public func liveEntry(_ entry: SyncEntry, _ clear: Stamp?) -> Bool {
 }
 private struct WireSyncEntry: Decodable {
   var snippet: Bool?
+  var files: Bool?
   var added: Stamp?
   var deleted: Stamp?
   var pin: SyncPin?
-  private enum CodingKeys: String, CodingKey { case snippet, added, deleted, pin }
+  private enum CodingKeys: String, CodingKey { case snippet, files, added, deleted, pin }
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     snippet = try c.decodeOptional(Bool.self, forKey: .snippet)
+    files = try c.decodeOptional(Bool.self, forKey: .files)
     added = try c.decodeOptional(Stamp.self, forKey: .added)
     deleted = try c.decodeOptional(Stamp.self, forKey: .deleted)
     pin = try c.decodeOptional(SyncPin.self, forKey: .pin)
   }
-  var entry: SyncEntry { SyncEntry(snippet: snippet, added: added, deleted: deleted, pin: pin) }
+  var entry: SyncEntry {
+    SyncEntry(snippet: snippet, files: files, added: added, deleted: deleted, pin: pin)
+  }
 }
 public struct SyncManifest: Codable, Equatable {
   public var version = 1
   public var snippets: Bool?
+  public var files: Bool?
   public var clear: Stamp?
   public var entries: [String: SyncEntry]
   public var available: [String]
   public init(
-    snippets: Bool? = true, clear: Stamp? = nil, entries: [String: SyncEntry], available: [String]
+    snippets: Bool? = true, files: Bool? = nil, clear: Stamp? = nil, entries: [String: SyncEntry],
+    available: [String]
   ) {
     self.snippets = snippets
+    self.files = files
     self.clear = clear
     self.entries = entries.mapValues { value in
       var value = value
@@ -303,18 +342,22 @@ public struct SyncManifest: Codable, Equatable {
     }
     self.available = available
   }
-  private enum CodingKeys: String, CodingKey { case version, snippets, clear, entries, available }
+  private enum CodingKeys: String, CodingKey {
+    case version, snippets, files, clear, entries, available
+  }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     version = try c.decode(Int.self, forKey: .version)
     snippets = try c.decodeOptional(Bool.self, forKey: .snippets)
+    files = try c.decodeOptional(Bool.self, forKey: .files)
     clear = try c.decodeOptional(Stamp.self, forKey: .clear)
     entries = try c.decode([String: WireSyncEntry].self, forKey: .entries).mapValues(\.entry)
     available = try c.decode([String].self, forKey: .available)
   }
   public func validate() throws {
-    guard version == 1, snippets != false, available.count <= 400,
-      available.allSatisfy(validClipID), entries.keys.allSatisfy(validClipID)
+    guard version == 1, snippets != false, files != false, available.count <= 400,
+      available.allSatisfy(validClipID), entries.keys.allSatisfy(validClipID),
+      files == true || entries.values.allSatisfy({ $0.files != true })
     else { throw PolkaCoreError.invalid(localized("Invalid manifest")) }
     try clear?.validate()
     for entry in entries.values { try entry.validate() }
@@ -330,8 +373,9 @@ private struct WireClipboardClip: Codable {
   var snippet: Bool?
   var name: String?
   var sourceDevice: String?
+  var fileSource: ClipboardFileSource?
   private enum CodingKeys: String, CodingKey {
-    case id, kind, content, preview, createdAt, pinned, snippet, name, sourceDevice
+    case id, kind, content, preview, createdAt, pinned, snippet, name, sourceDevice, fileSource
   }
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -344,11 +388,12 @@ private struct WireClipboardClip: Codable {
     snippet = try c.decodeOptional(Bool.self, forKey: .snippet)
     name = try c.decodeOptional(String.self, forKey: .name)
     sourceDevice = try c.decodeOptional(String.self, forKey: .sourceDevice)
+    fileSource = try c.decodeOptional(ClipboardFileSource.self, forKey: .fileSource)
   }
   var clip: ClipboardClip {
     ClipboardClip(
       id: id, kind: kind, content: content, preview: preview, createdAt: createdAt, pinned: pinned,
-      snippet: snippet, name: name, sourceDevice: sourceDevice)
+      snippet: snippet, name: name, sourceDevice: sourceDevice, fileSource: fileSource)
   }
 }
 public struct ClipTransfer: Codable, Equatable {
