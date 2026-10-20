@@ -76,6 +76,10 @@ private struct PairResponse: Codable {
   var name: String
 }
 private struct MissingResponse: Codable { var missing: [String] }
+private struct FileDownloadResponse: Codable {
+  var bundle: ClipboardFileBundle?
+  var error: String?
+}
 private struct SyncEndpoint {
   var name: String
   var host: String
@@ -152,6 +156,25 @@ final class NativeSyncRequestResponse: @unchecked Sendable {
   }
 }
 
+/// Cancellation must release the UI even while TCP connect is still pending.
+final class NativeSyncConnection: @unchecked Sendable {
+  let promise: EventLoopPromise<Channel>
+  private let lock = NSLock()
+  private var completed = false
+  init(loop: EventLoop) { promise = loop.makePromise(of: Channel.self) }
+  func complete(_ result: Result<Channel, Error>) {
+    lock.lock()
+    let accepted = !completed
+    completed = true
+    lock.unlock()
+    guard accepted else {
+      if case .success(let channel) = result { channel.close(promise: nil) }
+      return
+    }
+    promise.completeWith(result)
+  }
+}
+
 /// Clipboard sync v1. PEM identities stay in encrypted sync.enc;
 /// mutual certificate pins are verified during TLS 1.3 before HTTP application bytes.
 final class NativeClipboardSync: @unchecked Sendable {
@@ -159,6 +182,7 @@ final class NativeClipboardSync: @unchecked Sendable {
   private let path: URL
   private let codec: EncryptionCodec
   private let history: ClipboardHistory
+  let fileCache: NativeClipboardFileCache
   private let changed: () -> Void
   private let discoveryEnabled: Bool
   private let lock = NSRecursiveLock()
@@ -184,6 +208,8 @@ final class NativeClipboardSync: @unchecked Sendable {
     self.path = path
     self.codec = codec
     self.history = history
+    fileCache = NativeClipboardFileCache(
+      root: path.deletingLastPathComponent().appendingPathComponent("file-downloads"), codec: codec)
     self.changed = changed
     self.discoveryEnabled = discovery
     deviceName = String(
@@ -505,7 +531,10 @@ final class NativeClipboardSync: @unchecked Sendable {
     Task { await syncNow() }
   }
   fileprivate func serve(head: HTTPRequestHead, data: Data, fingerprint: String) throws -> Data {
-    try synchronized {
+    if head.method == .GET, head.uri.hasPrefix("/files/") {
+      return try serveFiles(head: head, fingerprint: fingerprint)
+    }
+    return try synchronized {
       try requireReady()
       guard !stopped, credentials?.enabled == true, validFingerprint(fingerprint) else {
         throw PolkaCoreError.invalid(localized("Sync is disabled"))
@@ -541,29 +570,140 @@ final class NativeClipboardSync: @unchecked Sendable {
         throw PolkaCoreError.invalid(localized("The device is not linked or history is paused"))
       }
       let snippets = head.headers.first(name: "x-polka-snippets") == "1"
+      let files = head.headers.first(name: "x-polka-files") == "1"
       if head.method == .GET && head.uri == "/manifest" {
         try history.prune()
-        return try JSONEncoder().encode(history.manifest(snippets: snippets))
+        return try JSONEncoder().encode(history.manifest(snippets: snippets, files: files))
       }
       if head.method == .GET && head.uri.hasPrefix("/clip/") {
         let id = String(head.uri.dropFirst(6))
         guard validClipID(id) else { throw PolkaCoreError.invalid(localized("Invalid identifier")) }
-        if let clip = transfer(id, snippets: snippets) { return try JSONEncoder().encode(clip) }
+        if let clip = transfer(id, snippets: snippets, files: files) {
+          return try JSONEncoder().encode(clip)
+        }
         return Data("null".utf8)
       }
       if head.method == .POST && head.uri == "/manifest" {
         let input = try decodeClipboardJSON(SyncManifest.self, from: data)
+        guard files || input.entries.values.allSatisfy({ $0.files != true }) else {
+          throw PolkaCoreError.invalid(localized("Invalid sync type"))
+        }
         return try JSONEncoder().encode(MissingResponse(missing: history.mergeManifest(input)))
       }
       if head.method == .POST && head.uri == "/clip" {
         let input = try decodeClipboardJSON(ClipTransfer.self, from: data)
+        guard input.clip.kind != .files || files else {
+          throw PolkaCoreError.invalid(localized("Invalid sync type"))
+        }
         try history.receive(input, sourceDevice: peer.name)
         return Data("{\"ok\":true}".utf8)
       }
       throw PolkaCoreError.invalid(localized("Unknown operation"))
     }
   }
-  private func request(peer: TrustedPeer, route: String, body: Data? = nil) async throws -> Data {
+  /// File I/O runs on a worker, outside the sync lock and NIO event loop.
+  private func serveFiles(head: HTTPRequestHead, fingerprint: String) throws -> Data {
+    let (record, peer): (ClipboardClip?, TrustedPeer) = try synchronized {
+      try requireReady()
+      guard !stopped, credentials?.enabled == true, !history.getPreferences().paused,
+        head.headers.first(name: "x-polka-files") == "1",
+        let peer = credentials?.peers.first(where: {
+          $0.id == head.headers.first(name: "x-polka-id")
+        }),
+        timingSafeEqual(peer.token, head.headers.first(name: "x-polka-token") ?? ""),
+        timingSafeEqual(peer.fingerprint, fingerprint)
+      else { throw PolkaCoreError.invalid(localized("Sync is disabled")) }
+      let parts = head.uri.split(separator: "/")
+      guard parts.count == 3, validClipID(String(parts[1])), validClipID(String(parts[2])) else {
+        throw PolkaCoreError.invalid(localized("Invalid identifier"))
+      }
+      guard let clip = history.find(String(parts[1])), clip.kind == .files,
+        let source = clip.fileSource, source.device == history.deviceId,
+        source.key == String(parts[2]), !clip.content.isEmpty,
+        clip.pinned
+          || Date().timeIntervalSince1970 * 1000 - clip.createdAt < Double(
+            history.getPreferences().retentionDays) * 86_400_000
+      else { return (nil, peer) }
+      return (clip, peer)
+    }
+    guard let clip = record else {
+      return try JSONEncoder().encode(FileDownloadResponse(error: "source-unavailable-or-changed"))
+    }
+    let response: FileDownloadResponse
+    do {
+      let source = clip.fileSource!
+      let data = try source.read(ClipboardFiles(content: clip.content))
+      guard active(peer), history.find(clip.id)?.fileSource == source else {
+        throw PolkaCoreError.invalid(localized("The original file is unavailable"))
+      }
+      response = FileDownloadResponse(
+        bundle: try ClipboardFileBundle(source: source, contents: data))
+    } catch {
+      response = FileDownloadResponse(error: "source-unavailable-or-changed")
+    }
+    return try JSONEncoder().encode(response)
+  }
+
+  func filesForPaste(
+    _ id: String, progress: @escaping @Sendable (Double) -> Void
+  ) async throws -> ClipboardFiles {
+    guard let clip = history.find(id), let source = clip.fileSource, clip.content.isEmpty else {
+      throw PolkaCoreError.invalid(localized("The original file is unavailable"))
+    }
+    try source.validate()
+    let cached = try? await Task.detached { try self.fileCache.load(source) }.value
+    let bundle: ClipboardFileBundle
+    if let cached {
+      bundle = cached
+    } else {
+      fileCache.discard(source)
+      let peer = try synchronized { () throws -> TrustedPeer in
+        try requireReady()
+        guard !stopped, credentials?.enabled == true, !history.getPreferences().paused,
+          let peer = credentials?.peers.first(where: { $0.id == source.device }),
+          nearby[peer.id] != nil
+        else {
+          throw PolkaCoreError.invalid(
+            localized(
+              "The source Mac is unavailable. Connect it to the local network and try again."))
+        }
+        return peer
+      }
+      let bytes: Data
+      do {
+        bytes = try await request(
+          peer: peer, route: "/files/\(id)/\(source.key)", progress: progress)
+      } catch {
+        if Task.isCancelled || error is CancellationError { throw CancellationError() }
+        throw PolkaCoreError.invalid(
+          localized(
+            "Could not download files from {0}. Check that it is online and sync is enabled.",
+            peer.name))
+      }
+      try Task.checkCancellation()
+      guard active(peer) else { throw CancellationError() }
+      let response = try decodeClipboardJSON(FileDownloadResponse.self, from: bytes)
+      guard let incoming = response.bundle, response.error == nil, incoming.source == source else {
+        throw PolkaCoreError.invalid(
+          localized("The original file is unavailable or changed. Copy it again on the source Mac.")
+        )
+      }
+      try incoming.validate()
+      guard history.find(id)?.fileSource == source else { throw CancellationError() }
+      try await Task.detached { try self.fileCache.save(incoming) }.value
+      bundle = incoming
+    }
+    try Task.checkCancellation()
+    guard history.find(id)?.fileSource == source else { throw CancellationError() }
+    progress(1)
+    return try await Task.detached {
+      try self.fileCache.materialize(bundle)
+    }.value
+  }
+  private func request(
+    peer: TrustedPeer, route: String, body: Data? = nil,
+    progress: (@Sendable (Double) -> Void)? = nil
+  ) async throws -> Data {
     let (endpoint, creds, epoch): (SyncEndpoint, SyncCredentials, Int) = try synchronized {
       try requireReady()
       guard !stopped, let endpoint = nearby[peer.id], let credentials else {
@@ -575,14 +715,16 @@ final class NativeClipboardSync: @unchecked Sendable {
     let loop = Self.group.next()
     let response = NativeSyncRequestResponse(loop: loop)
     let headers = HTTPHeaders([
-      ("Content-Type", "application/json"), ("x-polka-snippets", "1"),
+      ("Content-Type", "application/json"), ("x-polka-snippets", "1"), ("x-polka-files", "1"),
       ("x-polka-id", history.deviceId), ("x-polka-token", peer.token),
       ("Host", endpoint.host), ("Connection", "close"),
       ("Content-Length", String(body?.count ?? 0)),
     ])
     let request = HTTPRequestHead(
       version: .http1_1, method: body == nil ? .GET : .POST, uri: route, headers: headers)
-    let channel = try await ClientBootstrap(group: loop).connectTimeout(.seconds(30))
+    try Task.checkCancellation()
+    let connection = NativeSyncConnection(loop: loop)
+    ClientBootstrap(group: loop).connectTimeout(.seconds(30))
       .channelInitializer { channel in
         return response.initialize(loop: loop, accepted: self.track(channel, generation: epoch)) {
           let tls = try NIOSSLClientHandler(
@@ -601,26 +743,41 @@ final class NativeClipboardSync: @unchecked Sendable {
             channel.pipeline.addHandler(
               SyncClientHandler(
                 head: request, body: body,
-                limit: route.hasPrefix("/clip/") ? maxWireBytes : maxManifestBytes,
-                response: response
+                limit: route.hasPrefix("/files/")
+                  ? 48 * 1024 * 1024 : route.hasPrefix("/clip/") ? maxWireBytes : maxManifestBytes,
+                response: response, progress: progress
               ))
           }
         }
       }.connect(host: endpoint.host, port: endpoint.port).flatMapError { error in
         response.fail(error)
         return loop.makeFailedFuture(error)
-      }.get()
+      }.whenComplete { connection.complete($0) }
+    let channel = try await withTaskCancellationHandler {
+      try await connection.promise.futureResult.get()
+    } onCancel: {
+      response.fail(CancellationError())
+      connection.complete(.failure(CancellationError()))
+    }
     guard track(channel, generation: epoch) else {
       response.fail(PolkaCoreError.invalid(localized("Sync has stopped")))
       try? await channel.close().get()
       throw PolkaCoreError.invalid(localized("Sync has stopped"))
     }
-    let timeout = channel.eventLoop.scheduleTask(in: .seconds(30)) { channel.close(promise: nil) }
+    let timeout = channel.eventLoop.scheduleTask(
+      in: .seconds(route.hasPrefix("/files/") ? 120 : 30)
+    ) { channel.close(promise: nil) }
     defer {
       timeout.cancel()
       channel.close(promise: nil)
     }
-    return try await response.promise.futureResult.get()
+    return try await withTaskCancellationHandler {
+      try Task.checkCancellation()
+      return try await response.promise.futureResult.get()
+    } onCancel: {
+      response.fail(CancellationError())
+      channel.close(promise: nil)
+    }
   }
   func pair(_ code: String) async throws {
     try synchronized {
@@ -676,8 +833,10 @@ final class NativeClipboardSync: @unchecked Sendable {
         } ?? false)
     }
   }
-  private func transfer(_ id: String, snippets: Bool = true) -> ClipTransfer? {
-    guard var value = history.transfer(id), snippets || !value.clip.isSnippet else { return nil }
+  private func transfer(_ id: String, snippets: Bool = true, files: Bool = false) -> ClipTransfer? {
+    guard var value = history.transfer(id, files: files), snippets || !value.clip.isSnippet else {
+      return nil
+    }
     if value.clip.sourceDevice == nil { value.clip.sourceDevice = deviceName }
     return value
   }
@@ -704,6 +863,7 @@ final class NativeClipboardSync: @unchecked Sendable {
     let peers = synchronized { credentials?.peers ?? [] }
     do {
       try history.prune()
+      fileCache.prune(keeping: history.snapshot().clips.compactMap(\.fileSource))
       for peer in peers where synchronized({ nearby[peer.id] != nil }) {
         synchronized {
           statuses[peer.id] = NativeSyncPeer(
@@ -727,13 +887,17 @@ final class NativeClipboardSync: @unchecked Sendable {
             MissingResponse.self,
             from: await request(
               peer: peer, route: "/manifest",
-              body: JSONEncoder().encode(history.manifest(snippets: manifest.snippets == true))))
+              body: JSONEncoder().encode(
+                history.manifest(snippets: manifest.snippets == true, files: manifest.files == true)
+              )))
           guard response.missing.count <= 400, response.missing.allSatisfy(validClipID) else {
             throw PolkaCoreError.invalid(localized("Invalid sync response"))
           }
           for id in response.missing {
             guard active(peer) else { break }
-            if let value = transfer(id, snippets: manifest.snippets == true) {
+            if let value = transfer(
+              id, snippets: manifest.snippets == true, files: manifest.files == true)
+            {
               _ = try await request(peer: peer, route: "/clip", body: JSONEncoder().encode(value))
             }
           }
@@ -819,7 +983,9 @@ private final class SyncServerHandler: ChannelInboundHandler {
       }
       head = value
       timer?.cancel()
-      timer = context.eventLoop.scheduleTask(in: .seconds(30)) { context.close(promise: nil) }
+      timer = context.eventLoop.scheduleTask(
+        in: .seconds(value.uri.hasPrefix("/files/") ? 120 : 30)
+      ) { context.close(promise: nil) }
     case .body(var buffer):
       let limit =
         head?.uri == "/pair" ? 4096 : head?.uri == "/manifest" ? maxManifestBytes : maxWireBytes
@@ -835,28 +1001,36 @@ private final class SyncServerHandler: ChannelInboundHandler {
         context.close(promise: nil)
         return
       }
-      let result: Data
-      let status: HTTPResponseStatus
-      do {
-        guard let owner else { throw PolkaCoreError.invalid(localized("Sync is disabled")) }
-        result = try owner.serve(head: head, data: bytes, fingerprint: fingerprint.value)
-        status = .ok
-      } catch {
-        result = Data("{}".utf8)
-        status = .forbidden
-      }
-      var buffer = context.channel.allocator.buffer(capacity: result.count)
-      buffer.writeBytes(result)
-      let response = HTTPResponseHead(
-        version: .http1_1, status: status,
-        headers: HTTPHeaders([
-          ("Content-Type", "application/json"), ("Content-Length", String(result.count)),
-          ("Connection", "close"),
-        ]))
-      context.write(wrapOutboundOut(.head(response)), promise: nil)
-      context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
-      context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
-        context.close(promise: nil)
+      let requestBytes = bytes
+      let peerFingerprint = fingerprint.value
+      let owner = self.owner
+      DispatchQueue.global(qos: .userInitiated).async {
+        let result: Data
+        let status: HTTPResponseStatus
+        do {
+          guard let owner else { throw PolkaCoreError.invalid(localized("Sync is disabled")) }
+          result = try owner.serve(head: head, data: requestBytes, fingerprint: peerFingerprint)
+          status = .ok
+        } catch {
+          result = Data("{}".utf8)
+          status = .forbidden
+        }
+        context.eventLoop.execute {
+          guard context.channel.isActive else { return }
+          var buffer = context.channel.allocator.buffer(capacity: result.count)
+          buffer.writeBytes(result)
+          let response = HTTPResponseHead(
+            version: .http1_1, status: status,
+            headers: HTTPHeaders([
+              ("Content-Type", "application/json"), ("Content-Length", String(result.count)),
+              ("Connection", "close"),
+            ]))
+          context.write(self.wrapOutboundOut(.head(response)), promise: nil)
+          context.write(self.wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+          context.writeAndFlush(self.wrapOutboundOut(.end(nil))).whenComplete { _ in
+            context.close(promise: nil)
+          }
+        }
       }
     }
   }
@@ -874,11 +1048,18 @@ private final class SyncClientHandler: ChannelInboundHandler {
   let limit: Int
   let response: NativeSyncRequestResponse
   var bytes = Data()
-  init(head: HTTPRequestHead, body: Data?, limit: Int, response: NativeSyncRequestResponse) {
+  let progress: (@Sendable (Double) -> Void)?
+  private var expectedBytes = 0
+  private var reportedPercent = -1
+  init(
+    head: HTTPRequestHead, body: Data?, limit: Int, response: NativeSyncRequestResponse,
+    progress: (@Sendable (Double) -> Void)? = nil
+  ) {
     self.head = head
     self.body = body
     self.limit = limit
     self.response = response
+    self.progress = progress
   }
   func channelActive(context: ChannelHandlerContext) {
     context.write(wrapOutboundOut(.head(head)), promise: nil)
@@ -896,6 +1077,7 @@ private final class SyncClientHandler: ChannelInboundHandler {
   func channelRead(context: ChannelHandlerContext, data: NIOAny) {
     switch unwrapInboundIn(data) {
     case .head(let head):
+      expectedBytes = Int(head.headers.first(name: "Content-Length") ?? "") ?? 0
       guard head.status == .ok else {
         fail(
           PolkaCoreError.invalid(
@@ -912,6 +1094,13 @@ private final class SyncClientHandler: ChannelInboundHandler {
       }
       if let value = buffer.readBytes(length: buffer.readableBytes) {
         bytes.append(contentsOf: value)
+        if expectedBytes > 0 {
+          let percent = min(100, Int(Double(bytes.count) / Double(expectedBytes) * 100))
+          if percent != reportedPercent {
+            reportedPercent = percent
+            progress?(Double(percent) / 100)
+          }
+        }
       }
     case .end:
       response.succeed(bytes)

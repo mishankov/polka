@@ -4,6 +4,44 @@ import XCTest
 @testable import PolkaApp
 
 final class NativeKeyboardTests: XCTestCase {
+  @MainActor func testEscapeCancelsFileDownloadButPreservesClipboardContext() async throws {
+    let model = NativeUIModel()
+    model.present(destination: "clipboard")
+    model.query = "draft search"
+    model.selectedID = "remote"
+    model.action = { _ in
+      model.fileDownloadProgress = 0.25
+      defer { model.fileDownloadProgress = nil }
+      try await Task.sleep(nanoseconds: 30_000_000_000)
+      XCTFail("Canceled download must not reach clipboard preparation")
+    }
+    model.perform(NativeUICommand("clipboardHistory.copy", strings: ["id": "remote"]))
+    for _ in 0..<20 where model.fileDownloadProgress == nil { await Task.yield() }
+    XCTAssertTrue(model.busy)
+    XCTAssertTrue(
+      model.handleKeyboard(
+        NativeKeyInput(code: 53, characters: "", modifiers: [], isSettings: true)))
+    await Task.yield()
+    XCTAssertTrue(model.commandPending, "Settings must not cancel another surface's transfer")
+    var escape = NativeKeyInput(code: 53, characters: "", modifiers: [], composing: true)
+    XCTAssertFalse(model.handleKeyboard(escape))
+    XCTAssertTrue(model.commandPending)
+    escape.composing = false
+    escape.repeatKey = true
+    XCTAssertTrue(model.handleKeyboard(escape))
+    XCTAssertTrue(model.commandPending)
+    escape.repeatKey = false
+    XCTAssertTrue(model.handleKeyboard(escape))
+    for _ in 0..<30 where model.commandPending { await Task.yield() }
+    XCTAssertFalse(model.busy)
+    XCTAssertFalse(model.commandPending)
+    XCTAssertNil(model.fileDownloadProgress)
+    XCTAssertTrue(model.visible)
+    XCTAssertEqual(model.query, "draft search")
+    XCTAssertEqual(model.selectedID, "remote")
+    XCTAssertTrue(model.error.isEmpty)
+  }
+
   @MainActor func testNavigationIgnoresStationaryHoverUntilPointerMoves() throws {
     for destination in ["apps", "clipboard", "snippets", "emoji"] {
       let model = NativeUIModel()

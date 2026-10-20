@@ -4,7 +4,216 @@ import XCTest
 
 @testable import PolkaApp
 
+private final class ClipboardFileDecodeGate: EncryptionCodec {
+  let entered = XCTestExpectation(description: "File cache decoding started")
+  private let codec = SyntheticEncryptionCodec(key: Data(repeating: 13, count: 32))
+  private let lock = NSLock()
+  private let semaphore = DispatchSemaphore(value: 0)
+  private var enabled = false
+  func enable() {
+    lock.lock()
+    enabled = true
+    lock.unlock()
+  }
+  func release() { semaphore.signal() }
+  func encode(_ plaintext: Data) throws -> Data { try codec.encode(plaintext) }
+  func decode(_ ciphertext: Data) throws -> Data {
+    let data = try codec.decode(ciphertext)
+    lock.lock()
+    let block = enabled
+    enabled = false
+    lock.unlock()
+    if block {
+      entered.fulfill()
+      guard semaphore.wait(timeout: .now() + 5) == .success else {
+        throw CocoaError(.fileReadUnknown)
+      }
+    }
+    return data
+  }
+}
+
 final class NativePlatformIntegrationTests: XCTestCase {
+  @MainActor func testLateFileDownloadCannotOverwriteClipboardAfterCancelCloseOrDeletion()
+    async throws
+  {
+    for scenario in ["clipboard", "cancel", "close", "delete"] {
+      let gate = ClipboardFileDecodeGate()
+      defer { gate.release() }
+      try await withPlatform(encryption: gate) { platform in
+        let source = try ClipboardFileSource(
+          device: UUID().uuidString.lowercased(),
+          items: [
+            .init(name: "Remote.pdf", size: 3, version: String(repeating: "a", count: 64))
+          ])
+        let id = clipId(.files, scenario)
+        let stamp = Stamp(counter: 1, device: source.device)
+        _ = try platform.history.mergeManifest(
+          SyncManifest(
+            files: true,
+            entries: [
+              id: SyncEntry(files: true, added: stamp)
+            ], available: [id]))
+        try platform.history.receive(
+          ClipTransfer(
+            clip: ClipboardClip(
+              id: id, kind: .files, content: "", preview: "Remote.pdf",
+              createdAt: Date().timeIntervalSince1970 * 1000, fileSource: source), stamp: stamp),
+          sourceDevice: "Remote Mac")
+        try platform.sync.fileCache.save(
+          ClipboardFileBundle(source: source, contents: [Data([1, 2, 3])]))
+        defer { try? FileManager.default.removeItem(at: platform.sync.fileCache.exports) }
+        platform.refresh()
+        platform.model.present(destination: "clipboard")
+        platform.model.query = "remote"
+        platform.capture.write(text: "Original clipboard")
+        gate.enable()
+        platform.model.chooseClip(try XCTUnwrap(platform.model.selectedClip), copyOnly: true)
+        await fulfillment(of: [gate.entered], timeout: 2)
+        switch scenario {
+        case "clipboard": platform.capture.write(text: "New clipboard")
+        case "cancel":
+          XCTAssertTrue(
+            platform.model.handleKeyboard(NativeKeyInput(code: 53, characters: "", modifiers: [])))
+        case "close": platform.model.conceal()
+        default: try platform.history.remove(id)
+        }
+        gate.release()
+        for _ in 0..<500 where platform.model.commandPending {
+          try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertFalse(platform.model.commandPending, scenario)
+        XCTAssertEqual(
+          platform.capture.syntheticText,
+          scenario == "clipboard" ? "New clipboard" : "Original clipboard", scenario)
+        XCTAssertTrue(platform.capture.syntheticFileURLs.isEmpty, scenario)
+        if scenario == "clipboard" {
+          XCTAssertTrue(
+            platform.model.error.contains(
+              localized("The clipboard changed during download. Select the file again to copy it."))
+          )
+        } else {
+          XCTAssertTrue(platform.model.error.isEmpty, scenario)
+        }
+      }
+    }
+  }
+
+  @MainActor func testCachedRemoteFilesUseTheSameKeyboardCopyAndPasteFlow() async throws {
+    try await withPlatform { platform in
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer {
+        try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: platform.sync.fileCache.exports)
+      }
+      let codec = SyntheticEncryptionCodec(key: Data(repeating: 7, count: 32))
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      let sourceHistory = ClipboardHistory(
+        path: root.appendingPathComponent("source.enc"), codec: codec)
+      try sourceHistory.initialize()
+      let pdf = root.appendingPathComponent("Remote Отчёт.pdf")
+      let data = Data("%PDF synthetic remote data".utf8)
+      try data.write(to: pdf)
+      let refs = try ClipboardFiles(urls: [pdf])
+      try sourceHistory.add(.files, content: refs.content, preview: refs.preview)
+      let sourceClip = try XCTUnwrap(sourceHistory.snapshot().clips.first)
+      let source = try XCTUnwrap(sourceClip.fileSource)
+      _ = try platform.history.mergeManifest(sourceHistory.manifest(files: true))
+      try platform.history.receive(
+        XCTUnwrap(sourceHistory.transfer(sourceClip.id, files: true)), sourceDevice: "Source Mac")
+      try platform.sync.fileCache.save(ClipboardFileBundle(source: source, contents: [data]))
+      platform.refresh()
+      let model = platform.model
+      model.present(destination: "clipboard")
+      model.query = "remote отчёт"
+      let clip = try XCTUnwrap(model.selectedClip)
+      XCTAssertTrue(clip.filesDownloaded)
+      XCTAssertEqual(clip.content, "")
+      XCTAssertTrue(
+        model.handleKeyboard(NativeKeyInput(code: 36, characters: "\r", modifiers: .shift)))
+      for _ in 0..<200 where model.commandPending { try await Task.sleep(nanoseconds: 1_000_000) }
+      XCTAssertFalse(model.commandPending)
+      XCTAssertTrue(model.error.isEmpty)
+      let urls = platform.capture.syntheticFileURLs
+      XCTAssertEqual(urls.count, 1)
+      XCTAssertEqual(try Data(contentsOf: XCTUnwrap(urls.first)), data)
+      XCTAssertNil(model.fileDownloadProgress)
+      model.present(destination: "clipboard")
+      model.query = "remote отчёт"
+      XCTAssertTrue(model.handleKeyboard(NativeKeyInput(code: 36, characters: "\r", modifiers: [])))
+      for _ in 0..<200 where model.commandPending { try await Task.sleep(nanoseconds: 1_000_000) }
+      XCTAssertFalse(model.visible)
+      XCTAssertEqual(
+        try Data(contentsOf: XCTUnwrap(platform.capture.syntheticFileURLs.first)), data)
+    }
+  }
+
+  @MainActor func testFileHistoryKeyboardPreviewCopySelectAndUnavailableOriginal() async throws {
+    try await withPlatform { platform in
+      let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: folder) }
+      let url = folder.appendingPathComponent("Отчёт.pdf")
+      try Data("%PDF synthetic".utf8).write(to: url)
+      let files = try ClipboardFiles(urls: [url])
+      try platform.history.add(.files, content: files.content, preview: files.preview)
+      platform.refresh()
+      let model = platform.model
+      model.present(destination: "clipboard")
+      model.query = "отчёт"
+      let filter = NativeKeyInput(
+        code: 22, characters: "^", modifiers: [.command, .control], editing: true,
+        searchEditing: true)
+      var composing = filter
+      composing.composing = true
+      XCTAssertFalse(model.handleKeyboard(composing))
+      XCTAssertEqual(model.clipboardFilter, .all)
+      var repeated = filter
+      repeated.repeatKey = true
+      XCTAssertTrue(model.handleKeyboard(repeated))
+      XCTAssertEqual(model.clipboardFilter, .all)
+      XCTAssertTrue(model.handleKeyboard(filter))
+      XCTAssertEqual(model.clipboardFilter, .files)
+      let clip = try XCTUnwrap(model.selectedClip)
+      XCTAssertEqual(clip.kind, "files")
+      XCTAssertTrue(model.previewActions(for: clip).isEmpty)
+      XCTAssertEqual(nativeClipboardSnippet(clip, query: "отчёт"), "Отчёт.pdf")
+      XCTAssertTrue(
+        model.handleKeyboard(NativeKeyInput(code: 36, characters: "\r", modifiers: .command)))
+      XCTAssertEqual(model.previewID, clip.id)
+      XCTAssertTrue(model.handleKeyboard(NativeKeyInput(code: 53, characters: "", modifiers: [])))
+      XCTAssertNil(model.previewID)
+      let original = platform.history.snapshot()
+      model.busy = true
+      XCTAssertTrue(
+        model.handleKeyboard(NativeKeyInput(code: 36, characters: "\r", modifiers: .shift)))
+      XCTAssertTrue(platform.capture.syntheticFileURLs.isEmpty)
+      model.busy = false
+      XCTAssertTrue(
+        model.handleKeyboard(NativeKeyInput(code: 36, characters: "\r", modifiers: .shift)))
+      for _ in 0..<30 where model.commandPending { await Task.yield() }
+      XCTAssertEqual(platform.capture.syntheticFileURLs, [url])
+      XCTAssertTrue(excludedClipboardType(platform.capture.syntheticTypes))
+      XCTAssertEqual(platform.history.snapshot(), original)
+      model.present(destination: "clipboard")
+      model.query = "отчёт"
+      XCTAssertTrue(model.handleKeyboard(NativeKeyInput(code: 36, characters: "\r", modifiers: [])))
+      for _ in 0..<30 where model.commandPending { await Task.yield() }
+      XCTAssertEqual(platform.capture.syntheticFileURLs, [url])
+      XCTAssertFalse(model.visible)
+      platform.capture.write(text: "Clipboard sentinel")
+      try FileManager.default.removeItem(at: url)
+      model.present(destination: "clipboard")
+      model.query = "отчёт"
+      model.chooseClip(clip, copyOnly: true)
+      for _ in 0..<30 where model.commandPending { await Task.yield() }
+      XCTAssertTrue(model.visible)
+      XCTAssertTrue(model.error.contains(url.lastPathComponent))
+      XCTAssertEqual(platform.capture.syntheticText, "Clipboard sentinel")
+      XCTAssertEqual(platform.history.snapshot(), original)
+    }
+  }
+
   @MainActor func testPendingEncryptionDoesNotBlockEscapeOrQuitAndCannotWriteAfterShutdown()
     async throws
   {
@@ -75,11 +284,14 @@ final class NativePlatformIntegrationTests: XCTestCase {
       nativeImageSaveError(NSError(domain: "other", code: 123)).contains(
         localized("Choose another folder and try again.")))
   }
-  @MainActor private func withPlatform(_ body: (NativePlatform) async throws -> Void) async throws {
+  @MainActor private func withPlatform(
+    encryption: EncryptionCodec? = nil, _ body: (NativePlatform) async throws -> Void
+  ) async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(
       "polka-native-ui-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
-    let platform = try NativePlatform(model: NativeUIModel(), root: root, fixture: true)
+    let platform = try NativePlatform(
+      model: NativeUIModel(), root: root, fixture: true, encryption: encryption)
     try platform.history.initialize()
     platform.capture.stop()
     platform.show = { [weak platform] destination, query in

@@ -564,7 +564,8 @@ import UserNotifications
       createdAt: value.createdAt, pinned: value.pinned, snippet: value.isSnippet,
       name: value.name ?? "", sourceDevice: value.sourceDevice ?? "",
       ocrStatus: ocr?.status.rawValue ?? "", ocrText: ocr?.text ?? "",
-      ocrLanguages: ocr?.languages ?? [])
+      ocrLanguages: ocr?.languages ?? [], fileSource: value.fileSource,
+      filesDownloaded: value.fileSource.map { sync.fileCache.contains($0) } ?? false)
   }
   private func redactedClip(_ value: ClipboardClip) -> ClipboardClip {
     var clip = value
@@ -732,6 +733,37 @@ import UserNotifications
         ? content.content.uppercased()
         : transformation == "lowerCase" ? content.content.lowercased() : content.content
       capture.write(text: text)
+    } else if content.kind == .files {
+      if content.content.isEmpty, let source = content.fileSource {
+        let session = model.sessionRevision
+        let clipboardRevision = capture.clipboardRevision
+        let token = UUID()
+        model.fileDownloadToken = token
+        model.fileDownloadProgress = 0
+        defer {
+          model.fileDownloadToken = nil
+          model.fileDownloadProgress = nil
+          sync.fileCache.pruneExports(protecting: capture.currentFileURLs)
+        }
+        let files = try await sync.filesForPaste(content.id) { [weak model] progress in
+          Task { @MainActor in
+            guard model?.fileDownloadToken == token else { return }
+            model?.fileDownloadProgress = progress
+          }
+        }
+        try Task.checkCancellation()
+        guard !disposed, model.visible, model.sessionRevision == session,
+          builtinApps.allows(destination: "clipboard"), nativeCommandInteractionAllowed,
+          history.find(content.id)?.fileSource == source
+        else { throw CancellationError() }
+        guard clipboardRevision == capture.clipboardRevision else {
+          throw PolkaCoreError.invalid(
+            localized("The clipboard changed during download. Select the file again to copy it."))
+        }
+        try capture.write(files: files)
+      } else {
+        try capture.write(files: ClipboardFiles(content: content.content))
+      }
     } else {
       guard transformation == nil, let image = Data(base64Encoded: content.content) else {
         throw PolkaCoreError.invalid(localized("Could not open the image"))
@@ -1107,6 +1139,7 @@ import UserNotifications
   }
   func shutdown() async {
     updates.cancelForQuit(explicitUpdate: updates.installationAuthorized)
+    model.cancelFileDownload()
     disposed = true
     screenshots.stop()
     if let screenshotExports { try? FileManager.default.removeItem(at: screenshotExports) }

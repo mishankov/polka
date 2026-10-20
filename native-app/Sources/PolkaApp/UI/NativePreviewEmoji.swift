@@ -46,6 +46,7 @@ extension NativeUIModel {
       }
       return actions
     }
+    guard clip.kind == "image" else { return [] }
     var actions = [
       NativePreviewAction(
         id: "saveImage", label: localized("Save Image…"), disabled: busy,
@@ -96,7 +97,7 @@ struct NativeClipboardPreview: View {
           }
         }
       }.padding(12)
-      if clip.kind != "text" {
+      if clip.kind == "image" {
         HStack(spacing: 8) {
           previewActionButtons
           Spacer(minLength: 0)
@@ -125,6 +126,43 @@ struct NativeClipboardPreview: View {
         .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
         .padding(.horizontal, 12).padding(.bottom, 12)
         .accessibilityIdentifier("native-clipboard-preview")
+      } else if clip.kind == "files" {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 12) {
+            Text(
+              clip.content.isEmpty
+                ? (clip.filesDownloaded
+                  ? localized("Downloaded on this Mac. Available offline.")
+                  : localized("Downloads from {0} when you copy or paste.", clip.sourceDevice))
+                : localized("Original files on this Mac. Their contents are not stored in history.")
+            )
+            .font(.system(size: 12)).foregroundStyle(.secondary)
+            if clip.content.isEmpty, let source = clip.fileSource {
+              ForEach(Array(source.items.enumerated()), id: \.offset) { _, item in
+                VStack(alignment: .leading, spacing: 4) {
+                  Label(item.name, systemImage: "doc").font(.system(size: 14, weight: .medium))
+                  Text(
+                    ByteCountFormatter.string(fromByteCount: Int64(item.size), countStyle: .file)
+                  )
+                  .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+              }
+            }
+            ForEach(
+              Array(((try? ClipboardFiles(content: clip.content).urls) ?? []).enumerated()),
+              id: \.offset
+            ) { _, url in
+              HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "doc").foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                  Text(url.lastPathComponent).font(.system(size: 14, weight: .medium))
+                  Text(url.path).font(.system(size: 12)).foregroundStyle(.secondary).textSelection(
+                    .enabled)
+                }
+              }
+            }
+          }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        }.accessibilityIdentifier("native-clipboard-preview")
       } else {
         ScrollView {
           VStack(alignment: .leading, spacing: 16) {

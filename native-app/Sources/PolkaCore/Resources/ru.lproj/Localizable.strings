@@ -75,7 +75,7 @@
 "Copy" = "Копировать";
 "Copy Code" = "Скопировать код";
 "Copy Text" = "Копировать текст";
-"Copy text or an image in any app." = "Скопируйте текст или изображение в любой программе.";
+"Copy text, an image, or files in any app." = "Скопируйте текст, изображение или файлы в любой программе.";
 "Could not announce this Mac on the local network. Check macOS local network permission." = "Не удалось объявить Mac в локальной сети. Проверьте разрешение macOS на доступ к локальной сети.";
 "Could not calculate the result" = "Не удалось вычислить результат";
 "Could not check for updates. Try again later." = "Не удалось проверить обновления. Повторите попытку позже.";
@@ -149,7 +149,7 @@
 "Files: {0}" = "Файлов: {0}";
 "Find or calculate…" = "Найти или посчитать…";
 "Find text or a name…" = "Найти текст или название…";
-"Find text, including text in images…" = "Найти текст, в том числе на изображениях…";
+"Find text, files, or text in images…" = "Найти текст, файлы или текст на изображениях…";
 "Finish the current action before disabling the app" = "Завершите текущее действие перед отключением приложения";
 "Finish the current update first" = "Сначала завершите текущее обновление";
 "Flags" = "Флаги";
@@ -649,6 +649,24 @@
 "Width" = "Толщина";
 
 "All" = "Все";
+"Files" = "Файлы";
+"Invalid file transfer metadata" = "Некорректные сведения для передачи файлов";
+"Only regular files up to 32 MB can be transferred" = "Передаются только обычные файлы размером до 32 МБ";
+"The original file changed. Copy it again on the source Mac." = "Оригинал файла изменён. Скопируйте его заново на исходном Mac.";
+"Incomplete file transfer. Try again." = "Файлы переданы не полностью. Попробуйте ещё раз.";
+"The original file is unavailable" = "Оригинал файла недоступен";
+"The source Mac is unavailable. Connect it to the local network and try again." = "Исходный Mac недоступен. Подключите его к локальной сети и попробуйте ещё раз.";
+"The original file is unavailable or changed. Copy it again on the source Mac." = "Оригинал файла недоступен или изменён. Скопируйте его заново на исходном Mac.";
+"The clipboard changed during download. Select the file again to copy it." = "Буфер обмена изменился во время загрузки. Выберите файл ещё раз, чтобы скопировать его.";
+"Downloaded on this Mac. Available offline." = "Загружено на этот Mac. Доступно без сети.";
+"Downloads from {0} when you copy or paste." = "Будет загружено с {0} при копировании или вставке.";
+"Downloading files… {0}%" = "Загрузка файлов… {0}%";
+"Could not download files from {0}. Check that it is online and sync is enabled." = "Не удалось загрузить файлы с {0}. Проверьте, что Mac доступен в сети и синхронизация включена.";
+"Invalid copied file references" = "Некорректные ссылки на скопированные файлы";
+"File references are only available on this Mac" = "Ссылки на файлы доступны только на этом Mac";
+"The file “{0}” is unavailable. Restore it or copy it again from Finder." = "Файл «{0}» недоступен. Восстановите его или скопируйте заново из Finder.";
+"Could not copy the files. Try again." = "Не удалось скопировать файлы. Попробуйте ещё раз.";
+"Original files on this Mac. Their contents are not stored in history." = "Оригиналы файлов на этом Mac. Их содержимое не сохраняется в истории.";
 
 "Images" = "Изображения";
 

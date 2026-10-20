@@ -7,6 +7,22 @@ import XCTest
 @testable import PolkaApp
 
 final class ClipboardSyncTests: XCTestCase {
+  func testPendingConnectCanBeCanceledBeforeTheSocketFinishes() async throws {
+    let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+    let connection = NativeSyncConnection(loop: group.next())
+    connection.complete(.failure(CancellationError()))
+    connection.complete(.failure(CocoaError(.fileReadUnknown)))
+    do {
+      _ = try await connection.promise.futureResult.get()
+      XCTFail("Canceled connection unexpectedly succeeded")
+    } catch { XCTAssertTrue(error is CancellationError) }
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      group.shutdownGracefully { error in
+        if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+      }
+    }
+  }
+
   let codec = SyntheticEncryptionCodec(key: Data(repeating: 97, count: 32))
   var roots: [URL] = []
   override func tearDown() {

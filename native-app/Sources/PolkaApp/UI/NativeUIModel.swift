@@ -44,6 +44,8 @@ struct NativeUIClip: Identifiable, Equatable {
   var ocrStatus: String = ""
   var ocrText: String = ""
   var ocrLanguages: [String] = []
+  var fileSource: ClipboardFileSource?
+  var filesDownloaded = false
 }
 struct NativeUIApp: Identifiable, Equatable {
   var id: String
@@ -214,6 +216,9 @@ struct NativeBrowseContext {
   @Published var pasteAccess = "required"
   @Published var pasteReady = false
   @Published var busy = false
+  @Published var fileDownloadProgress: Double?
+  var fileDownloadToken: UUID?
+  private var commandTask: Task<Void, Never>?
   @Published var error = ""
   @Published var notice = ""
   @Published var selectedID: String?
@@ -265,9 +270,11 @@ struct NativeBrowseContext {
   private func filteredClips(_ source: [NativeUIClip]) -> [NativeUIClip] {
     let records = source.map { clip in
       ClipboardClip(
-        id: clip.id, kind: clip.kind == "image" ? .image : .text, content: clip.content,
+        id: clip.id, kind: ClipboardClip.Kind(rawValue: clip.kind) ?? .text, content: clip.content,
         preview: clip.preview, createdAt: clip.createdAt, pinned: clip.pinned, name: clip.name,
-        ocr: ImageText(version: "", status: .ready, text: clip.ocrText, languages: []))
+        ocr: clip.kind == "image"
+          ? ImageText(version: "", status: .ready, text: clip.ocrText, languages: []) : nil,
+        fileSource: clip.fileSource)
     }
     let matches = clipboardResults(
       records, query: query, filter: destination == "clipboard" ? clipboardFilter : .all)
@@ -400,8 +407,9 @@ struct NativeBrowseContext {
     }
     if !error.isEmpty { error = "" }
     let revision = presentationRevision
-    Task { @MainActor in
+    commandTask = Task { @MainActor in
       defer {
+        commandTask = nil
         busyFeedback?.cancel()
         pending = false
         pendingCommand = nil
@@ -417,8 +425,16 @@ struct NativeBrowseContext {
         }
         try await action(command)
         if revision == presentationRevision { completion?() }
-      } catch { if revision == presentationRevision { self.error = error.localizedDescription } }
+      } catch {
+        if !Task.isCancelled, !(error is CancellationError), revision == presentationRevision {
+          self.error = error.localizedDescription
+        }
+      }
     }
+  }
+  func cancelFileDownload() {
+    guard fileDownloadProgress != nil, nativeCommandInteractionAllowed else { return }
+    commandTask?.cancel()
   }
   func saveContext(now: Date = Date()) {
     guard ["apps", "clipboard", "snippets", "emoji", "files", "screenshots"].contains(destination)
@@ -698,6 +714,10 @@ func nativeClipDate(_ milliseconds: Double) -> String {
 func nativeWebURL(_ text: String) -> URL? { clipboardWebURL(text) }
 
 func nativeClipboardSnippet(_ clip: NativeUIClip, query: String) -> String {
+  if clip.kind == "files" {
+    return (try? ClipboardFiles(content: clip.content).preview) ?? clip.fileSource?.names
+      ?? clip.preview
+  }
   if clip.kind == "image", clip.ocrText.isEmpty { return localized("Image") }
   let source = clip.kind == "image" ? clip.ocrText : clip.content
   let text = source.split(whereSeparator: \.isWhitespace).joined(separator: " ")

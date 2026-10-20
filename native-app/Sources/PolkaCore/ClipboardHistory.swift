@@ -107,7 +107,7 @@ public final class ClipboardHistory {
       }
       if state.sync == nil {
         state.sync = SavedSync(device: UUID().uuidString.lowercased(), counter: 0, entries: [:])
-        for clip in state.records {
+        for clip in state.records where clip.kind != .files {
           let s = stamp(&state)
           state.sync!.entries[clip.id] = SyncEntry(
             snippet: clip.snippet, added: s, pin: SyncPin(stamp: s, value: clip.pinned), seen: s)
@@ -138,6 +138,28 @@ public final class ClipboardHistory {
         }
       }
       try prune()
+      try promoteFileReferences()
+    }
+  }
+  /// Upgrade local references created before file metadata sync existed.
+  private func promoteFileReferences() throws {
+    let upgrades = state.clips.filter { $0.kind == .files && $0.fileSource == nil }.compactMap {
+      clip -> (String, ClipboardFileSource)? in
+      guard let files = try? ClipboardFiles(content: clip.content),
+        let source = try? ClipboardFileSource.inspect(files, device: deviceId)
+      else { return nil }
+      return (clip.id, source)
+    }
+    guard !upgrades.isEmpty else { return }
+    try update { next in
+      for (id, source) in upgrades {
+        guard let index = next.clips.firstIndex(where: { $0.id == id }) else { continue }
+        next.clips[index].fileSource = source
+        let stamp = self.stamp(&next)
+        next.sync!.entries[id] = SyncEntry(
+          files: true, added: stamp, pin: SyncPin(stamp: stamp, value: next.clips[index].pinned),
+          seen: stamp)
+      }
     }
   }
   private func stamp(_ next: inout SavedHistory) -> Stamp {
@@ -174,7 +196,9 @@ public final class ClipboardHistory {
     }.sorted { $0.pinned != $1.pinned ? $0.pinned : $0.createdAt > $1.createdAt }
     var size = 0
     next.clips = next.clips.enumerated().filter { index, clip in
-      size += clip.content.utf8.count + clip.preview.utf8.count + (clip.ocr?.text.utf8.count ?? 0)
+      size +=
+        clip.content.utf8.count + clip.preview.utf8.count + (clip.ocr?.text.utf8.count ?? 0)
+        + (clip.fileSource.flatMap { try? JSONEncoder().encode($0).count } ?? 0)
       return index < ClipboardLimits.maxHistoryItems && size <= ClipboardLimits.maxHistoryBytes
     }.map(\.element)
   }
@@ -216,21 +240,31 @@ public final class ClipboardHistory {
     guard !content.isEmpty, content.utf8.count <= ClipboardLimits.maxClipBytes,
       preview.utf16.count <= 200_000
     else { return }
+    let fileSource: ClipboardFileSource?
+    if kind == .files {
+      let files = try ClipboardFiles(content: content)
+      fileSource = try? ClipboardFileSource.inspect(files, device: deviceId)
+    } else {
+      fileSource = nil
+    }
     try update { next in
       guard !next.preferences.paused else { return }
-      let id = clipId(kind, content)
+      let id = clipId(kind, kind == .files ? self.deviceId + "\0" + content : content)
       let existing = next.clips.first { $0.id == id }
       next.clips.removeAll { $0.id == id }
-      let s = self.stamp(&next)
-      var entry = next.sync!.entries[id] ?? SyncEntry()
-      entry.added = s
-      entry.seen = s
-      entry.pin = SyncPin(stamp: s, value: existing?.pinned ?? false)
-      next.sync!.entries[id] = entry
+      if kind != .files || fileSource != nil {
+        let s = self.stamp(&next)
+        var entry = next.sync!.entries[id] ?? SyncEntry()
+        entry.files = kind == .files ? true : nil
+        entry.added = s
+        entry.seen = s
+        entry.pin = SyncPin(stamp: s, value: existing?.pinned ?? false)
+        next.sync!.entries[id] = entry
+      }
       next.clips.insert(
         ClipboardClip(
           id: id, kind: kind, content: content, preview: preview, createdAt: self.now(),
-          pinned: existing?.pinned ?? false, ocr: existing?.ocr), at: 0)
+          pinned: existing?.pinned ?? false, ocr: existing?.ocr, fileSource: fileSource), at: 0)
     }
   }
   private func snippetText(_ content: String, _ name: String) throws -> String {
@@ -329,6 +363,10 @@ public final class ClipboardHistory {
       if let index = next.snippets.firstIndex(where: { $0.id == id }) {
         next.snippets[index].pinned = pinned
       }
+      guard
+        next.records.first(where: { $0.id == id }).map({ $0.kind != .files || $0.fileSource != nil }
+        ) == true
+      else { return }
       let s = self.stamp(&next)
       var entry = next.sync!.entries[id] ?? SyncEntry()
       entry.pin = SyncPin(stamp: s, value: pinned)
@@ -337,8 +375,12 @@ public final class ClipboardHistory {
   }
   public func remove(_ id: String) throws {
     try update { next in
+      let localFile =
+        next.clips.first(where: { $0.id == id }).map { $0.kind == .files && $0.fileSource == nil }
+        ?? false
       next.clips.removeAll { $0.id == id }
       next.snippets.removeAll { $0.id == id }
+      guard !localFile else { return }
       let s = self.stamp(&next)
       var entry = next.sync!.entries[id] ?? SyncEntry()
       entry.deleted = s
@@ -362,19 +404,25 @@ public final class ClipboardHistory {
     }
   }
   public func flush() { serialized {} }
-  public func manifest(snippets: Bool = true) throws -> SyncManifest {
+  public func manifest(snippets: Bool = true, files: Bool = false) throws -> SyncManifest {
     try serialized {
       try storage.requireReady()
       let sync = state.sync!
-      let entries = sync.entries.filter { snippets || $0.value.snippet != true }.mapValues {
+      let entries = sync.entries.filter {
+        (snippets || $0.value.snippet != true) && (files || $0.value.files != true)
+      }.mapValues {
         entry -> SyncEntry in
         var entry = entry
         entry.seen = nil
         return entry
       }
       return SyncManifest(
-        snippets: snippets ? true : nil, clear: sync.clear, entries: entries,
-        available: state.records.filter { snippets || !$0.isSnippet }.map(\.id))
+        snippets: snippets ? true : nil, files: files ? true : nil, clear: sync.clear,
+        entries: entries,
+        available: state.records.filter {
+          ($0.kind != .files || (files && $0.fileSource != nil)) && (snippets || !$0.isSnippet)
+        }.map(
+          \.id))
     }
   }
   public func mergeManifest(_ remote: SyncManifest) throws -> [String] {
@@ -402,6 +450,11 @@ public final class ClipboardHistory {
           sync.clear = newest(sync.clear, remote.clear)
           if let clear = remote.clear { sync.counter = max(sync.counter, clear.counter) }
           for (id, incoming) in remote.entries {
+            if let record = next.records.first(where: { $0.id == id }),
+              (record.kind == .files) != (incoming.files == true)
+            {
+              throw PolkaCoreError.invalid(localized("Invalid sync type"))
+            }
             var local = sync.entries[id] ?? SyncEntry()
             for stamp in [incoming.added, incoming.deleted, incoming.pin?.stamp].compactMap({ $0 })
             { sync.counter = max(sync.counter, stamp.counter) }
@@ -410,6 +463,14 @@ public final class ClipboardHistory {
             {
               local.seen = nil
             }
+            guard local.files == nil || incoming.files == true,
+              local.snippet == nil || incoming.snippet == true,
+              !(local.files == true && incoming.snippet == true),
+              !(local.snippet == true && incoming.files == true)
+            else {
+              throw PolkaCoreError.invalid(localized("Invalid sync type"))
+            }
+            local.files = local.files == true || incoming.files == true ? true : nil
             local.snippet = local.snippet == true || incoming.snippet == true ? true : nil
             local.added = newest(local.added, incoming.added)
             local.deleted = newest(local.deleted, incoming.deleted)
@@ -417,7 +478,10 @@ public final class ClipboardHistory {
             sync.entries[id] = local
           }
           next.sync = sync
-          next.clips = next.clips.filter { liveEntry(sync.entries[$0.id]!, sync.clear) }.map {
+          next.clips = next.clips.filter {
+            $0.kind == .files && $0.fileSource == nil || liveEntry(sync.entries[$0.id]!, sync.clear)
+          }.map {
+            guard $0.kind != .files || $0.fileSource != nil else { return $0 }
             var c = $0
             c.pinned = sync.entries[c.id]?.pin?.value ?? false
             return c
@@ -435,12 +499,14 @@ public final class ClipboardHistory {
       }
     }
   }
-  public func transfer(_ id: String) -> ClipTransfer? {
+  public func transfer(_ id: String, files: Bool = false) -> ClipTransfer? {
     serialized {
       guard var clip = state.records.first(where: { $0.id == id }),
+        clip.kind != .files || (files && clip.fileSource != nil),
         let stamp = state.sync?.entries[id]?.seen
       else { return nil }
       clip.ocr = nil
+      if clip.kind == .files { clip.content = "" }
       return ClipTransfer(clip: clip, stamp: stamp)
     }
   }
@@ -451,10 +517,19 @@ public final class ClipboardHistory {
       clip.ocr = nil
       try clip.validate()
       try transfer.stamp.validate()
-      guard !clip.content.isEmpty, clip.content.utf8.count <= ClipboardLimits.maxClipBytes else {
+      guard clip.kind == .files || !clip.content.isEmpty,
+        clip.content.utf8.count <= ClipboardLimits.maxClipBytes
+      else {
         throw PolkaCoreError.invalid(localized("Invalid clipboard item"))
       }
-      if clip.isSnippet {
+      if clip.kind == .files {
+        guard clip.content.isEmpty, let source = clip.fileSource,
+          source.device == transfer.stamp.device, !clip.isSnippet,
+          state.sync?.entries[clip.id]?.files == true
+        else {
+          throw PolkaCoreError.invalid(localized("Invalid file transfer metadata"))
+        }
+      } else if clip.isSnippet {
         guard clip.kind == .text, clip.content.utf8.count <= ClipboardLimits.maxSnippetTextBytes,
           state.sync?.entries[clip.id]?.snippet == true
         else { throw PolkaCoreError.invalid(localized("Invalid snippet")) }
@@ -470,17 +545,26 @@ public final class ClipboardHistory {
           clip.preview.range(
             of: "^data:image/png;base64,[A-Za-z0-9+/]+={0,2}$", options: .regularExpression) != nil
         else { throw PolkaCoreError.invalid(localized("Invalid clipboard image")) }
+      } else if clip.kind == .files {
+        clip.preview = prefix(clip.fileSource!.names, 400)
       } else {
         clip.preview = prefix(clip.content, 400)
       }
       try update { next in
         guard var entry = next.sync!.entries[clip.id], clip.isSnippet == (entry.snippet == true),
+          (clip.kind == .files) == (entry.files == true),
           compareStamp(transfer.stamp, entry.added) == 0, liveEntry(entry, next.sync!.clear),
           compareStamp(transfer.stamp, entry.seen) > 0
         else { return }
         entry.seen = transfer.stamp
         next.sync!.entries[clip.id] = entry
         clip.ocr = next.clips.first(where: { $0.id == clip.id })?.ocr
+        // Receiving metadata echoed by another peer must not replace our originals.
+        if clip.kind == .files, let local = next.clips.first(where: { $0.id == clip.id }),
+          local.fileSource == clip.fileSource, !local.content.isEmpty
+        {
+          clip.content = local.content
+        }
         next.clips.removeAll { $0.id == clip.id }
         next.snippets.removeAll { $0.id == clip.id }
         clip.pinned = entry.pin?.value ?? false

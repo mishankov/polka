@@ -23,7 +23,7 @@ final class ClipboardFilterTests: XCTestCase {
     let expected: [ClipboardFilter: [String]] = [
       .all: ["color", "image", "plain", "link", "code", "ambiguous"],
       .text: ["color", "plain", "link", "code", "ambiguous"],
-      .images: ["image"], .links: ["link"], .colors: ["color"],
+      .images: ["image"], .links: ["link"], .colors: ["color"], .files: [],
     ]
     for filter in ClipboardFilter.allCases {
       XCTAssertEqual(
@@ -42,7 +42,7 @@ final class ClipboardFilterTests: XCTestCase {
   }
 
   func testStructuredContentStaysTextAndDerivedFiltersRequireWholeValues() {
-    XCTAssertEqual(ClipboardFilter.allCases, [.all, .text, .images, .links, .colors])
+    XCTAssertEqual(ClipboardFilter.allCases, [.all, .text, .images, .links, .colors, .files])
     for value in ["#abc8", "rgba(0, 2, 3, 0.5)", "hsl(120 50% 25%)"] {
       XCTAssertTrue(ClipboardFilter.colors.matches(kind: .text, content: value), value)
       XCTAssertFalse(ClipboardFilter.colors.matches(kind: .image, content: value), value)

@@ -106,6 +106,23 @@ struct NativeBuiltinHeader<Actions: View>: View {
   }
 }
 
+struct NativeFileDownloadProgress: View {
+  @ObservedObject var model: NativeUIModel
+  var body: some View {
+    if let progress = model.fileDownloadProgress {
+      HStack(spacing: 10) {
+        ProgressView(value: progress).frame(maxWidth: .infinity)
+        Text(localized("Downloading files… {0}%", String(Int(progress * 100)))).font(
+          .system(size: 12))
+        NativeCommandButton(title: localized("Cancel"), shortcut: "esc") {
+          model.cancelFileDownload()
+        }
+        .accessibilityIdentifier("clipboard-file-download-cancel")
+      }.padding(12).accessibilityIdentifier("clipboard-file-download")
+    }
+  }
+}
+
 struct NativeBuiltinSearch: View {
   @ObservedObject var model: NativeUIModel
   var placeholder: String
@@ -115,6 +132,7 @@ struct NativeBuiltinSearch: View {
       text: $model.query, placeholder: placeholder, maxLength: maxLength,
       focusToken: "\(model.destination)-\(model.visible)-list-\(model.sessionRevision)"
     ).frame(maxWidth: .infinity).frame(height: NativeLargeSearchField.controlHeight)
+      .disabled(model.fileDownloadProgress != nil)
       .padding(.horizontal, 12).padding(.bottom, 10)
   }
 }
