@@ -27,15 +27,17 @@ struct NativeColorSwatch: View {
 }
 
 /// NSTextView provides selection, exact text, native accessibility and scrolling
-/// in both directions, even for a 1 MB record or a single very long line.
+/// for large records, with optional wrapping for readable snippet previews.
 struct NativePlainTextPreview: NSViewRepresentable {
   var text: String
+  var wrapsLines = false
   @Binding var scrollOffset: CGFloat
   var scrollToken: String = ""
   func makeNSView(context: Context) -> NSScrollView {
     let scroll = NativePreviewTextScrollView()
     scroll.hasVerticalScroller = true
-    scroll.hasHorizontalScroller = true
+    scroll.wrapsLines = wrapsLines
+    scroll.hasHorizontalScroller = !wrapsLines
     scroll.autohidesScrollers = true
     scroll.drawsBackground = false
     let view = NSTextView(frame: .zero)
@@ -61,6 +63,11 @@ struct NativePlainTextPreview: NSViewRepresentable {
   }
   func updateNSView(_ scroll: NSScrollView, context: Context) {
     guard let view = scroll.documentView as? NSTextView else { return }
+    if let preview = scroll as? NativePreviewTextScrollView, preview.wrapsLines != wrapsLines {
+      preview.wrapsLines = wrapsLines
+      preview.hasHorizontalScroller = !wrapsLines
+      preview.sizeDocument()
+    }
     let position = context.coordinator.position
     position.parent = NativeScrollPositionBridge(offset: $scrollOffset, token: scrollToken)
     if position.token != scrollToken {
@@ -102,6 +109,7 @@ struct NativePlainTextPreview: NSViewRepresentable {
 }
 
 final class NativePreviewTextScrollView: NSScrollView {
+  var wrapsLines = false
   override func layout() {
     super.layout()
     sizeDocument()
@@ -110,10 +118,27 @@ final class NativePreviewTextScrollView: NSScrollView {
     guard let text = documentView as? NSTextView, let container = text.textContainer,
       let layout = text.layoutManager
     else { return }
+    text.isHorizontallyResizable = !wrapsLines
+    container.widthTracksTextView = wrapsLines
+    if wrapsLines {
+      // Set the available width before measuring so resizing reflows the text
+      // and updates the document height without changing its contents.
+      text.minSize = NSSize(width: contentSize.width, height: 0)
+      if text.frame.width != contentSize.width {
+        text.setFrameSize(NSSize(width: contentSize.width, height: text.frame.height))
+      }
+      container.containerSize = NSSize(
+        width: max(1, contentSize.width - text.textContainerInset.width * 2),
+        height: CGFloat.greatestFiniteMagnitude)
+    } else {
+      container.containerSize = text.maxSize
+    }
     layout.ensureLayout(for: container)
     let used = layout.usedRect(for: container)
     let size = NSSize(
-      width: max(contentSize.width, ceil(used.width) + text.textContainerInset.width * 2),
+      width: wrapsLines
+        ? contentSize.width
+        : max(contentSize.width, ceil(used.width) + text.textContainerInset.width * 2),
       height: max(contentSize.height, ceil(used.height) + text.textContainerInset.height * 2))
     text.minSize = contentSize
     if text.frame.size != size { text.setFrameSize(size) }

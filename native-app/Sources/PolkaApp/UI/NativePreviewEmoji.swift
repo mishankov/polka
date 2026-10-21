@@ -120,6 +120,7 @@ struct NativeClipboardPreview: View {
         }
         NativePlainTextPreview(
           text: model.previewText,
+          wrapsLines: clip.snippet,
           scrollOffset: $model.previewScrollOffset,
           scrollToken: clip.id + "-preview-" + String(model.visible)
         )

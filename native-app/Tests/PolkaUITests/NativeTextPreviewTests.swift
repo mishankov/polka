@@ -97,4 +97,39 @@ final class NativeTextPreviewTests: XCTestCase {
     XCTAssertEqual(
       try XCTUnwrap(restored?.enclosingScrollView).contentView.bounds.origin.y, 200, accuracy: 1)
   }
+
+  @MainActor func testSnippetPreviewWrapsAndReflowsWithoutChangingText() async throws {
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 500, height: 300), styleMask: [], backing: .buffered,
+      defer: false)
+    window.isReleasedWhenClosed = false
+    defer { window.close() }
+    let content =
+      String(repeating: "Привет, e\u{301} 👩🏽‍💻! ", count: 60)
+      + "\r\n\r\n" + String(repeating: "x", count: 600)
+    let model = NativeUIModel()
+    let clip = NativeUIClip(id: "wrapped-snippet", content: content, snippet: true)
+    model.snippets = [clip]
+    model.present(destination: "snippets")
+    model.openPreview(clip)
+    window.contentView = NSHostingView(rootView: NativeClipboardPreview(model: model, clip: clip))
+    let found = await nativeSmokeWaitForView(in: window, ofType: NSTextView.self)
+    let text = try XCTUnwrap(found)
+    let scroll = try XCTUnwrap(text.enclosingScrollView)
+    for _ in 0..<10 { await Task.yield() }
+    scroll.layoutSubtreeIfNeeded()
+    XCTAssertEqual(text.frame.width, scroll.contentSize.width, accuracy: 1)
+    XCTAssertGreaterThan(text.frame.height, scroll.contentSize.height)
+    XCTAssertFalse(scroll.hasHorizontalScroller)
+    let initialHeight = text.frame.height
+
+    window.setContentSize(NSSize(width: 360, height: 300))
+    for _ in 0..<10 { await Task.yield() }
+    scroll.layoutSubtreeIfNeeded()
+    XCTAssertEqual(text.frame.width, scroll.contentSize.width, accuracy: 1)
+    XCTAssertGreaterThan(text.frame.height, initialHeight)
+    XCTAssertEqual(Data(text.string.utf8), Data(content.utf8))
+    XCTAssertTrue(text.isSelectable)
+    XCTAssertFalse(text.isEditable)
+  }
 }

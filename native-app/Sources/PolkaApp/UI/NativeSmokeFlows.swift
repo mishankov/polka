@@ -251,17 +251,25 @@ import SwiftUI
       ("structured-text", "{\"enabled\": true, \"count\": 42}\r\n"),
       ("plain", "Цвет #64a0ff упоминается в тексте.\nОбычный текст остаётся обычным текстом."),
       ("large", String(repeating: "x", count: 1_048_500)),
+      ("snippet", String(repeating: "Всем привет! Многострочный просмотр сниппета. ", count: 40)),
     ]
     for (name, content) in previewFixtures {
       do {
-        try platform.history.add(.text, content: content, preview: String(content.prefix(400)))
+        if name == "snippet" {
+          _ = try platform.history.createSnippet(content: content)
+        } else {
+          try platform.history.add(.text, content: content, preview: String(content.prefix(400)))
+        }
       } catch {
         failures.append("cannot create \(name) preview fixture: \(error)")
         continue
       }
       platform.refresh()
-      await application.show("clipboard")
-      guard let clip = model.clips.first(where: { Data($0.content.utf8) == Data(content.utf8) })
+      await application.show(name == "snippet" ? "snippets" : "clipboard")
+      guard
+        let clip = (name == "snippet" ? model.snippets : model.clips).first(where: {
+          Data($0.content.utf8) == Data(content.utf8)
+        })
       else {
         failures.append("missing \(name) preview fixture")
         continue
@@ -286,6 +294,12 @@ import SwiftUI
       }
       if !text.isSelectable || text.isEditable || text.isAutomaticLinkDetectionEnabled {
         failures.append("\(name) preview text was not inert and selectable")
+      }
+      if name == "snippet", let scroll = text.enclosingScrollView,
+        scroll.hasHorizontalScroller || abs(text.frame.width - scroll.contentSize.width) > 1
+          || text.frame.height <= scroll.contentSize.height
+      {
+        failures.append("snippet preview did not wrap into vertically scrollable text")
       }
       await screenshot("clipboard-preview-\(name)")
       if abs(shelf.frame.width - standardWidth) > 1 {
