@@ -56,7 +56,8 @@ final class NativeTextPreviewTests: XCTestCase {
       XCTAssertFalse(view.isEditable)
       XCTAssertFalse(view.isAutomaticLinkDetectionEnabled)
       XCTAssertFalse(view.isAutomaticDataDetectionEnabled)
-      XCTAssertFalse(view.textContainer?.widthTracksTextView ?? true)
+      XCTAssertTrue(view.textContainer?.widthTracksTextView ?? false)
+      XCTAssertFalse(view.enclosingScrollView?.hasHorizontalScroller ?? true)
       XCTAssertNotNil(view.enclosingScrollView)
     }
   }
@@ -85,10 +86,10 @@ final class NativeTextPreviewTests: XCTestCase {
     let text = try XCTUnwrap(found)
     for _ in 0..<10 { await Task.yield() }
     let scroll = try XCTUnwrap(text.enclosingScrollView)
-    XCTAssertGreaterThan(text.frame.width, scroll.contentSize.width)
+    XCTAssertEqual(text.frame.width, scroll.contentSize.width, accuracy: 1)
     XCTAssertGreaterThan(text.frame.height, scroll.contentSize.height)
     XCTAssertEqual(scroll.contentView.bounds.origin.y, 120, accuracy: 1)
-    scroll.contentView.scroll(to: NSPoint(x: 50, y: 200))
+    scroll.contentView.scroll(to: NSPoint(x: 0, y: 200))
     scroll.reflectScrolledClipView(scroll.contentView)
     XCTAssertEqual(model.previewScrollOffset, 200, accuracy: 1)
     install("resumed")
@@ -99,6 +100,14 @@ final class NativeTextPreviewTests: XCTestCase {
   }
 
   @MainActor func testSnippetPreviewWrapsAndReflowsWithoutChangingText() async throws {
+    try await assertPreviewWrapsAndReflows(snippet: true)
+  }
+
+  @MainActor func testClipboardPreviewWrapsAndReflowsWithoutChangingText() async throws {
+    try await assertPreviewWrapsAndReflows(snippet: false)
+  }
+
+  @MainActor private func assertPreviewWrapsAndReflows(snippet: Bool) async throws {
     let window = NSWindow(
       contentRect: NSRect(x: 0, y: 0, width: 500, height: 300), styleMask: [], backing: .buffered,
       defer: false)
@@ -108,9 +117,10 @@ final class NativeTextPreviewTests: XCTestCase {
       String(repeating: "Привет, e\u{301} 👩🏽‍💻! ", count: 60)
       + "\r\n\r\n" + String(repeating: "x", count: 600)
     let model = NativeUIModel()
-    let clip = NativeUIClip(id: "wrapped-snippet", content: content, snippet: true)
+    let clip = NativeUIClip(id: "wrapped-text", content: content, snippet: snippet)
     model.snippets = [clip]
-    model.present(destination: "snippets")
+    model.clips = [clip]
+    model.present(destination: snippet ? "snippets" : "clipboard")
     model.openPreview(clip)
     window.contentView = NSHostingView(rootView: NativeClipboardPreview(model: model, clip: clip))
     let found = await nativeSmokeWaitForView(in: window, ofType: NSTextView.self)

@@ -27,17 +27,15 @@ struct NativeColorSwatch: View {
 }
 
 /// NSTextView provides selection, exact text, native accessibility and scrolling
-/// for large records, with optional wrapping for readable snippet previews.
+/// for large records, wrapping text to the available preview width.
 struct NativePlainTextPreview: NSViewRepresentable {
   var text: String
-  var wrapsLines = false
   @Binding var scrollOffset: CGFloat
   var scrollToken: String = ""
   func makeNSView(context: Context) -> NSScrollView {
     let scroll = NativePreviewTextScrollView()
     scroll.hasVerticalScroller = true
-    scroll.wrapsLines = wrapsLines
-    scroll.hasHorizontalScroller = !wrapsLines
+    scroll.hasHorizontalScroller = false
     scroll.autohidesScrollers = true
     scroll.drawsBackground = false
     let view = NSTextView(frame: .zero)
@@ -48,12 +46,12 @@ struct NativePlainTextPreview: NSViewRepresentable {
     view.isAutomaticDataDetectionEnabled = false
     view.drawsBackground = false
     view.textContainerInset = NSSize(width: 16, height: 16)
-    view.isHorizontallyResizable = true
+    view.isHorizontallyResizable = false
     view.isVerticallyResizable = true
     view.minSize = .zero
     view.maxSize = NSSize(
       width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-    view.textContainer?.widthTracksTextView = false
+    view.textContainer?.widthTracksTextView = true
     view.textContainer?.containerSize = view.maxSize
     view.setAccessibilityIdentifier("clipboard-preview-text")
     view.setAccessibilityLabel(localized("Item text"))
@@ -63,11 +61,6 @@ struct NativePlainTextPreview: NSViewRepresentable {
   }
   func updateNSView(_ scroll: NSScrollView, context: Context) {
     guard let view = scroll.documentView as? NSTextView else { return }
-    if let preview = scroll as? NativePreviewTextScrollView, preview.wrapsLines != wrapsLines {
-      preview.wrapsLines = wrapsLines
-      preview.hasHorizontalScroller = !wrapsLines
-      preview.sizeDocument()
-    }
     let position = context.coordinator.position
     position.parent = NativeScrollPositionBridge(offset: $scrollOffset, token: scrollToken)
     if position.token != scrollToken {
@@ -109,7 +102,6 @@ struct NativePlainTextPreview: NSViewRepresentable {
 }
 
 final class NativePreviewTextScrollView: NSScrollView {
-  var wrapsLines = false
   override func layout() {
     super.layout()
     sizeDocument()
@@ -118,27 +110,19 @@ final class NativePreviewTextScrollView: NSScrollView {
     guard let text = documentView as? NSTextView, let container = text.textContainer,
       let layout = text.layoutManager
     else { return }
-    text.isHorizontallyResizable = !wrapsLines
-    container.widthTracksTextView = wrapsLines
-    if wrapsLines {
-      // Set the available width before measuring so resizing reflows the text
-      // and updates the document height without changing its contents.
-      text.minSize = NSSize(width: contentSize.width, height: 0)
-      if text.frame.width != contentSize.width {
-        text.setFrameSize(NSSize(width: contentSize.width, height: text.frame.height))
-      }
-      container.containerSize = NSSize(
-        width: max(1, contentSize.width - text.textContainerInset.width * 2),
-        height: CGFloat.greatestFiniteMagnitude)
-    } else {
-      container.containerSize = text.maxSize
+    // Set the available width before measuring so resizing reflows the text
+    // and updates the document height without changing its contents.
+    text.minSize = NSSize(width: contentSize.width, height: 0)
+    if text.frame.width != contentSize.width {
+      text.setFrameSize(NSSize(width: contentSize.width, height: text.frame.height))
     }
+    container.containerSize = NSSize(
+      width: max(1, contentSize.width - text.textContainerInset.width * 2),
+      height: CGFloat.greatestFiniteMagnitude)
     layout.ensureLayout(for: container)
     let used = layout.usedRect(for: container)
     let size = NSSize(
-      width: wrapsLines
-        ? contentSize.width
-        : max(contentSize.width, ceil(used.width) + text.textContainerInset.width * 2),
+      width: contentSize.width,
       height: max(contentSize.height, ceil(used.height) + text.textContainerInset.height * 2))
     text.minSize = contentSize
     if text.frame.size != size { text.setFrameSize(size) }
