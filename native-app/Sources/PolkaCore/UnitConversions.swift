@@ -226,6 +226,7 @@ public enum UnitConversions {
       status: .result, expression: expression,
       value: calculationNumber(converted, precision: 12) + " " + to.symbol, conversion: "unit",
       interpretation: calculationNumber(amount, precision: 17) + " " + from.symbol + " → "
-        + to.symbol)
+        + to.symbol,
+      displayValue: calculationNumber(converted, precision: 12, grouped: true) + " " + to.symbol)
   }
 }

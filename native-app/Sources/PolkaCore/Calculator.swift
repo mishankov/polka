@@ -57,7 +57,7 @@ func regexReplace(
     in: text, range: NSRange(text.startIndex..., in: text), withTemplate: replacement)
 }
 // Round decimal noise, then follow JavaScript's number formatting thresholds.
-func calculationNumber(_ number: Double, precision: Int = 15) -> String {
+func calculationNumber(_ number: Double, precision: Int = 15, grouped: Bool = false) -> String {
   if number == 0 { return "0" }
   // The locale-taking formatter uses ICU rounding, which differs from the binary
   // toPrecision rounding at decimal ties. C printf gives the shipping JS result.
@@ -67,7 +67,8 @@ func calculationNumber(_ number: Double, precision: Int = 15) -> String {
     let formatter = NumberFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.numberStyle = .decimal
-    formatter.usesGroupingSeparator = false
+    formatter.usesGroupingSeparator = grouped
+    formatter.groupingSeparator = " "
     formatter.maximumFractionDigits = 32
     formatter.maximumSignificantDigits = precision
     formatter.usesSignificantDigits = true
@@ -115,7 +116,9 @@ public enum Calculator {
       guard value.isFinite else {
         throw ArithmeticFailure.message(localized("Result is out of range"))
       }
-      return Calculation(status: .result, expression: expression, value: calculationNumber(value))
+      return Calculation(
+        status: .result, expression: expression, value: calculationNumber(value),
+        displayValue: calculationNumber(value, grouped: true))
     } catch ArithmeticFailure.incomplete {
       return Calculation(status: .incomplete, expression: expression)
     } catch ArithmeticFailure.message(let message) {

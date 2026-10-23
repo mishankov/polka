@@ -12,6 +12,27 @@ final class CalculatorTests: XCTestCase {
     super.tearDown()
   }
   private let now = ISO8601DateFormatter().date(from: "2026-07-15T12:00:00Z")!
+  func testDisplayedNumbersGroupIntegerDigitsWithoutChangingCopyValues() {
+    for (query, value, display) in [
+      ("64^8", "281474976710656", "281 474 976 710 656"),
+      ("=999", "999", "999"),
+      ("=1000", "1000", "1 000"),
+      ("=-1234567.89", "-1234567.89", "-1 234 567.89"),
+      ("=0.123456789", "0.123456789", "0.123456789"),
+      ("=0", "0", "0"),
+      ("10^21", "1e+21", "1e+21"),
+      ("10^-7", "1e-7", "1e-7"),
+      ("1 км в миллиметрах", "1000000 mm", "1 000 000 mm"),
+      ("-1234.5 m in cm", "-123450 cm", "-123 450 cm"),
+    ] {
+      for language in [AppLanguagePreference.russian, .english] {
+        AppLocalization.configure(language)
+        let result = Calculator.calculate(query)
+        XCTAssertEqual(result?.value, value, query)
+        XCTAssertEqual(result?.displayValue, display, query)
+      }
+    }
+  }
   func testShippingArithmeticAndUnitExamples() {
     let pairs: [(String, String)] = [
       ("1250 * 3", "3750"),
