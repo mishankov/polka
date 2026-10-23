@@ -140,6 +140,81 @@ import SwiftUI
     return nil
   }
   func settle() async { try? await Task.sleep(nanoseconds: 230_000_000) }
+  func checkClipboardRowGeometry() async {
+    let snippets = model.destination == "snippets"
+    let previousQuery = model.query
+    let previousSelection = model.selectedID
+    let previousScroll = model.scrollID
+    let previousPointer = model.selectionPointerLocation
+    var fixtureIDs: [String] = []
+    defer {
+      do {
+        for id in fixtureIDs { try platform.history.remove(id) }
+      } catch { failures.append("cannot remove row geometry fixtures: \(error)") }
+      platform.refresh()
+      model.query = previousQuery
+      model.selectedID = previousSelection
+      model.scrollID = previousScroll
+      model.selectionPointerLocation = previousPointer
+    }
+    let marker = "polka-row-layout"
+    let text = "A clipboard entry that should keep the same height on hover."
+    // Use the isolated store so periodic platform refreshes retain these rows.
+    do {
+      for content in [text + " " + marker, "https://example.com/\(marker)/long-link", marker] {
+        if snippets {
+          fixtureIDs.append(
+            try platform.history.createSnippet(
+              content: content, name: content.hasPrefix(text) ? text : ""))
+        } else {
+          try platform.history.add(.text, content: content, preview: content)
+          fixtureIDs.append(clipId(.text, content))
+        }
+      }
+    } catch {
+      failures.append("cannot prepare row geometry fixtures: \(error)")
+      return
+    }
+    platform.refresh()
+    model.query = marker
+    await settle()
+    let ids = model.clipResults.map(\.id)
+    guard ids.count == 3 else {
+      failures.append("\(model.destination) row geometry fixtures did not load")
+      return
+    }
+    model.selectedID = ids.first
+    await settle()
+    func frames() -> [NSRect]? {
+      shelf.contentView?.layoutSubtreeIfNeeded()
+      let frames = ids.compactMap { accessible("clip-\($0)")?.accessibilityFrame() }
+      guard frames.count == ids.count,
+        frames.allSatisfy({ $0.width > 0 && $0.height > 0 })
+      else { return nil }
+      return frames
+    }
+    guard let baseline = frames() else {
+      failures.append("\(model.destination) row geometry fixtures are not accessible")
+      return
+    }
+    if !snippets { await screenshot("clipboard-row-layout-before") }
+    var pointer = NSPoint(x: 100, y: 100)
+    model.selectionPointerLocation = { pointer }
+    for id in ids {
+      pointer.x += 1
+      model.selectHoveredItem(id)
+      await settle()
+      if frames() != baseline {
+        failures.append("\(model.destination) hover changed row geometry for \(id)")
+      }
+    }
+    if !snippets { await screenshot("clipboard-row-layout-hover") }
+    post(126)
+    await settle()
+    if model.selectedID != ids[1] || frames() != baseline {
+      failures.append("\(model.destination) keyboard selection changed row geometry")
+    }
+  }
   func checkKeyboardSelectionAgainstHover() async {
     let destination = model.destination
     let ids =
@@ -209,6 +284,7 @@ import SwiftUI
     if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1",
       name.hasPrefix("controls-") || name.hasPrefix("settings-update-")
         || name.hasPrefix("clipboard-filter-") || name.hasPrefix("clipboard-files-")
+        || name.hasPrefix("clipboard-row-layout-")
         || name == "snippet-editor"
         || name == "clipboard-clear-confirmation"
     {
@@ -555,6 +631,7 @@ import SwiftUI
       let openingMilliseconds = (ProcessInfo.processInfo.systemUptime - openingStarted) * 1000
       trace("\(destination) presentation/layout: \(String(format: "%.1f", openingMilliseconds)) ms")
       if ["clipboard", "snippets"].contains(destination) {
+        await checkClipboardRowGeometry()
         model.selectedID = model.clipResults.first(where: { $0.kind == "text" })?.id
       }
       await settle()

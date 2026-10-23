@@ -427,7 +427,9 @@ struct NativeClipboardView: View {
                   position < 9
                     ? localized("Select: ⌘{0}", String(describing: position + 1))
                     : localized("Select: Enter"))
-              if model.selectedClip?.id == clip.id {
+              // Reserve the action width even when hidden, so selection by
+              // pointer or keyboard never reflows the text or shifts later rows.
+              HStack(spacing: 8) {
                 if clip.kind == "text" {
                   NativeIconButton(
                     label: clip.snippet ? localized("Edit Snippet") : localized("Create Snippet"),
@@ -468,6 +470,10 @@ struct NativeClipboardView: View {
                   disabled: !model.writable || model.busy
                 ) { model.removeClip(clip) }
               }
+              .opacity(selectedID == clip.id ? 1 : 0)
+              .disabled(selectedID != clip.id)
+              .allowsHitTesting(selectedID == clip.id)
+              .accessibilityHidden(selectedID != clip.id)
               if position < 9 {
                 Text("⌘\(position + 1)").font(.system(size: 10)).foregroundStyle(.tertiary)
               }
