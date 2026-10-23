@@ -499,7 +499,34 @@ import SwiftUI
       }
     }
     await application.show("apps")
+    trace("calculator digit grouping and keyboard copy")
+    for (query, title, copied, name) in [
+      ("64^8", "281 474 976 710 656", "281474976710656", "calculator-large-integer"),
+      ("=-1234567.89", "-1 234 567.89", "-1234567.89", "calculator-decimal"),
+      ("1 км в миллиметрах", "1 000 000 mm", "1000000 mm", "calculator-unit"),
+    ] {
+      model.query = query
+      model.notice = ""
+      await settle()
+      if model.searchResults.first?.title != title {
+        failures.append("calculator did not display grouped digits for \(query)")
+      }
+      await screenshot(name)
+      for (code, flags, characters) in [
+        (UInt16(18), NSEvent.ModifierFlags.command, "1"),
+        (UInt16(36), NSEvent.ModifierFlags(), "\r"),
+      ] {
+        platform.capture.write(text: "Before calculation")
+        post(code, flags, characters)
+        if !(await wait({
+          !model.busy && platform.capture.syntheticText == copied && model.visible
+        })) || model.query != query {
+          failures.append("calculator keyboard copy failed for \(query): \(keyboardState())")
+        }
+      }
+    }
     model.query = ""
+    model.notice = ""
     await settle()
     await screenshot("launcher")
     if let view = shelf.contentView,
