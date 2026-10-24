@@ -34,6 +34,80 @@ private final class ClipboardFileDecodeGate: EncryptionCodec {
 }
 
 final class NativePlatformIntegrationTests: XCTestCase {
+  @MainActor func testLauncherClosesBeforeAppFinishesOpeningFromClickAndReturn() async throws {
+    for scenario in ["click", "keyboard", "failure", "failure-reopened"] {
+      let started = XCTestExpectation(description: "Application launch requested")
+      var finish: CheckedContinuation<Void, Error>?
+      let applications = InstalledApps { _ in
+        try await withCheckedThrowingContinuation { continuation in
+          finish = continuation
+          started.fulfill()
+        }
+      }
+      defer { finish?.resume() }
+      try await withPlatform(applications: applications) { platform in
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = root.appendingPathComponent("Slow.app")
+        try FileManager.default.createDirectory(
+          at: app.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+        try PropertyListSerialization.data(
+          fromPropertyList: [
+            "CFBundlePackageType": "APPL", "CFBundleExecutable": "Slow",
+            "CFBundleIdentifier": "app.polka.fixture.slow", "CFBundleName": "Slow",
+          ], format: .xml, options: 0
+        ).write(to: app.appendingPathComponent("Contents/Info.plist"))
+        let executable = app.appendingPathComponent("Contents/MacOS/Slow")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes(
+          [.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        try await applications.refresh(roots: [root.path], extraPaths: [])
+        platform.refresh()
+        let model = platform.model
+        model.present(destination: "apps", searchQuery: "Slow")
+        let row = try XCTUnwrap(model.searchResults.first { $0.id == applications.apps.first?.id })
+        model.selectedID = row.id
+        if scenario == "keyboard" {
+          let enter = NativeKeyInput(
+            code: 36, characters: "\r", modifiers: [], editing: true, searchEditing: true)
+          var composing = enter
+          composing.composing = true
+          XCTAssertFalse(model.handleKeyboard(composing))
+          var repeated = enter
+          repeated.repeatKey = true
+          XCTAssertTrue(model.handleKeyboard(repeated))
+          XCTAssertFalse(model.commandPending)
+          XCTAssertTrue(
+            model.handleKeyboard(enter))
+        } else {
+          model.activateSearch(row)
+        }
+        await fulfillment(of: [started], timeout: 2)
+        XCTAssertTrue(model.commandPending, "The synthetic app has not finished opening")
+        XCTAssertFalse(model.visible, "Closing must not wait for launch completion")
+        if scenario != "failure" {
+          model.present(destination: "apps", searchQuery: "Another search")
+        }
+        let launchError = NSError(
+          domain: "PolkaLaunchFixture", code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "Synthetic launch failure"])
+        if scenario.hasPrefix("failure") {
+          finish?.resume(throwing: launchError)
+        } else {
+          finish?.resume()
+        }
+        finish = nil
+        for _ in 0..<500 where model.commandPending {
+          try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertFalse(model.commandPending)
+        XCTAssertTrue(model.visible, "Late launch completion must not close a reopened shelf")
+        XCTAssertEqual(model.query, scenario == "failure" ? "Slow" : "Another search")
+        XCTAssertEqual(model.error, scenario == "failure" ? launchError.localizedDescription : "")
+      }
+    }
+  }
+
   @MainActor func testLateFileDownloadCannotOverwriteClipboardAfterCancelCloseOrDeletion()
     async throws
   {
@@ -285,13 +359,15 @@ final class NativePlatformIntegrationTests: XCTestCase {
         localized("Choose another folder and try again.")))
   }
   @MainActor private func withPlatform(
-    encryption: EncryptionCodec? = nil, _ body: (NativePlatform) async throws -> Void
+    encryption: EncryptionCodec? = nil, applications: InstalledApps? = nil,
+    _ body: (NativePlatform) async throws -> Void
   ) async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(
       "polka-native-ui-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
     let platform = try NativePlatform(
-      model: NativeUIModel(), root: root, fixture: true, encryption: encryption)
+      model: NativeUIModel(), root: root, fixture: true, encryption: encryption,
+      applications: applications)
     try platform.history.initialize()
     platform.capture.stop()
     platform.show = { [weak platform] destination, query in
