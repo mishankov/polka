@@ -5,6 +5,24 @@ import XCTest
 @testable import PolkaApp
 
 final class InstalledAppsTests: XCTestCase {
+  @MainActor func testInvalidAppDoesNotRequestLaunchOrCloseShelf() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let app = try localizedApp(at: root, name: "Removed")
+    let catalog = InstalledApps { _ in XCTFail("Invalid app must not launch") }
+    try await catalog.refresh(roots: [root.path], extraPaths: [])
+    let id = try XCTUnwrap(catalog.apps.first?.id)
+    try FileManager.default.removeItem(at: app.appendingPathComponent("Contents/MacOS/Synthetic"))
+    for id in [id, "mac:missing"] {
+      do {
+        try await catalog.open(id) { XCTFail("Validation failure must leave the shelf open") }
+        XCTFail("Invalid app must fail validation")
+      } catch {
+        XCTAssertTrue(error is PolkaCoreError)
+      }
+    }
+  }
+
   private func localizedApp(
     at root: URL, name: String, strings: [String: [String: Any]] = [:],
     table: [String: [String: Any]] = [:]

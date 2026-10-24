@@ -3,6 +3,15 @@ import CryptoKit
 import PolkaCore
 
 @MainActor final class InstalledApps {
+  private let launch: (URL) async throws -> Void
+  init(
+    launch: @escaping (URL) async throws -> Void = {
+      _ = try await NSWorkspace.shared.openApplication(
+        at: $0, configuration: NSWorkspace.OpenConfiguration())
+    }
+  ) {
+    self.launch = launch
+  }
   private struct Entry {
     var path: String
     var bundleID: String?
@@ -169,7 +178,7 @@ import PolkaCore
     else { return "" }
     return "data:image/png;base64," + png.base64EncodedString()
   }
-  func open(_ id: String) async throws {
+  func open(_ id: String, onLaunchRequested: () -> Void) async throws {
     guard let entry = entries[id] else {
       throw PolkaCoreError.invalid(
         localized("App not found. Open the launcher again to refresh the list."))
@@ -178,7 +187,9 @@ import PolkaCore
     guard entry.bundleID == nil || info["CFBundleIdentifier"] as? String == entry.bundleID else {
       throw PolkaCoreError.invalid(localized("The app has changed"))
     }
-    _ = try await NSWorkspace.shared.openApplication(
-      at: URL(fileURLWithPath: entry.path), configuration: NSWorkspace.OpenConfiguration())
+    // Launch Services completes only after the app has opened. Close the shelf
+    // as launching begins, after validation, rather than waiting for that reply.
+    onLaunchRequested()
+    try await launch(URL(fileURLWithPath: entry.path))
   }
 }

@@ -14,7 +14,7 @@ import UserNotifications
   private var screenshotExports: URL?
   private var screenshotRegistered = false
   private var screenshotAccelerator = "CommandOrControl+Shift+Alt+4"
-  let applications = InstalledApps()
+  let applications: InstalledApps
   let shortcuts: GlobalShortcuts?
   let probe = HelperProcess()
   let fileProbe = HelperProcess()
@@ -46,8 +46,12 @@ import UserNotifications
   var filesDropped: (() async -> Void)?
   var mediaTracking: ((String, Bool) throws -> Void)?
   var languageChanged: (() -> Void)?
-  init(model: NativeUIModel, root: URL, fixture: Bool, encryption: EncryptionCodec? = nil) throws {
+  init(
+    model: NativeUIModel, root: URL, fixture: Bool, encryption: EncryptionCodec? = nil,
+    applications: InstalledApps? = nil
+  ) throws {
     self.model = model
+    self.applications = applications ?? InstalledApps()
     self.fixture = fixture
     systemStatusMonitor = SystemStatusMonitor(model: model, fixture: fixture)
     try FileManager.default.createDirectory(
@@ -952,7 +956,19 @@ import UserNotifications
         await show?(String(id.dropFirst(8)), "")
         return
       }
-      try await applications.open(id)
+      let revision = model.sessionRevision
+      let query = model.query
+      do {
+        try await applications.open(id) { hide?(true) }
+      } catch {
+        if !Task.isCancelled, !(error is CancellationError),
+          model.sessionRevision == revision, !model.visible
+        {
+          await show?("apps", query)
+          model.error = error.localizedDescription
+        }
+        throw error
+      }
       let old = usage[id] ?? LauncherUsage()
       usage[id] = LauncherUsage(
         count: old.count + 1, lastLaunchedAt: Date().timeIntervalSince1970 * 1000)
@@ -962,7 +978,6 @@ import UserNotifications
           key: "launcherUsage",
           value: JSONSerialization.jsonObject(with: JSONEncoder().encode(usage)))
       } catch { model.error = localized("Could not save launch statistics") }
-      hide?(true)
     case "launcher.refresh": try await refreshCatalog()
     case "launcher.setShortcut": try registerLauncherShortcut(command.strings["accelerator"] ?? "")
     case "clipboardHistory.shortcut":
