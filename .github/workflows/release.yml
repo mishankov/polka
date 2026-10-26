@@ -184,9 +184,16 @@ jobs:
   publish:
     name: Upload release assets
     needs: [prepare, verify, tooling, updates, build]
+    # Stable and nightly publishers share the same mutable channel pointer.
+    concurrency:
+      group: polka-update-feed
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
       - uses: actions/download-artifact@v8
         with:
           name: release-asset-macos-arm64
@@ -236,3 +243,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
         run: gh release edit "$TAG" --draft=false --repo "$GITHUB_REPOSITORY"
+
+      - name: Advance nightly channel to the newest stable or nightly build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: python3 scripts/publish-nightly-feed.py --repository "$GITHUB_REPOSITORY" --tag "$TAG"
