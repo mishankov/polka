@@ -2,6 +2,20 @@ import CryptoKit
 import Foundation
 
 public enum ReleaseMetadata {
+  static func appcastVersion(_ data: Data) throws -> [UInt64] {
+    let document = try AppcastDocument.parse(data)
+    guard let version = document.fields["sparkle:version"],
+      version.range(of: #"^[0-9]+(?:\.[0-9]+)*\z"#, options: .regularExpression) != nil
+    else { throw ReleaseError.invalid("Expected a numeric Sparkle build version.") }
+    var parts = try version.split(separator: ".").map { part -> UInt64 in
+      guard let value = UInt64(part) else {
+        throw ReleaseError.invalid("Sparkle build version component is too large.")
+      }
+      return value
+    }
+    while parts.count > 1 && parts.last == 0 { parts.removeLast() }
+    return parts
+  }
   public static func artifactNames(metadata: PolkaMetadata) throws -> [String] {
     let base = "\(metadata.name)-\(metadata.version)-arm64"
     guard base.range(of: #"^[A-Za-z0-9._-]+\z"#, options: .regularExpression) != nil else {

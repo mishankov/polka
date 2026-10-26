@@ -167,12 +167,17 @@ jobs:
     concurrency:
       group: polka-update-feed
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    runs-on: xcode-27
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.commit }}
+      - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: tooling
+          tools-configuration: debug
+          tools-only: 'true'
       - uses: actions/download-artifact@v8
         with:
           name: nightly-asset-macos-arm64
@@ -227,4 +232,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: python3 scripts/publish-nightly-feed.py --repository "$GITHUB_REPOSITORY" --tag "$TAG"
+        run: ./polka nightly-feed

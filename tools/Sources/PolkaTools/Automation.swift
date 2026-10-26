@@ -21,6 +21,7 @@ public struct ToolRequest {
       "package": ["prebuilt", "desktop", "official", "debug", "dir"],
       "release": ["prebuilt", "desktop", "publish"], "release-verify": [],
       "release-notes": ["version"], "release-prepare": [], "nightly-prepare": [],
+      "nightly-feed": [],
       "signing-certificate": [],
       "emoji-data": [], "format": ["check"],
     ]
@@ -87,6 +88,7 @@ public enum Automation {
       release-verify                Authenticate release artifacts
       release-notes TAG OUTPUT.md [SOURCE.json] | --version TAG
       nightly-prepare               Pin the nightly version and source commit
+      nightly-feed                  Advance the stable/nightly feed after publication
       release-prepare               Pin and validate the CI release source
       signing-certificate DIRECTORY Create a persistent release signing identity
       emoji-data                    Regenerate the pinned Unicode/CLDR catalog
@@ -285,6 +287,7 @@ public enum Automation {
     case "release-notes":
       try ReleaseTool.notesCommand(arguments: request.arguments, context: context)
     case "nightly-prepare": try NightlyPreparation.run(context: context)
+    case "nightly-feed": try NightlyFeedPublisher.run(context: context)
     case "release-prepare": _ = try ReleasePreparation.run(context: context)
     case "signing-certificate":
       try ReleaseTool.createSigningCertificate(arguments: request.positionals, context: context)

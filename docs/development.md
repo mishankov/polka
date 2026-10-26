@@ -27,6 +27,7 @@
 | `./polka vm doctor` | Запуск VM, проверка macOS/Xcode и GUI-сессии, завершение VM |
 | `./polka package` | Оптимизированный локальный `.app`, ZIP и DMG |
 | `./polka release` | Официальный пакет и подписанный appcast |
+| `./polka nightly-feed` | Обновление ночного feed после публикации; workflow передаёт `TAG` и `GITHUB_REPOSITORY` под общей блокировкой |
 | `./polka format --check` | Проверка форматирования Swift |
 
 `./polka test app` запускает XCTest приложения, `./polka test tools` — XCTest инструментария; `all` выбран по умолчанию. Для передачи Swift-фильтров используйте `swift test --package-path native-app --filter ...`. `./polka coverage` измеряет покрытие Swift; сравнивайте долю покрытого кода по отчётам, а не число тестов.
