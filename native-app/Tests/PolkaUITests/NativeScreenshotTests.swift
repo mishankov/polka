@@ -761,6 +761,121 @@ final class NativeScreenshotTests: XCTestCase {
     platform.show = nil
     await platform.shutdown()
   }
+  @MainActor func testDirectCopyWritesPNGAndHistoryWithoutOpeningEditor() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let platform = try NativePlatform(model: NativeUIModel(), root: root, fixture: true)
+    try platform.history.initialize()
+    let source = try image()
+    platform.screenshots.captureImage = { source }
+    let revision = platform.capture.clipboardRevision
+    try await platform.handle(.init("screenshots.copy"))
+    XCTAssertTrue(platform.screenshots.editors.isEmpty)
+    XCTAssertFalse(platform.model.screenshotCapturing)
+    XCTAssertEqual(platform.capture.clipboardRevision, revision + 1)
+    XCTAssertTrue(platform.capture.syntheticTypes.contains("public.png"))
+    let clip = try XCTUnwrap(platform.history.snapshot().clips.first { $0.kind == .image })
+    let png = try XCTUnwrap(NSBitmapImageRep(data: XCTUnwrap(Data(base64Encoded: clip.content))))
+    XCTAssertEqual(png.pixelsWide, 100)
+    XCTAssertEqual(png.pixelsHigh, 80)
+    XCTAssertEqual(try XCTUnwrap(png.colorAt(x: 50, y: 40)).redComponent, 1, accuracy: 0.01)
+    platform.screenshots.captureImage = { nil }
+    try await platform.handle(.init("screenshots.copy"))
+    XCTAssertEqual(platform.capture.clipboardRevision, revision + 1)
+    await platform.shutdown()
+  }
+  @MainActor func testDirectCopyPreservesDraftsAndRestoresEditorsAfterFailure() async throws {
+    let model = NativeUIModel()
+    let captures = NativeScreenshots(model: model, fixture: true)
+    defer { captures.stop() }
+    let source = try image()
+    let draft = try captures.insert(source)
+    let mark = NativeScreenshotMark(
+      kind: .text, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 80, y: 40), text: "Draft")
+    draft.add(mark)
+    draft.selectObject(mark)
+    let editor = try XCTUnwrap(captures.editors[draft.id])
+    var copied = 0
+    captures.captureImage = {
+      XCTAssertFalse(editor.window?.isVisible == true)
+      XCTAssertTrue(model.screenshotCapturing)
+      // A second invocation while selecting must do nothing.
+      try await captures.capture(copyImmediately: true)
+      return source
+    }
+    captures.copyImage = { _ in copied += 1 }
+    draft.busy = true
+    try await captures.capture(copyImmediately: true)
+    XCTAssertEqual(copied, 0)
+    XCTAssertFalse(model.screenshotCapturing)
+    draft.busy = false
+    try await captures.capture(copyImmediately: true)
+    XCTAssertEqual(copied, 1)
+    XCTAssertEqual(captures.editors.count, 1)
+    XCTAssertTrue(editor.window?.isVisible == true)
+    XCTAssertEqual(draft.marks, [mark])
+    XCTAssertEqual(draft.objectDraft?.id, mark.id)
+    captures.copyImage = { _ in throw PolkaCoreError.invalid("Synthetic copy failure") }
+    do {
+      try await captures.capture(copyImmediately: true)
+      XCTFail("copy failure was swallowed")
+    } catch { XCTAssertEqual(error.localizedDescription, "Synthetic copy failure") }
+    XCTAssertFalse(model.screenshotCapturing)
+    XCTAssertTrue(editor.window?.isVisible == true)
+    XCTAssertEqual(draft.marks, [mark])
+    XCTAssertEqual(draft.objectDraft?.id, mark.id)
+    captures.captureImage = { throw PolkaCoreError.invalid("Synthetic capture failure") }
+    do {
+      try await captures.capture(copyImmediately: true)
+      XCTFail("capture failure was swallowed")
+    } catch { XCTAssertEqual(error.localizedDescription, "Synthetic capture failure") }
+    XCTAssertTrue(editor.window?.isVisible == true)
+    XCTAssertFalse(model.screenshotCapturing)
+  }
+  @MainActor func testDirectCopyShortcutConflictsPersistAndDisableIndependently() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let platform = try NativePlatform(model: NativeUIModel(), root: root, fixture: true)
+    await platform.initialize()
+    await platform.waitForInitialization()
+    let copyDefault = "CommandOrControl+Control+Shift+Alt+4"
+    XCTAssertEqual(platform.model.settings.screenshotCopyShortcut, copyDefault)
+    XCTAssertTrue(platform.model.settings.screenshotCopyShortcutError.isEmpty)
+    for occupied in [
+      "CommandOrControl+Shift+Space", "CommandOrControl+Shift+V",
+      "CommandOrControl+Shift+Alt+4",
+    ] {
+      do {
+        try await platform.handle(
+          .init("screenshots.copyShortcut", strings: ["accelerator": occupied]))
+        XCTFail("accepted occupied shortcut")
+      } catch {}
+      XCTAssertEqual(platform.model.settings.screenshotCopyShortcut, copyDefault)
+      XCTAssertEqual(
+        try platform.settings.get(key: "screenshotCopyShortcut") as? String, copyDefault)
+      XCTAssertFalse(platform.model.settings.screenshotCopyShortcutError.isEmpty)
+    }
+    for command in ["launcher.setShortcut", "clipboardHistory.shortcut", "screenshots.shortcut"] {
+      do {
+        try await platform.handle(.init(command, strings: ["accelerator": copyDefault]))
+        XCTFail("allowed another action to take the copy shortcut")
+      } catch {}
+    }
+    let custom = "CommandOrControl+Shift+Alt+5"
+    try await platform.handle(.init("screenshots.copyShortcut", strings: ["accelerator": custom]))
+    XCTAssertEqual(platform.model.settings.screenshotCopyShortcut, custom)
+    XCTAssertTrue(platform.model.settings.screenshotCopyShortcutError.isEmpty)
+    try await platform.handle(.init("screenshots.shortcut", strings: ["accelerator": ""]))
+    XCTAssertEqual(platform.model.settings.screenshotCopyShortcut, custom)
+    try await platform.handle(.init("screenshots.copyShortcut", strings: ["accelerator": ""]))
+    XCTAssertEqual(platform.model.settings.screenshotCopyShortcut, "")
+    try await platform.handle(.init("screenshots.copyShortcut", strings: ["accelerator": custom]))
+    await platform.shutdown()
+    let restored = try NativePlatform(model: NativeUIModel(), root: root, fixture: true)
+    XCTAssertEqual(restored.model.settings.screenshotCopyShortcut, custom)
+    XCTAssertEqual(restored.model.settings.screenshotShortcut, "")
+    await restored.shutdown()
+  }
   @MainActor func testExistingShortcutWinsOverNewDefaultAtStartup() async throws {
     for action in ["launcher", "clipboard"] {
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -802,7 +917,7 @@ final class NativeScreenshotTests: XCTestCase {
         "builtinApps.setEnabled", strings: ["id": "builtin:screenshots"], bools: ["enabled": false])
     )
     for command in [
-      "screenshots.capture"
+      "screenshots.capture", "screenshots.copy",
     ] {
       do {
         try await platform.handle(.init(command))

@@ -182,6 +182,77 @@ import PolkaCore
     platform.screenshots.captureImage = nil
     platform.screenshots.suspend()
   }
+  // Use the actual global hotkey path in the isolated guest. The fixture
+  // substitutes only captured pixels and clipboard writes.
+  let directShortcut = GlobalShortcuts()
+  defer { directShortcut.stop() }
+  var shortcutInvocations = 0
+  do {
+    try directShortcut.set(
+      "screenshots.copy", accelerator: model.settings.screenshotCopyShortcut, persist: {},
+      action: {
+        shortcutInvocations += 1
+        platform.performScreenshotShortcut(copyImmediately: true)
+      })
+  } catch { return ["could not register direct screenshot shortcut: \(error)"] }
+  func copyShortcut(down: Bool) {
+    let event = CGEvent(keyboardEventSource: nil, virtualKey: 21, keyDown: down)
+    event?.flags = [.maskCommand, .maskControl, .maskShift, .maskAlternate]
+    event?.post(tap: .cghidEventTap)
+  }
+  trace("direct copy shortcut")
+  let clipboardRevision = platform.capture.clipboardRevision
+  copyShortcut(down: true)
+  if !(await wait { NSApp.keyWindow?.contentView is NativeScreenshotSelectionView }) {
+    copyShortcut(down: false)
+    return ["direct copy global shortcut did not open region selection"]
+  }
+  // Repeated press events must not start a second capture.
+  copyShortcut(down: true)
+  await settle()
+  copyShortcut(down: false)
+  if shortcutInvocations != 1 { failures.append("direct copy shortcut repeated while held") }
+  if let panel = NSApp.keyWindow {
+    mouse(.leftMouseDown, CGPoint(x: 100, y: 100), panel)
+    mouse(.leftMouseDragged, CGPoint(x: 700, y: 500), panel)
+    await screenshot(panel, name: "screenshot-direct-copy-selection")
+    mouse(.leftMouseUp, CGPoint(x: 700, y: 500), panel)
+  }
+  if !(await wait { !model.commandPending && !model.screenshotCapturing }) {
+    failures.append("direct screenshot copy did not finish")
+  }
+  if platform.capture.clipboardRevision != clipboardRevision + 1
+    || !platform.capture.syntheticTypes.contains("public.png")
+    || !platform.screenshots.editors.isEmpty
+  {
+    failures.append("direct capture did not copy immediately without an editor")
+  }
+  let expectedPNG = try? NativeScreenshotDocument(source: image).png().base64EncodedString()
+  if !platform.history.snapshot().clips.contains(where: {
+    $0.kind == .image && $0.content == expectedPNG
+  }) {
+    failures.append("direct screenshot copy did not enter history")
+  }
+  await application.show("clipboard")
+  // Let the shelf's presentation animation finish before capturing the artifact.
+  try? await Task.sleep(nanoseconds: 300_000_000)
+  await screenshot(shelf, name: "screenshot-direct-copy-result")
+  copyShortcut(down: true)
+  copyShortcut(down: false)
+  if await wait({ NSApp.keyWindow?.contentView is NativeScreenshotSelectionView }),
+    let panel = NSApp.keyWindow
+  {
+    key(53, [], "\u{1b}", panel)
+    _ = await wait { !model.commandPending && !model.screenshotCapturing }
+  } else {
+    failures.append("direct copy shortcut could not be used again after release")
+  }
+  if platform.capture.clipboardRevision != clipboardRevision + 1
+    || !platform.screenshots.editors.isEmpty
+  {
+    failures.append("cancelling direct screenshot changed clipboard or created an editor")
+  }
+  directShortcut.stop()
   Task { await application.show("screenshots") }
   await settle()
   trace("capture")

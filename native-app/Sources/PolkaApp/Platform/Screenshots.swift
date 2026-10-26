@@ -14,9 +14,11 @@ import PolkaCore
     self.model = model
     self.fixture = fixture
   }
-  func capture() async throws {
-    guard !model.screenshotCapturing, !stopped else { return }
-    guard editors.count < 12 else {
+  func capture(copyImmediately: Bool = false) async throws {
+    guard !model.screenshotCapturing, !stopped,
+      !editors.values.contains(where: { $0.shot.busy })
+    else { return }
+    guard copyImmediately || editors.count < 12 else {
       throw PolkaCoreError.invalid(
         localized("Close a screenshot window before capturing another."))
     }
@@ -39,7 +41,13 @@ import PolkaCore
       }
       guard !stopped else { return }
       for editor in visible { editor.present() }
-      if let result {
+      if let result, copyImmediately {
+        guard let copyImage else {
+          throw PolkaCoreError.invalid(localized("Could not render the screenshot"))
+        }
+        let document = NativeScreenshotDocument(source: result.image, area: result.area)
+        try copyImage(document.png())
+      } else if let result {
         try insert(
           result.image, area: result.area, screenFrame: result.screenFrame,
           desktopFrame: result.desktopFrame)

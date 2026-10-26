@@ -99,6 +99,8 @@ struct NativeUISettings: Equatable {
   var launcherShortcutError = ""
   var screenshotShortcut = "CommandOrControl+Shift+Alt+4"
   var screenshotShortcutError = ""
+  var screenshotCopyShortcut = "CommandOrControl+Control+Shift+Alt+4"
+  var screenshotCopyShortcutError = ""
   var cameraEnabled = true
   var microphoneEnabled = true
   var mediaActivity = ""

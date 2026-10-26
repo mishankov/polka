@@ -426,6 +426,7 @@ final class NativeLargeSearchFieldCell: NSSearchFieldCell {
 
 struct NativeShortcutRecorder: NSViewRepresentable {
   var value: String
+  var label = localized("Record Keyboard Shortcut")
   var disabled = false
   var onRecord: (String) -> Void
   func makeNSView(context: Context) -> NativeShortcutCaptureView { NativeShortcutCaptureView() }
@@ -435,7 +436,7 @@ struct NativeShortcutRecorder: NSViewRepresentable {
     CGSize(width: proposal.width ?? 250, height: proposal.height ?? 30)
   }
   func updateNSView(_ view: NativeShortcutCaptureView, context: Context) {
-    view.setAccessibilityLabel(localized("Record Keyboard Shortcut"))
+    view.setAccessibilityLabel(label)
     view.value = value
     view.enabled = !disabled
     view.record = onRecord
