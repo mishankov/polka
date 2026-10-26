@@ -93,6 +93,7 @@ Open the shelf, type to search, use the arrow keys to select a result, and press
 | Open the shelf | ⌘⇧Space |
 | Open clipboard history | ⌘⇧V |
 | Capture a screen region | ⌘⇧⌥4 |
+| Copy a screen region without opening the editor | ⌃⌘⇧⌥4 |
 | Open settings | ⌘, |
 | Use the selected result | Enter |
 | Copy a clipboard entry, snippet, or emoji without pasting | ⇧Enter |
