@@ -679,3 +679,7 @@
 "No items match the selected type and search." = "Нет записей, соответствующих выбранному типу и поиску.";
 
 "Show All Types" = "Показать все типы";
+"Screenshot Shortcuts" = "Сочетания для снимков экрана";
+"Capture and Edit Region" = "Снять область и редактировать";
+"Copy Region to Clipboard" = "Скопировать область в буфер";
+"Select a region to copy it immediately, without opening the editor." = "Выделите область — она сразу скопируется в буфер без открытия редактора.";

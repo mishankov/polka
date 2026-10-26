@@ -521,7 +521,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     let navigationCommands: Set<String> = [
       "launcher.show", "launcher.openMac", "clipboardHistory.show", "shelf.showSnippets",
       "shelf.showEmoji", "shelf.showFiles", "shelf.files.add", "builtinApps.setEnabled",
-      "screenshots.capture",
+      "screenshots.capture", "screenshots.copy",
     ]
     guard
       !model.busy || model.pendingCommand.map(navigationCommands.contains) == true

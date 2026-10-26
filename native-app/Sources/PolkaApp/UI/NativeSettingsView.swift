@@ -186,9 +186,9 @@ struct NativeSettingsView: View {
           ) { model.perform(NativeUICommand("launcher.setShortcut", strings: ["accelerator": ""])) }
         }
       }
-      NativeSettingsGroup(localized("Screenshot Shortcut")) {
+      NativeSettingsGroup(localized("Screenshot Shortcuts")) {
         shortcutRow(
-          localized("Capture Region"), value: model.settings.screenshotShortcut,
+          localized("Capture and Edit Region"), value: model.settings.screenshotShortcut,
           disabled: model.busy
         ) {
           model.perform(NativeUICommand("screenshots.shortcut", strings: ["accelerator": $0]))
@@ -199,6 +199,21 @@ struct NativeSettingsView: View {
           disabled: model.busy || model.settings.screenshotShortcut.isEmpty
         ) {
           model.perform(NativeUICommand("screenshots.shortcut", strings: ["accelerator": ""]))
+        }
+        Divider()
+        shortcutRow(
+          localized("Copy Region to Clipboard"), value: model.settings.screenshotCopyShortcut,
+          disabled: model.busy
+        ) {
+          model.perform(NativeUICommand("screenshots.copyShortcut", strings: ["accelerator": $0]))
+        }
+        note(localized("Select a region to copy it immediately, without opening the editor."))
+        NativeErrorNotice(text: model.settings.screenshotCopyShortcutError)
+        NativeCommandButton(
+          title: localized("Disable Shortcut"),
+          disabled: model.busy || model.settings.screenshotCopyShortcut.isEmpty
+        ) {
+          model.perform(NativeUICommand("screenshots.copyShortcut", strings: ["accelerator": ""]))
         }
       }
       NativeSettingsGroup(localized("Activity Indicators")) {
@@ -468,8 +483,9 @@ struct NativeSettingsView: View {
     HStack(spacing: 12) {
       Text(title).font(.system(size: 13))
       Spacer(minLength: 8)
-      NativeShortcutRecorder(value: value, disabled: disabled, onRecord: action).frame(
-        width: 210, height: 30)
+      NativeShortcutRecorder(value: value, label: title, disabled: disabled, onRecord: action)
+        .frame(
+          width: 210, height: 30)
     }
   }
 }

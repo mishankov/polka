@@ -1,5 +1,7 @@
 import PolkaCore
 
 extension NativeUIModel {
-  func captureScreenshot() { perform(NativeUICommand("screenshots.capture")) }
+  func captureScreenshot(copyImmediately: Bool = false) {
+    perform(NativeUICommand(copyImmediately ? "screenshots.copy" : "screenshots.capture"))
+  }
 }

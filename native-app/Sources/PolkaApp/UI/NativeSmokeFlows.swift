@@ -282,7 +282,7 @@ import SwiftUI
     view.needsDisplay = true
     view.displayIfNeeded()
     if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1",
-      name.hasPrefix("controls-") || name.hasPrefix("settings-update-")
+      name.hasPrefix("controls-") || name.hasPrefix("settings-")
         || name.hasPrefix("clipboard-filter-") || name.hasPrefix("clipboard-files-")
         || name.hasPrefix("clipboard-row-layout-")
         || name == "snippet-editor"
@@ -1603,6 +1603,32 @@ import SwiftUI
         failures.append("native settings sidebar ArrowDown did not select shelf")
       }
       await screenshot("settings-shelf", window: settings, includeTitlebar: true)
+      do {
+        let language = model.settings.languagePreference
+        try await platform.handle(NativeUICommand("settings.language", strings: ["value": "ru"]))
+        await settle()
+        func copyRecorder(in view: NSView) -> NativeShortcutCaptureView? {
+          if let recorder = view as? NativeShortcutCaptureView,
+            recorder.value == model.settings.screenshotCopyShortcut
+          {
+            return recorder
+          }
+          for child in view.subviews { if let found = copyRecorder(in: child) { return found } }
+          return nil
+        }
+        if let content = settings.contentView, let recorder = copyRecorder(in: content) {
+          if recorder.accessibilityLabel() != localized("Copy Region to Clipboard") {
+            failures.append("direct screenshot shortcut has no accessible action label")
+          }
+          recorder.scrollToVisible(recorder.bounds.insetBy(dx: 0, dy: -130))
+        } else {
+          failures.append("direct screenshot shortcut recorder missing")
+        }
+        await screenshot(
+          "settings-screenshot-shortcuts-ru", window: settings, includeTitlebar: true)
+        try await platform.handle(
+          NativeUICommand("settings.language", strings: ["value": language.rawValue]))
+      } catch { failures.append("screenshot shortcut settings localization failed: \(error)") }
       func recorder(in view: NSView) -> NativeShortcutCaptureView? {
         if let view = view as? NativeShortcutCaptureView { return view }
         for child in view.subviews { if let found = recorder(in: child) { return found } }

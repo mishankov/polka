@@ -13,7 +13,9 @@ import UserNotifications
   lazy var screenshots = NativeScreenshots(model: model, fixture: fixture)
   private var screenshotExports: URL?
   private var screenshotRegistered = false
+  private var screenshotCopyRegistered = false
   private var screenshotAccelerator = "CommandOrControl+Shift+Alt+4"
+  private var screenshotCopyAccelerator = "CommandOrControl+Control+Shift+Alt+4"
   let applications: InstalledApps
   let shortcuts: GlobalShortcuts?
   let probe = HelperProcess()
@@ -132,6 +134,10 @@ import UserNotifications
       screenshotAccelerator = value
     }
     model.settings.screenshotShortcut = screenshotAccelerator
+    if let value = try settings.get(key: "screenshotCopyShortcut") as? String {
+      screenshotCopyAccelerator = value
+    }
+    model.settings.screenshotCopyShortcut = screenshotCopyAccelerator
     model.searchProvider = { [weak self] query in self?.search(query) ?? [] }
     // Decode and normalize the bundled catalogue before it is needed, without
     // blocking the shelf's first layout or a navigation command.
@@ -248,6 +254,10 @@ import UserNotifications
       // Existing launcher/history bindings take precedence over the new default.
       do { try registerScreenshotShortcut(screenshotAccelerator) } catch {
         model.settings.screenshotShortcutError = error.localizedDescription
+      }
+      do { try registerScreenshotShortcut(screenshotCopyAccelerator, copyImmediately: true) } catch
+      {
+        model.settings.screenshotCopyShortcutError = error.localizedDescription
       }
       do { try await sync.initialize() } catch { model.error = error.localizedDescription }
       refresh()
@@ -584,39 +594,62 @@ import UserNotifications
         localized("This shortcut is already used by another Polka action. Choose another."))
     }
   }
-  private func registerScreenshotShortcut(_ accelerator: String) throws {
+  private func registerScreenshotShortcut(_ accelerator: String, copyImmediately: Bool = false)
+    throws
+  {
+    let key = copyImmediately ? "screenshotCopyShortcut" : "screenshotShortcut"
+    let name = copyImmediately ? "screenshots.copy" : "screenshots"
     if builtinApps.allows(destination: "screenshots") {
+      if copyImmediately ? screenshotRegistered : screenshotCopyRegistered {
+        try validateFixtureShortcut(
+          accelerator, other: copyImmediately ? screenshotAccelerator : screenshotCopyAccelerator)
+      }
       try validateFixtureShortcut(accelerator, other: launcherAccelerator)
       try validateFixtureShortcut(
         accelerator,
         other: builtinApps.allows(destination: "clipboard")
           ? history.getPreferences().accelerator : "")
       if fixture {
-        try settings.set(key: "screenshotShortcut", value: accelerator)
+        try settings.set(key: key, value: accelerator)
       } else {
         try shortcuts?.set(
-          "screenshots", accelerator: accelerator,
-          persist: { try self.settings.set(key: "screenshotShortcut", value: accelerator) },
+          name, accelerator: accelerator,
+          persist: { try self.settings.set(key: key, value: accelerator) },
           action: { [weak self] in
-            guard let self, !self.model.busy, !self.model.commandPending,
-              nativeCommandInteractionAllowed, !NSMenuTrackingState.shared.active,
-              !(NSApp?.keyWindow?.firstResponder is NativeShortcutCaptureView),
-              !((NSApp?.keyWindow?.firstResponder as? NSTextView)?.hasMarkedText() ?? false)
-            else { return }
-            self.model.captureScreenshot()
+            self?.performScreenshotShortcut(copyImmediately: copyImmediately)
           })
       }
     } else {
       if !accelerator.isEmpty { _ = try GlobalShortcuts.parse(accelerator) }
-      try settings.set(key: "screenshotShortcut", value: accelerator)
-      shortcuts?.remove("screenshots")
+      try settings.set(key: key, value: accelerator)
+      shortcuts?.remove(name)
     }
-    screenshotRegistered = builtinApps.allows(destination: "screenshots") && !accelerator.isEmpty
-    screenshotAccelerator = accelerator
-    model.settings.screenshotShortcut = accelerator
-    model.settings.screenshotShortcutError = ""
+    let registered = builtinApps.allows(destination: "screenshots") && !accelerator.isEmpty
+    if copyImmediately {
+      screenshotCopyRegistered = registered
+      screenshotCopyAccelerator = accelerator
+      model.settings.screenshotCopyShortcut = accelerator
+      model.settings.screenshotCopyShortcutError = ""
+    } else {
+      screenshotRegistered = registered
+      screenshotAccelerator = accelerator
+      model.settings.screenshotShortcut = accelerator
+      model.settings.screenshotShortcutError = ""
+    }
+  }
+  func performScreenshotShortcut(copyImmediately: Bool = false) {
+    guard builtinApps.allows(destination: "screenshots"), !model.busy, !model.commandPending,
+      !model.screenshotCapturing, nativeCommandInteractionAllowed,
+      !NSMenuTrackingState.shared.active,
+      !(NSApp?.keyWindow?.firstResponder is NativeShortcutCaptureView),
+      !((NSApp?.keyWindow?.firstResponder as? NSTextView)?.hasMarkedText() ?? false)
+    else { return }
+    model.captureScreenshot(copyImmediately: copyImmediately)
   }
   private func registerLauncherShortcut(_ accelerator: String) throws {
+    if screenshotCopyRegistered {
+      try validateFixtureShortcut(accelerator, other: screenshotCopyAccelerator)
+    }
     if screenshotRegistered {
       try validateFixtureShortcut(accelerator, other: screenshotAccelerator)
     }
@@ -641,6 +674,9 @@ import UserNotifications
     model.settings.launcherShortcutError = ""
   }
   private func registerHistoryShortcut(_ accelerator: String) throws {
+    if screenshotCopyRegistered, builtinApps.allows(destination: "clipboard") {
+      try validateFixtureShortcut(accelerator, other: screenshotCopyAccelerator)
+    }
     if screenshotRegistered, builtinApps.allows(destination: "clipboard") {
       try validateFixtureShortcut(accelerator, other: screenshotAccelerator)
     }
@@ -828,7 +864,7 @@ import UserNotifications
     case "shelf.showSnippets", "clipboardHistory.createSnippet", "clipboardHistory.edit":
       try requireEnabled("snippets")
     case "shelf.showEmoji", "shelf.selectEmoji", "shelf.copyEmoji": try requireEnabled("emoji")
-    case "screenshots.capture":
+    case "screenshots.capture", "screenshots.copy":
       try requireEnabled("screenshots")
     case "shelf.showFiles", "shelf.files.add", "shelf.files.remove", "shelf.files.clear":
       try requireEnabled("files")
@@ -865,6 +901,10 @@ import UserNotifications
       if !enabled { screenshots.suspend() }
       do { try registerScreenshotShortcut(screenshotAccelerator) } catch {
         model.settings.screenshotShortcutError = error.localizedDescription
+      }
+      do { try registerScreenshotShortcut(screenshotCopyAccelerator, copyImmediately: true) } catch
+      {
+        model.settings.screenshotCopyShortcutError = error.localizedDescription
       }
     }
     if destination == "clipboard" {
@@ -921,10 +961,19 @@ import UserNotifications
         model.settings.screenshotShortcutError = error.localizedDescription
         throw error
       }
-    case "screenshots.capture":
+    case "screenshots.copyShortcut":
+      do {
+        try registerScreenshotShortcut(command.strings["accelerator"] ?? "", copyImmediately: true)
+      } catch {
+        model.settings.screenshotCopyShortcutError = error.localizedDescription
+        throw error
+      }
+    case "screenshots.capture", "screenshots.copy":
       cancelPaste()
       hide?(false)
-      do { try await screenshots.capture() } catch {
+      do {
+        try await screenshots.capture(copyImmediately: command.name == "screenshots.copy")
+      } catch {
         await show?("apps", "")
         model.error = error.localizedDescription
       }

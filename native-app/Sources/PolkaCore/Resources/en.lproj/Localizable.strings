@@ -679,3 +679,7 @@
 "No items match the selected type and search." = "No items match the selected type and search.";
 
 "Show All Types" = "Show All Types";
+"Screenshot Shortcuts" = "Screenshot Shortcuts";
+"Capture and Edit Region" = "Capture and Edit Region";
+"Copy Region to Clipboard" = "Copy Region to Clipboard";
+"Select a region to copy it immediately, without opening the editor." = "Select a region to copy it immediately, without opening the editor.";
