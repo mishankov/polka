@@ -95,6 +95,8 @@ public enum UpdateSmoke {
       newMetadata.version = next
       newMetadata.releaseNotes = BilingualNotes(
         ru: "• Обновлена нативная полка.", en: "• Updated the native shelf.")
+      var stableMetadata = newMetadata
+      stableMetadata.version = try nextVersion(newMetadata.version)
       let server: UpdateHTTPServer
       do { server = try UpdateHTTPServer() } catch {
         try? FileManager.default.removeItem(at: directory)
@@ -165,7 +167,7 @@ public enum UpdateSmoke {
         try? Data(logs.joined().utf8).write(to: artifacts.appendingPathComponent("app.log"))
         try? Files.writeJSON(
           [
-            "ok": passed, "fromVersion": oldMetadata.version, "toVersion": newMetadata.version,
+            "ok": passed, "fromVersion": oldMetadata.version, "toVersion": stableMetadata.version,
             "requests": server.requestLog,
           ], to: artifacts.appendingPathComponent("result.json"))
         if let bytes = try? Data(contentsOf: receipt) {
@@ -395,11 +397,78 @@ public enum UpdateSmoke {
         }
         try assertBundleVersion(
           ReleaseVersion.buildVersion(nightlyMetadata.version), "Stable feed downgraded a nightly")
+        // A stable release must also reach clients that keep Nightly selected,
+        // including already-installed versions that only know /nightly.xml.
+        try command("updates.channel", value: "nightly")
+        _ = try await receiptWhere("Nightly channel is current before stable publication") {
+          let update = $0["updates"] as? [String: Any]
+          return update?["channel"] as? String == "nightly"
+            && update?["status"] as? String == "current"
+        }
+        let stableBundle = directory.appendingPathComponent("stable/\(product).app")
+        try SigningTool.withKeychain(env) { publicEnv in
+          var buildEnv = publicEnv
+          buildEnv["RELEASE_TAG"] = "v\(stableMetadata.version)"
+          _ = try BuildTool.build(
+            options: BuildOptions(
+              release: release, official: true, prebuilt: true, bundlePath: stableBundle,
+              sourceMetadata: stableMetadata,
+              updateFixture: UpdateFixture(
+                profile: profile, receipt: receipt,
+                password: Data(password.utf8).base64EncodedString(),
+                feed: URL(string: server.origin + "/appcast.xml")),
+              preparedBundle: preparedBundle),
+            context: ToolContext(root: context.root, environment: buildEnv))
+        }
+        let stableFilename = try ReleaseMetadata.artifactNames(metadata: stableMetadata)[1]
+        let stableArchive = directory.appendingPathComponent(stableFilename)
+        try Command.run(
+          "/usr/bin/ditto",
+          ["-c", "-k", "--sequesterRsrc", "--keepParent", stableBundle.path, stableArchive.path])
+        let stableBytes = try Data(contentsOf: stableArchive)
+        let stableSignature = try Command.capture(
+          signUpdate,
+          ["--ed-key-file", "-", "-p", stableArchive.path], input: Data(privateKey.utf8)
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let stableFeed = try ReleaseMetadata.appcast(
+          metadata: stableMetadata, repository: "smoke/native", signature: stableSignature,
+          size: stableBytes.count
+        ).replacingOccurrences(
+          of: try ReleaseMetadata.archiveURL(metadata: stableMetadata, repository: "smoke/native"),
+          with: server.origin + "/" + stableFilename)
+        server.setNightly(feed: stableFeed, archive: stableBytes)
+        try command("updates.check")
+        _ = try await receiptWhere("Nightly channel stages the newer stable release") {
+          let update = $0["updates"] as? [String: Any]
+          return update?["channel"] as? String == "nightly"
+            && update?["status"] as? String == "ready"
+            && update?["version"] as? String == stableMetadata.version
+        }
+        try assertBundleVersion(
+          ReleaseVersion.buildVersion(nightlyMetadata.version),
+          "Stable release installed without authorization")
+        try command("updates.install")
+        let stableInstalled = try await receiptWhere("Stable installs through the nightly channel")
+        {
+          $0["version"] as? String == stableMetadata.version
+        }
+        try Desktop.require(
+          (stableInstalled["updates"] as? [String: Any])?["channel"] as? String == "nightly",
+          "Installing stable reset the nightly preference")
+        for (collection, id, content) in [
+          ("clips", clipID, clipContent), ("snippets", snippetID, snippetContent),
+        ] {
+          try Desktop.require(
+            preserves(stableInstalled, collection: collection, id: id, content: content),
+            "Stable update through nightly lost encrypted \(collection)")
+        }
+        try assertBundleVersion(stableMetadata.version, "Stable bundle has wrong build version")
+        _ = try SigningTool.verify(bundle: oldBundle, appId: appID, fingerprint: fingerprint)
         passed = true
         persist()
         try await cleanup()
         print(
-          "Native update smoke passed: tamper rejection, staging, ordinary quit cancellation, explicit install, relaunch, stable/nightly channels, numeric ordering, signatures and encrypted data."
+          "Native update smoke passed: tamper rejection, staging, ordinary quit cancellation, explicit install, relaunch, stable/nightly channels, stable installation through nightly, numeric ordering, signatures and encrypted data."
         )
       } catch {
         persist()

@@ -163,9 +163,21 @@ jobs:
   publish:
     name: Publish immutable nightly and advance nightly feed
     needs: [prepare, verify, tooling, updates, build]
-    runs-on: ubuntu-latest
+    # Stable and nightly publishers share the same mutable channel pointer.
+    concurrency:
+      group: polka-update-feed
+      cancel-in-progress: false
+    runs-on: xcode-27
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: ./.github/actions/prepare-macos
+        with:
+          build-cache: tooling
+          tools-configuration: debug
+          tools-only: 'true'
       - uses: actions/download-artifact@v8
         with:
           name: nightly-asset-macos-arm64
@@ -215,12 +227,9 @@ jobs:
             echo 'Published nightly tag does not match the verified source.'
             exit 1
           fi
-          # This permanent prerelease holds only a pointer to immutable archives.
-          # Never move its tag or replace an archive already referenced by an appcast.
-          if ! gh release view nightly --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create nightly --repo "$GITHUB_REPOSITORY" --target "$COMMIT" \
-              --prerelease --latest=false --title "Polka nightly channel" \
-              --notes "Daily signed builds from master. Select Nightly in Settings → About → Updates."
-          fi
-          gh release edit nightly --prerelease --latest=false --repo "$GITHUB_REPOSITORY"
-          gh release upload nightly appcast.xml --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Advance nightly channel to the newest stable or nightly build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: ./polka nightly-feed
