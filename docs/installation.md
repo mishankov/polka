@@ -74,4 +74,6 @@ If you deny access, history and sync are unavailable, but saved files remain int
 
 Later updates are available inside Polka in **Settings → About → Updates**. History and settings are preserved when you keep using the same profile.
 
+The **Update Channel** setting defaults to **Stable**. Choose **Nightly** to receive tested nightly builds as well as newer stable releases without switching channels. Returning to Stable does not downgrade the installed app; it waits for a newer stable release. [Channel details](macos.md#ночной-канал-обновлений).
+
 Upgrading from 0.7.0 or earlier to 0.8.0 or later requires [manually transferring your old profile](data.md#переход-с-070-и-более-ранних-версий); there is no automatic migration. Quit Polka and back up the old profile before transferring it. You may also need to grant macOS permissions again.

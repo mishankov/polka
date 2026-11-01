@@ -1,0 +1,4 @@
+{
+  "ru": "• Пользователи ночного канала теперь получают следующий стабильный выпуск без смены канала. Выбор канала, история буфера и сниппеты сохраняются.\n• Повторная публикация старой сборки больше не откатывает ночной канал на более раннюю версию.",
+  "en": "• Nightly channel users now receive the next stable release without switching channels. The selected channel, clipboard history, and snippets are preserved.\n• Publishing an older build again no longer rolls the nightly channel back to an earlier version."
+}
