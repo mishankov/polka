@@ -39,4 +39,53 @@ final class NativeIconCacheTests: XCTestCase {
     XCTAssertNil(cache.value(for: "changed-icon"))
     XCTAssertNil(NativeIconCache().value(for: "icon"))
   }
+
+  func testDiskCacheReusesCompleteOutputsAcrossInstancesAndKeepsKeysSeparate() throws {
+    let directory = try Files.temporary("polka-icon-disk-cache-tests")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let outputs = ["Assets.car": Data([1, 2, 3]), "Icon.icns": Data([4, 5, 6])]
+    NativeIconCache().store(outputs, for: "icon", directory: directory)
+    XCTAssertEqual(NativeIconCache().value(for: "icon", directory: directory), outputs)
+    XCTAssertNil(NativeIconCache().value(for: "changed-icon", directory: directory))
+    try FileManager.default.copyItem(
+      at: directory.appendingPathComponent("icon.json"),
+      to: directory.appendingPathComponent("changed-icon.json"))
+    XCTAssertNil(NativeIconCache().value(for: "changed-icon", directory: directory))
+  }
+
+  func testInvalidDiskEntriesAreMissesAndCanBeReplaced() throws {
+    let directory = try Files.temporary("polka-icon-invalid-cache-tests")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appendingPathComponent("icon.json")
+    let outputs = ["Assets.car": Data([1, 2, 3]), "Icon.icns": Data([4, 5, 6])]
+    for invalid in [
+      Data("{truncated".utf8),
+      try JSONSerialization.data(withJSONObject: ["key": "icon", "files": [:]]),
+      try JSONSerialization.data(withJSONObject: [
+        "key": "icon", "files": ["Assets.car": Data([1]).base64EncodedString()],
+      ]),
+      try JSONSerialization.data(withJSONObject: [
+        "key": "icon", "files": ["Assets.car": "", "Icon.icns": ""],
+      ]),
+    ] {
+      try invalid.write(to: file)
+      XCTAssertNil(NativeIconCache().value(for: "icon", directory: directory))
+      NativeIconCache().store(outputs, for: "icon", directory: directory)
+      XCTAssertEqual(NativeIconCache().value(for: "icon", directory: directory), outputs)
+    }
+  }
+
+  func testUnavailableDiskCacheDoesNotDiscardCompiledOutputs() throws {
+    let directory = try Files.temporary("polka-icon-unavailable-cache-tests")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appendingPathComponent("file")
+    try Data([1]).write(to: file)
+    let cache = NativeIconCache()
+    let outputs = ["Assets.car": Data([1]), "Icon.icns": Data([2])]
+    cache.store(outputs, for: "icon", directory: file)
+    XCTAssertEqual(cache.value(for: "icon"), outputs)
+    XCTAssertNil(NativeIconCache().value(for: "icon", directory: file))
+    cache.store(["Assets.car": Data([1])], for: "incomplete", directory: directory)
+    XCTAssertNil(cache.value(for: "incomplete", directory: directory))
+  }
 }

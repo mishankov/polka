@@ -289,13 +289,15 @@ public enum BuildTool {
       try Command.capture(
         "/usr/bin/xcrun", ["--find", "actool"], environment: environment)
       + Command.capture("/usr/bin/xcrun", ["--show-sdk-build-version"], environment: environment)
+      + Command.capture("/usr/bin/xcodebuild", ["-version"], environment: environment)
       + ["DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS", "PATH"].map {
         environment[$0] ?? ""
       }.joined(separator: "\n")
     let key = try NativeIconCache.key(
       source: source, minimumSystemVersion: metadata.build.mac.minimumSystemVersion,
       toolchain: toolchain)
-    if let files = NativeIconCache.shared.value(for: key) {
+    let cache = context.root.appendingPathComponent("native-app/.build/polka-icons-v1")
+    if let files = NativeIconCache.shared.value(for: key, directory: cache) {
       for (name, bytes) in files { try bytes.write(to: resources.appendingPathComponent(name)) }
       return
     }
@@ -324,7 +326,7 @@ public enum BuildTool {
       try bytes.write(to: resources.appendingPathComponent(file))
       files[file] = bytes
     }
-    NativeIconCache.shared.store(files, for: compiledKey)
+    NativeIconCache.shared.store(files, for: compiledKey, directory: cache)
   }
   public static func build(
     options: BuildOptions = BuildOptions(), context: ToolContext = ToolContext()
