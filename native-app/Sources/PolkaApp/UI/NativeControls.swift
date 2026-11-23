@@ -87,13 +87,16 @@ struct NativeBuiltinHeader<Actions: View>: View {
   var title: String
   @ViewBuilder var actions: () -> Actions
   var body: some View {
+    let editing =
+      model.draft != nil
+      || (model.destination == "quick-links" && model.quickLinkDraft != nil)
     NativeToolbar {
       NativeIconButton(
-        label: model.draft != nil
+        label: editing
           ? localized("Cancel Editing")
           : model.previewID != nil || model.confirmClear
             ? localized("Back to List") : localized("Back to Apps"),
-        symbol: "arrow.left", shortcut: model.draft != nil ? "esc" : "⌫", disabled: model.busy
+        symbol: "arrow.left", shortcut: editing ? "esc" : "⌫", disabled: model.busy
       ) { model.back() }.accessibilityIdentifier("builtin-back")
       Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
       Spacer(minLength: 8)

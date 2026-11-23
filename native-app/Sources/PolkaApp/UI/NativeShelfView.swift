@@ -9,6 +9,7 @@ struct NativeShelfView: View {
       if model.topInset > 0 { Color.clear.frame(height: model.topInset) }
       switch model.destination {
       case "clipboard", "snippets": NativeClipboardView(model: model)
+      case "quick-links": NativeQuickLinksView(model: model)
       case "emoji": NativeEmojiView(model: model)
       case "files": NativeFileShelfView(model: model)
       case "system-status": NativeSystemStatusView(model: model)
@@ -99,11 +100,15 @@ struct NativeLauncherView: View {
                   in: RoundedRectangle(cornerRadius: 7))
               }.buttonStyle(.plain).disabled(model.busy).padding(.horizontal, 6)
                 .id(result.id).accessibilityIdentifier("result-\(result.id)")
-                .accessibilityLabel(result.title).accessibilityHint(
+                .accessibilityLabel(result.title)
+                .accessibilityValue(result.kind == "quick-link" ? result.detail : "")
+                .accessibilityHint(
                   isCalculation
-                    ? localized("Copy result: Enter or ⌘1")
+                    ? (position < 9
+                      ? localized("Copy result: Enter or ⌘{0}", String(position + 1))
+                      : localized("Copy result: Enter"))
                     : position < 9
-                      ? localized("Open: ⌘{0}", String(describing: position + 1))
+                      ? localized("Open: ⌘{0}", String(position + 1))
                       : localized("Open: Enter")
                 )
                 .onContinuousHover { phase in
@@ -153,33 +158,38 @@ struct NativeLauncherView: View {
       Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
   }
   private func group(_ result: NativeUISearchRow) -> String {
-    result.kind == "calculation"
-      ? localized("Calculator")
-      : result.kind == "clip" || result.kind == "more-clips" || result.kind == "more-snippets"
-        ? (result.snippet || result.kind == "more-snippets"
-          ? localized("Snippets") : localized("Clipboard"))
-        : localized("Apps")
+    switch result.kind {
+    case "calculation": localized("Calculator")
+    case "quick-link": localized("Quick Links")
+    case "clip": result.snippet ? localized("Snippets") : localized("Clipboard")
+    case "more-snippets": localized("Snippets")
+    case "more-clips": localized("Clipboard")
+    default: localized("Apps")
+    }
   }
   @ViewBuilder private func resultIcon(_ result: NativeUISearchRow) -> some View {
     if let image = nativeImage(result.icon) {
       Image(nsImage: image).resizable().scaledToFit().frame(width: 34, height: 34)
     } else {
-      Image(
-        systemName: result.kind == "calculation"
-          ? "equal"
-          : result.kind == "clip"
-            ? "clipboard"
-            : result.id == "builtin:emoji"
-              ? "face.smiling"
-              : result.id == "builtin:snippets"
-                ? "text.bubble"
-                : result.id == "builtin:screenshots"
-                  ? "viewfinder"
-                  : result.id == "builtin:files"
-                    ? "folder"
-                    : result.id == "builtin:system-status"
-                      ? "gauge.with.dots.needle.50percent" : "app"
-      ).font(.system(size: 23)).foregroundStyle(.secondary).frame(width: 34, height: 34)
+      Image(systemName: resultSymbol(result)).font(.system(size: 23)).foregroundStyle(.secondary)
+        .frame(width: 34, height: 34)
+    }
+  }
+  private func resultSymbol(_ result: NativeUISearchRow) -> String {
+    switch result.kind {
+    case "calculation": return "equal"
+    case "quick-link": return "link"
+    case "clip": return "clipboard"
+    default: break
+    }
+    switch result.id {
+    case "builtin:emoji": return "face.smiling"
+    case "builtin:snippets": return "text.bubble"
+    case "builtin:quick-links": return "link"
+    case "builtin:screenshots": return "viewfinder"
+    case "builtin:files": return "folder"
+    case "builtin:system-status": return "gauge.with.dots.needle.50percent"
+    default: return "app"
     }
   }
 }

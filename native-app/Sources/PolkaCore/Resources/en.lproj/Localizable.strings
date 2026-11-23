@@ -241,7 +241,8 @@
 "Open on Hover" = "Open on Hover";
 "Open the shelf to paste the selection" = "Open the shelf to paste the selection";
 "Open: Enter" = "Open: Enter";
-"Copy result: Enter or ⌘1" = "Copy result: Enter or ⌘1";
+"Copy result: Enter or ⌘{0}" = "Copy result: Enter or ⌘{0}";
+"Copy result: Enter" = "Copy result: Enter";
 "Open: ⌘{0}" = "Open: ⌘{0}";
 "Opening the Shelf" = "Opening the Shelf";
 "Opening the shelf, quick commands, and device activity indicators." = "Opening the shelf, quick commands, and device activity indicators.";
@@ -686,3 +687,15 @@
 "Capture and Edit Region" = "Capture and Edit Region";
 "Copy Region to Clipboard" = "Copy Region to Clipboard";
 "Select a region to copy it immediately, without opening the editor." = "Select a region to copy it immediately, without opening the editor.";
+"Quick Links" = "Quick Links";
+"Save and open web and app links" = "Save and open web and app links";
+"Find a link…" = "Find a link…";
+"Open Link" = "Open Link";
+"No saved links." = "No saved links.";
+"Add Link" = "Add Link";
+"Edit Link" = "Edit Link";
+"URL" = "URL";
+"Could not load saved links." = "Could not load saved links.";
+"This Quick Link is no longer available." = "This Quick Link is no longer available.";
+"Enter a valid web URL or app deep link, including its scheme." = "Enter a valid web URL or app deep link, including its scheme.";
+"macOS could not open “{0}”. Check the URL and make sure its app is installed." = "macOS could not open “{0}”. Check the URL and make sure its app is installed.";

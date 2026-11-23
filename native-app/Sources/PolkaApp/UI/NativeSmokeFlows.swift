@@ -285,6 +285,7 @@ import SwiftUI
       name.hasPrefix("controls-") || name.hasPrefix("settings-")
         || name.hasPrefix("clipboard-filter-") || name.hasPrefix("clipboard-files-")
         || name.hasPrefix("clipboard-row-layout-")
+        || name.hasPrefix("quick-links-shelf-")
         || name == "snippet-editor"
         || name == "clipboard-clear-confirmation"
     {
@@ -442,6 +443,21 @@ import SwiftUI
       keyboardState: { keyboardState() })
     failures.append(contentsOf: resourceFailures)
     return failures
+  }
+  if settingsOnly {
+    trace("Quick Links editor and shelf keyboard flow")
+    if let failure = await nativeQuickLinksSmoke(
+      application: application, shelf: shelf, model: model, platform: platform,
+      post: { post($0, $1, $2, repeatKey: $3) }, wait: wait, screenshot: { await screenshot($0) },
+      clickResult: { id in
+        guard await wait({ shelf.isKeyWindow && accessible(id) != nil }) else { return false }
+        clickAccessible(id)
+        return true
+      })
+    {
+      trace(failure)
+      failures.append(failure)
+    }
   }
   if !settingsOnly && !browsingOnly {
     // Real window lifecycle, not just model dispatch: a delayed close must not
@@ -1324,7 +1340,7 @@ import SwiftUI
       failures.append("Keyboard toggles did not independently disable all built-in apps")
     }
     for destination in [
-      "clipboard", "snippets", "files", "emoji", "system-status", "toggle-clipboard",
+      "clipboard", "snippets", "quick-links", "files", "emoji", "system-status", "toggle-clipboard",
     ] {
       let previousKeyWindow = NSApp.keyWindow
       let previousDestination = model.destination

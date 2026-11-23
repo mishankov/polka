@@ -78,6 +78,10 @@ public enum LauncherSearch {
           "Snippets", "Сниппеты", "snippet", "snippets", "сниппет", "шаблоны", "готовые ответы",
         ]),
       NativeLauncherApp(
+        id: "builtin:quick-links", name: localized("Quick Links"), kind: .builtin,
+        icon: "quick-links", description: localized("Save and open web and app links"),
+        searchTerms: ["Quick Links", "Быстрые ссылки"]),
+      NativeLauncherApp(
         id: "builtin:files", name: localized("Files on the Shelf"), kind: .builtin, icon: "files",
         description: localized("Temporarily keep files and drag them to another app"),
         searchTerms: [

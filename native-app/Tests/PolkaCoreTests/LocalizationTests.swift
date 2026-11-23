@@ -81,6 +81,11 @@ final class LocalizationTests: XCTestCase {
           LauncherSearch.apps(LauncherSearch.builtinApps, query: query).first?.id,
           "builtin:clipboard")
       }
+      for query in ["Quick Links", "Быстрые ссылки"] {
+        XCTAssertEqual(
+          LauncherSearch.apps(LauncherSearch.builtinApps, query: query).first?.id,
+          "builtin:quick-links")
+      }
       XCTAssertEqual(EmojiCatalog.categories.first?.label, localized("All emoji"))
     }
     AppLocalization.configure(.english)

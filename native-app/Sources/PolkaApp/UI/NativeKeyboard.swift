@@ -86,6 +86,17 @@ extension NativeUIModel {
       closeShelf()
       return true
     }
+    if destination == "quick-links", quickLinkDraft != nil {
+      if cmd, enter {
+        saveQuickLink()
+        return true
+      }
+      if plain, escape {
+        back()
+        return true
+      }
+      return false
+    }
     if draft != nil {
       if enter, cmd {
         saveSnippet()
@@ -150,6 +161,30 @@ extension NativeUIModel {
     if delete, plain, !key.editing || (key.searchEditing && query.isEmpty) {
       back()
       return true
+    }
+    if destination == "quick-links" {
+      if cmd {
+        switch key.code {
+        case 45: addQuickLink()
+        case 14: editQuickLink()
+        case 51, 117:
+          guard !key.editing || (key.searchEditing && query.isEmpty) else { return false }
+          deleteQuickLink()
+        default: return false
+        }
+        return true
+      }
+      if plain, !key.editing || key.searchEditing {
+        if enter {
+          openSelectedQuickLink()
+          return true
+        }
+        if [125, 126].contains(key.code) {
+          moveQuickLinkSelection(by: key.code == 125 ? 1 : -1)
+          return true
+        }
+      }
+      return false
     }
     // This read-only surface has no launcher results to activate or navigate.
     if destination == "system-status" { return false }

@@ -241,7 +241,8 @@
 "Open on Hover" = "Открывать при наведении";
 "Open the shelf to paste the selection" = "Откройте полку, чтобы вставить выбранное";
 "Open: Enter" = "Открыть: Enter";
-"Copy result: Enter or ⌘1" = "Скопировать результат: Enter или ⌘1";
+"Copy result: Enter or ⌘{0}" = "Скопировать результат: Enter или ⌘{0}";
+"Copy result: Enter" = "Скопировать результат: Enter";
 "Open: ⌘{0}" = "Открыть: ⌘{0}";
 "Opening the Shelf" = "Открытие полки";
 "Opening the shelf, quick commands, and device activity indicators." = "Открытие полки, быстрые команды и индикаторы устройств.";
@@ -686,3 +687,15 @@
 "Capture and Edit Region" = "Снять область и редактировать";
 "Copy Region to Clipboard" = "Скопировать область в буфер";
 "Select a region to copy it immediately, without opening the editor." = "Выделите область — она сразу скопируется в буфер без открытия редактора.";
+"Quick Links" = "Быстрые ссылки";
+"Save and open web and app links" = "Сохраняйте и открывайте ссылки на сайты и приложения";
+"Find a link…" = "Найти ссылку…";
+"Open Link" = "Открыть ссылку";
+"No saved links." = "Нет сохранённых ссылок.";
+"Add Link" = "Добавить ссылку";
+"Edit Link" = "Изменить ссылку";
+"URL" = "URL";
+"Could not load saved links." = "Не удалось загрузить сохранённые ссылки.";
+"This Quick Link is no longer available." = "Эта быстрая ссылка больше недоступна.";
+"Enter a valid web URL or app deep link, including its scheme." = "Введите корректную ссылку на сайт или приложение, включая схему.";
+"macOS could not open “{0}”. Check the URL and make sure its app is installed." = "macOS не удалось открыть «{0}». Проверьте адрес и убедитесь, что нужное приложение установлено.";

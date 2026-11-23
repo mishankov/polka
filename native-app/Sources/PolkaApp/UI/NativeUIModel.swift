@@ -17,7 +17,7 @@ struct NativeUICommand {
     [
       "builtinApps.setEnabled", "clipboardHistory.preferences", "mediaIndicator.setTracking",
       "system.login", "clipboardHistory.syncEnabled", "settings.set", "settings.language",
-      "updates.channel",
+      "quickLinks.save", "quickLinks.delete", "updates.channel",
     ].contains(name)
   }
   init(
@@ -68,7 +68,7 @@ struct NativeUIFile: Identifiable, Equatable {
 }
 struct NativeUISearchRow: Identifiable, Equatable {
   var id: String
-  var kind: String  // app, clip, calculation, more-clips, more-snippets
+  var kind: String  // app, quick-link, clip, calculation, more-clips, more-snippets
   var title: String
   var detail: String = ""
   var icon: String = ""
@@ -76,6 +76,12 @@ struct NativeUISearchRow: Identifiable, Equatable {
   var expression: String = ""
   var sourceDate: String = ""
   var snippet: Bool = false
+}
+struct NativeQuickLinkDraft {
+  var id: UUID?
+  var name = ""
+  var url = ""
+  var error = ""
 }
 struct NativeUIPeer: Identifiable, Equatable {
   var id: String
@@ -198,6 +204,9 @@ struct NativeBrowseContext {
   @Published var outgoingFileDrag = false
   var incomingFileDropToken: UUID?
   @Published var apps: [NativeUIApp] = [] { didSet { if apps != oldValue { cachedSearch = nil } } }
+  @Published var quickLinks: [QuickLink] = [] { didSet { cachedSearch = nil } }
+  @Published var quickLinksStorageError = false
+  @Published var quickLinkDraft: NativeQuickLinkDraft?
   @Published var settings = NativeUISettings()
   {
     didSet {
@@ -429,7 +438,11 @@ struct NativeBrowseContext {
         if revision == presentationRevision { completion?() }
       } catch {
         if !Task.isCancelled, !(error is CancellationError), revision == presentationRevision {
-          self.error = error.localizedDescription
+          if command.name == "quickLinks.save" {
+            self.quickLinkDraft?.error = error.localizedDescription
+          } else {
+            self.error = error.localizedDescription
+          }
         }
       }
     }
@@ -439,7 +452,9 @@ struct NativeBrowseContext {
     commandTask?.cancel()
   }
   func saveContext(now: Date = Date()) {
-    guard ["apps", "clipboard", "snippets", "emoji", "files", "screenshots"].contains(destination)
+    guard
+      ["apps", "clipboard", "snippets", "quick-links", "emoji", "files", "screenshots"].contains(
+        destination)
     else { return }
     contexts[destination] = NativeBrowseContext(
       query: query, clipboardFilter: clipboardFilter, selectedID: selectedID, previewID: previewID,
@@ -543,7 +558,9 @@ struct NativeBrowseContext {
   }
   func back() {
     guard !busy, nativeCommandInteractionAllowed else { return }
-    if draft != nil {
+    if destination == "quick-links", quickLinkDraft != nil {
+      cancelQuickLinkEdit()
+    } else if draft != nil {
       draft = nil
       contexts[destination]?.draft = nil
     } else if confirmClear {
@@ -626,6 +643,8 @@ struct NativeBrowseContext {
   }
   func activateSearch(_ row: NativeUISearchRow, copyOnly: Bool = false) {
     switch row.kind {
+    case "quick-link":
+      perform(NativeUICommand("quickLinks.open", strings: ["id": row.id]))
     case "clip":
       perform(
         NativeUICommand(
