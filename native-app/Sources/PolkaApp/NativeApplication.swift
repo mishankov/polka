@@ -999,13 +999,12 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       // Rasterizing every display/state fixture must not consume the core
       // keyboard suite's deadline. The harness always runs this separate phase.
       failures += nativeMediaSmokeScreenshots(shelf: shelf)
-    } else {
-      failures += await nativeSmokeAdditionalFlows(
-        application: self, shelf: shelf, model: model, platform: platform,
-        settingsOnly: settingsOnly,
-        previewsOnly: previewsOnly, browsingOnly: browsingOnly, systemStatusOnly: systemStatusOnly,
-        screenshotsOnly: screenshotsOnly)
     }
+    failures += await nativeSmokeAdditionalFlows(
+      application: self, shelf: shelf, model: model, platform: platform,
+      settingsOnly: settingsOnly, previewsOnly: previewsOnly, browsingOnly: browsingOnly,
+      systemStatusOnly: systemStatusOnly, screenshotsOnly: screenshotsOnly, lifecycleOnly: mediaOnly
+    )
     _ = media?.showFixture(.init(camera: "inactive", microphone: "inactive"))
     let result: [String: Any] = [
       "ok": failures.isEmpty, "failures": failures, "nativeVisible": shelf.isVisible,

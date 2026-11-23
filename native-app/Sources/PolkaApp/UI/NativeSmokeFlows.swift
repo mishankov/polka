@@ -30,7 +30,7 @@ import SwiftUI
 @MainActor func nativeSmokeAdditionalFlows(
   application: NativeApplication, shelf: NSWindow, model: NativeUIModel, platform: NativePlatform,
   settingsOnly: Bool = false, previewsOnly: Bool = false, browsingOnly: Bool = false,
-  systemStatusOnly: Bool = false, screenshotsOnly: Bool = false
+  systemStatusOnly: Bool = false, screenshotsOnly: Bool = false, lifecycleOnly: Bool = false
 ) async -> [String] {
   guard NativeProfile.isolatedFixture else { return ["native smoke requires an isolated profile"] }
   // Ask this fixture process to materialize SwiftUI's virtual accessibility
@@ -834,7 +834,15 @@ import SwiftUI
       failures.append(failure)
     }
   }
-  if !settingsOnly && !browsingOnly {
+  func makeGuardedSheet() -> NSWindow {
+    let sheet = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 160, height: 80), styleMask: [.titled],
+      backing: .buffered, defer: false)
+    sheet.isReleasedWhenClosed = false
+    return sheet
+  }
+  if lifecycleOnly {
+    trace("shelf lifecycle and focus with active media indicators")
     // Real window lifecycle, not just model dispatch: a delayed close must not
     // order out a reopened panel, and repeated requests must remain harmless.
     await application.show("apps")
@@ -871,10 +879,7 @@ import SwiftUI
     post(53, repeatKey: true)
     await settle()
     if !model.visible || !shelf.isVisible { failures.append("repeated Escape dismissed shelf") }
-    let guardedSheet = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 160, height: 80), styleMask: [.titled],
-      backing: .buffered, defer: false)
-    guardedSheet.isReleasedWhenClosed = false
+    let guardedSheet = makeGuardedSheet()
     shelf.beginSheet(guardedSheet, completionHandler: nil)
     post(53, window: guardedSheet)
     application.hide(force: true)
@@ -965,6 +970,11 @@ import SwiftUI
         break
       }
     }
+    await application.show("clipboard")
+    return failures
+  }
+  if !settingsOnly && !browsingOnly {
+    let guardedSheet = makeGuardedSheet()
     await application.show("apps")
     trace("scattered launcher search and keyboard activation")
     model.query = model.settings.language == .russian ? "флп" : "flsh"
