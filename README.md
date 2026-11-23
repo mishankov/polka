@@ -14,7 +14,7 @@ Polka is a native macOS utility that puts an app launcher, clipboard history, re
 
 Open Polka with **⌘⇧Space**, its menu bar icon, or by hovering over the camera notch. It also works on displays without a notch.
 
-- **Launch apps.** Search by name, initials, or even a small typo or the wrong keyboard layout. Polka learns which apps you use most.
+- **Launch apps.** Search by name, initials, or letters in order, like `sfr` for Safari. Search also handles small typos and the wrong keyboard layout. When several app names match directly, Polka ranks the ones you launched most often in the last seven days first.
 - **Calculate and convert.** Type `1250 * 3`, `10 inches in cm`, or `18:00 Moscow in London`. See the result immediately and press Enter to copy it.
 - **Search across your clipboard and snippets.** Find saved text directly from the launcher, including words recognized in copied images.
 
