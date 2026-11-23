@@ -85,6 +85,7 @@ public enum Calculator {
   {
     let expression = query.trimmingCharacters(in: .whitespacesAndNewlines)
     if let result = TimeConversions.convert(expression, context: context)
+      ?? NumberBaseConversions.convert(expression)
       ?? UnitConversions.convert(expression)
     {
       return result

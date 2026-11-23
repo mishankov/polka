@@ -65,6 +65,7 @@ struct NativeLauncherView: View {
               ).accessibilityIdentifier("native-action-notice")
             }
             ForEach(Array(results.enumerated()), id: \.element.id) { position, result in
+              let isCalculation = result.kind == "calculation"
               if position == 0 || group(result) != group(results[position - 1]) {
                 Text(group(result)).font(.system(size: 11, weight: .semibold)).foregroundStyle(
                   .secondary
@@ -78,9 +79,9 @@ struct NativeLauncherView: View {
                   VStack(alignment: .leading, spacing: 3) {
                     Text(result.title).font(
                       .system(
-                        size: result.kind == "calculation" ? 24 : 14,
-                        weight: result.kind == "calculation" ? .medium : .regular)
-                    ).lineLimit(2)
+                        size: isCalculation ? 24 : 14, weight: isCalculation ? .medium : .regular)
+                    ).lineLimit(isCalculation ? nil : 2)
+                      .fixedSize(horizontal: false, vertical: isCalculation)
                     if !result.detail.isEmpty {
                       Text(result.detail).font(.system(size: 11)).foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -99,9 +100,11 @@ struct NativeLauncherView: View {
               }.buttonStyle(.plain).disabled(model.busy).padding(.horizontal, 6)
                 .id(result.id).accessibilityIdentifier("result-\(result.id)")
                 .accessibilityLabel(result.title).accessibilityHint(
-                  position < 9
-                    ? localized("Open: ⌘{0}", String(describing: position + 1))
-                    : localized("Open: Enter")
+                  isCalculation
+                    ? localized("Copy result: Enter or ⌘1")
+                    : position < 9
+                      ? localized("Open: ⌘{0}", String(describing: position + 1))
+                      : localized("Open: Enter")
                 )
                 .onContinuousHover { phase in
                   if case .active = phase { model.selectHoveredItem(result.id) }
