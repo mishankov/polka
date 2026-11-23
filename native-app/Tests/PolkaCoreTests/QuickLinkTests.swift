@@ -7,12 +7,15 @@ final class QuickLinkTests: XCTestCase {
     let web = try QuickLink(name: "  Team Calendar\n", url: " HTTPS://example.org/today?q=a%20b\n")
     let app = try QuickLink(
       name: "Settings", url: "x-apple.systempreferences:com.apple.WiFiSettings")
+    let unnamed = try QuickLink(name: " \n", url: "https://example.org")
     XCTAssertEqual(web.name, "Team Calendar")
     XCTAssertEqual(web.url.absoluteString, "HTTPS://example.org/today?q=a%20b")
     XCTAssertEqual(app.url.scheme, "x-apple.systempreferences")
+    XCTAssertEqual(unnamed.name, "")
+    XCTAssertEqual(unnamed.displayName, "https://example.org")
+    let links = [web, app, unnamed]
     XCTAssertEqual(
-      try JSONDecoder().decode([QuickLink].self, from: JSONEncoder().encode([web, app])),
-      [web, app])
+      try JSONDecoder().decode([QuickLink].self, from: JSONEncoder().encode(links)), links)
   }
 
   func testValidatesInternationalURLsWithoutRepairingMalformedInput() throws {
@@ -31,9 +34,6 @@ final class QuickLinkTests: XCTestCase {
       XCTAssertThrowsError(try QuickLink(name: "Example", url: url), url) {
         XCTAssertEqual($0 as? QuickLink.ValidationError, .invalidURL)
       }
-    }
-    XCTAssertThrowsError(try QuickLink(name: " \n", url: "https://example.org")) {
-      XCTAssertEqual($0 as? QuickLink.ValidationError, .emptyName)
     }
   }
 }

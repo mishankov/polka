@@ -694,10 +694,8 @@
 "No saved links." = "Нет сохранённых ссылок.";
 "Add Link" = "Добавить ссылку";
 "Edit Link" = "Изменить ссылку";
-"Name" = "Название";
 "URL" = "URL";
 "Could not load saved links." = "Не удалось загрузить сохранённые ссылки.";
 "This Quick Link is no longer available." = "Эта быстрая ссылка больше недоступна.";
-"Enter a name for this link." = "Введите название ссылки.";
 "Enter a valid web URL or app deep link, including its scheme." = "Введите корректную ссылку на сайт или приложение, включая схему.";
 "macOS could not open “{0}”. Check the URL and make sure its app is installed." = "macOS не удалось открыть «{0}». Проверьте адрес и убедитесь, что нужное приложение установлено.";

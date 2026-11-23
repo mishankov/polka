@@ -3,7 +3,6 @@ import Network
 
 public struct QuickLink: Codable, Equatable, Identifiable, Sendable {
   public enum ValidationError: Error, Equatable {
-    case emptyName
     case invalidURL
   }
 
@@ -11,10 +10,9 @@ public struct QuickLink: Codable, Equatable, Identifiable, Sendable {
   public let name: String
   public let url: URL
 
-  public init(id: UUID = UUID(), name: String, url: String) throws {
-    let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !name.isEmpty else { throw ValidationError.emptyName }
+  public var displayName: String { name.isEmpty ? url.absoluteString : name }
 
+  public init(id: UUID = UUID(), name: String = "", url: String) throws {
     let value = url.trimmingCharacters(in: .whitespacesAndNewlines)
     // Keep international URLs while checking the original ASCII syntax and escapes.
     guard !value.contains(where: \.isWhitespace),
@@ -37,7 +35,7 @@ public struct QuickLink: Codable, Equatable, Identifiable, Sendable {
     }
 
     self.id = id
-    self.name = name
+    self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
     self.url = url
   }
 

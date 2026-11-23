@@ -60,9 +60,12 @@ struct NativeQuickLinksView: View {
         HStack(spacing: 10) {
           Image(systemName: "link").foregroundStyle(.secondary).accessibilityHidden(true)
           VStack(alignment: .leading, spacing: 4) {
-            Text(link.name).font(.system(size: 13)).lineLimit(1)
-            Text(link.url.absoluteString).font(.system(size: 11)).foregroundStyle(.secondary)
-              .lineLimit(1).truncationMode(.middle)
+            Text(link.displayName).font(.system(size: 13)).lineLimit(1)
+              .truncationMode(link.name.isEmpty ? .middle : .tail)
+            if !link.name.isEmpty {
+              Text(link.url.absoluteString).font(.system(size: 11)).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.middle)
+            }
           }
         }.padding(.vertical, 4).tag(link.id).id(link.id)
       }.listStyle(.plain).scrollContentBackground(.hidden)
@@ -91,9 +94,9 @@ struct NativeQuickLinksView: View {
   private var editor: some View {
     VStack(alignment: .leading, spacing: 12) {
       VStack(alignment: .leading, spacing: 5) {
-        Text(localized("Name")).font(.system(size: 12))
+        Text(localized("Name (optional)")).font(.system(size: 12))
         TextField(
-          localized("Name"),
+          localized("Name (optional)"),
           text: Binding(
             get: { model.quickLinkDraft?.name ?? "" }, set: { model.quickLinkDraft?.name = $0 }),
           prompt: Text(verbatim: "")
@@ -141,7 +144,7 @@ extension NativeUIModel {
   var quickLinkResults: [QuickLink] {
     let search = query.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !search.isEmpty else { return quickLinks }
-    return quickLinks.filter { $0.name.localizedStandardContains(search) }
+    return quickLinks.filter { $0.displayName.localizedStandardContains(search) }
   }
 
   var selectedQuickLinkID: UUID? {

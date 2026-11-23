@@ -69,12 +69,15 @@ final class NativeQuickLinkTests: XCTestCase {
     model.query = "Snippets"
     XCTAssertEqual(model.selectedSearch?.id, "builtin:snippets")
     XCTAssertTrue(model.searchResults.contains(row))
+    let unnamedURL = "https://example.invalid/planning"
+    try await platform.handle(NativeUICommand("quickLinks.save", strings: ["url": unnamedURL]))
+    let unnamed = try XCTUnwrap(model.quickLinks.first { $0.name.isEmpty })
     await platform.shutdown()
 
     let reopened = try NativePlatform(model: NativeUIModel(), root: root, fixture: true)
     addTeardownBlock { await reopened.shutdown() }
     reopened.model.query = name
-    XCTAssertEqual(reopened.model.quickLinks, [saved])
+    XCTAssertEqual(reopened.model.quickLinks, [saved, unnamed])
     XCTAssertEqual(reopened.model.searchResults.first { $0.kind == "quick-link" }, row)
     for enabled in [false, true] {
       try await reopened.handle(
@@ -82,7 +85,7 @@ final class NativeQuickLinkTests: XCTestCase {
           "builtinApps.setEnabled", strings: ["id": "builtin:quick-links"],
           bools: ["enabled": enabled]))
       XCTAssertEqual(reopened.model.searchResults.contains(row), enabled)
-      XCTAssertEqual(reopened.model.quickLinks, [saved])
+      XCTAssertEqual(reopened.model.quickLinks, [saved, unnamed])
     }
 
     try await reopened.handle(
@@ -92,6 +95,10 @@ final class NativeQuickLinkTests: XCTestCase {
           "id": saved.id.uuidString
         ]))
     XCTAssertFalse(reopened.model.searchResults.contains { $0.kind == "quick-link" })
+    reopened.model.query = "example.invalid/planning"
+    XCTAssertEqual(
+      reopened.model.searchResults.first { $0.id == unnamed.resultID }?.title, unnamedURL)
+    XCTAssertEqual(reopened.model.quickLinkResults, [unnamed])
 
     for (title, url) in [
       ("Все", "test-app:without-yo"), ("Всё", "test-app:with-yo"),

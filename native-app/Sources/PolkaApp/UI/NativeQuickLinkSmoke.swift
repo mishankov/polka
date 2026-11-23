@@ -56,7 +56,6 @@ import AppKit
     return "Return did not enter the Quick Links list and focus its search"
   }
 
-  let name = "Staging Dashboard"
   let invalidURL = "https://example.invalid:65536"
   let destination = "https://example.invalid/staging"
   post(45, .command, "т", false)
@@ -67,12 +66,14 @@ import AppKit
     return
       "Quick Link editor did not focus the name field: \(String(describing: shelf.firstResponder))"
   }
-  nameEditor.insertText(name, replacementRange: nameEditor.selectedRange())
-  guard await wait({ model.quickLinkDraft?.name == name }) else {
-    return "Quick Link name field did not update its draft"
+  let nameDelegate = nameEditor.delegate
+  func urlFieldEditor() -> NSTextView? {
+    guard let editor = fieldEditor(), editor !== nameEditor || editor.delegate !== nameDelegate
+    else { return nil }
+    return editor
   }
   post(48, [], "\t", false)
-  guard await wait({ fieldEditor()?.string == "" }), let urlEditor = fieldEditor() else {
+  guard await wait({ urlFieldEditor()?.string == "" }), let urlEditor = urlFieldEditor() else {
     return "Tab did not move from the Quick Link name to the URL field"
   }
   urlEditor.insertText(invalidURL, replacementRange: urlEditor.selectedRange())
@@ -82,8 +83,8 @@ import AppKit
   post(36, .command, "\r", false)
   guard await wait({ model.quickLinkDraft?.error.isEmpty == false && !model.busy }),
     model.error.isEmpty,
-    model.quickLinks == originalLinks, model.quickLinkDraft?.name == name,
-    model.quickLinkDraft?.url == invalidURL, let correctionEditor = fieldEditor()
+    model.quickLinks == originalLinks, model.quickLinkDraft?.name == "",
+    model.quickLinkDraft?.url == invalidURL, let correctionEditor = urlFieldEditor()
   else {
     return
       "Command Return did not preserve the Quick Link draft on URL validation failure"
@@ -93,26 +94,33 @@ import AppKit
   guard await wait({ model.quickLinkDraft?.url == destination }) else {
     return "Quick Link URL could not be corrected in the active editor"
   }
+  await screenshot("quick-links-shelf-unnamed-editor")
   post(36, .command, "\r", false)
   guard await wait({ model.quickLinkDraft == nil && !model.busy && !model.commandPending }),
     model.destination == "quick-links", model.visible,
-    let link = model.quickLinks.first(where: { $0.name == name }),
-    link.url.absoluteString == destination, model.selectedQuickLinkID == link.id,
-    await focusedSearchEditor() != nil
+    model.quickLinks.count == originalLinks.count + 1,
+    let link = model.quickLinks.first(where: { $0.id == model.selectedQuickLinkID }),
+    link.name.isEmpty, link.url.absoluteString == destination,
+    let linkSearchEditor = await focusedSearchEditor()
   else {
-    return "Command Return did not save and select the new Quick Link"
+    return "Command Return did not save and select the unnamed Quick Link"
+  }
+  await screenshot("quick-links-shelf-unnamed")
+  let urlQuery = "staging"
+  linkSearchEditor.insertText(urlQuery, replacementRange: linkSearchEditor.selectedRange())
+  guard await wait({ model.query == urlQuery && model.quickLinkResults.contains(link) }) else {
+    return "Searching by URL did not find the unnamed Quick Link"
   }
   post(51, .command, "", true)
   post(14, .command, "у", false)
-  guard await wait({ model.quickLinkDraft?.id == link.id && fieldEditor()?.string == name }),
+  guard await wait({ model.quickLinkDraft?.id == link.id && fieldEditor()?.string == "" }),
     let editName = fieldEditor()
   else {
     return
       "Command E did not edit the selected Quick Link after repeated Command Delete"
   }
   let editedName = "Team Dashboard"
-  editName.insertText(
-    editedName, replacementRange: NSRange(location: 0, length: (name as NSString).length))
+  editName.insertText(editedName, replacementRange: editName.selectedRange())
   guard await wait({ model.quickLinkDraft?.name == editedName }) else {
     return "Quick Link edit did not update the display name"
   }

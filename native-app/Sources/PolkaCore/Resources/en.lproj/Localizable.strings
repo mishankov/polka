@@ -694,10 +694,8 @@
 "No saved links." = "No saved links.";
 "Add Link" = "Add Link";
 "Edit Link" = "Edit Link";
-"Name" = "Name";
 "URL" = "URL";
 "Could not load saved links." = "Could not load saved links.";
 "This Quick Link is no longer available." = "This Quick Link is no longer available.";
-"Enter a name for this link." = "Enter a name for this link.";
 "Enter a valid web URL or app deep link, including its scheme." = "Enter a valid web URL or app deep link, including its scheme.";
 "macOS could not open “{0}”. Check the URL and make sure its app is installed." = "macOS could not open “{0}”. Check the URL and make sure its app is installed.";

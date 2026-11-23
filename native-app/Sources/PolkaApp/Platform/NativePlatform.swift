@@ -750,11 +750,11 @@ import UserNotifications
     if !nameQuery.isEmpty, !model.quickLinks.isEmpty, builtinApps.allows(destination: "quick-links")
     {
       let links = model.quickLinks.map {
-        NativeLauncherApp(id: $0.resultID, name: $0.name)
+        NativeLauncherApp(id: $0.resultID, name: $0.displayName)
       }
-      let destinations = Dictionary(
+      let details = Dictionary(
         uniqueKeysWithValues: model.quickLinks.map {
-          ($0.resultID, $0.url.absoluteString)
+          ($0.resultID, $0.name.isEmpty ? "" : $0.url.absoluteString)
         })
       // The launcher normalizer can tie or omit case-equivalent titles.
       let lowercasedName = nameQuery.lowercased()
@@ -770,7 +770,7 @@ import UserNotifications
       let linkRows = matches.map {
         NativeUISearchRow(
           id: $0.id, kind: "quick-link", title: $0.name,
-          detail: destinations[$0.id] ?? "")
+          detail: details[$0.id] ?? "")
       }
       if exact == nil {
         rows += apps + linkRows
@@ -826,8 +826,6 @@ import UserNotifications
       link = try QuickLink(
         id: index.map { links[$0].id } ?? UUID(), name: command.strings["name"] ?? "",
         url: command.strings["url"] ?? "")
-    } catch QuickLink.ValidationError.emptyName {
-      throw PolkaCoreError.invalid(localized("Enter a name for this link."))
     } catch QuickLink.ValidationError.invalidURL {
       throw PolkaCoreError.invalid(
         localized("Enter a valid web URL or app deep link, including its scheme."))
@@ -1093,7 +1091,7 @@ import UserNotifications
         throw PolkaCoreError.invalid(
           localized(
             "macOS could not open “{0}”. Check the URL and make sure its app is installed.",
-            link.name))
+            link.displayName))
       }
       hide?(true)
     case "launcher.openMac":
