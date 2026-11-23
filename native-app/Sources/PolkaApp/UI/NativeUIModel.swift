@@ -207,7 +207,6 @@ struct NativeBrowseContext {
   @Published var quickLinks: [QuickLink] = [] { didSet { cachedSearch = nil } }
   @Published var quickLinksStorageError = false
   @Published var quickLinkDraft: NativeQuickLinkDraft?
-  @Published var selectedQuickLinkID: UUID?
   @Published var settings = NativeUISettings()
   {
     didSet {
@@ -453,7 +452,9 @@ struct NativeBrowseContext {
     commandTask?.cancel()
   }
   func saveContext(now: Date = Date()) {
-    guard ["apps", "clipboard", "snippets", "emoji", "files", "screenshots"].contains(destination)
+    guard
+      ["apps", "clipboard", "snippets", "quick-links", "emoji", "files", "screenshots"].contains(
+        destination)
     else { return }
     contexts[destination] = NativeBrowseContext(
       query: query, clipboardFilter: clipboardFilter, selectedID: selectedID, previewID: previewID,
@@ -557,7 +558,9 @@ struct NativeBrowseContext {
   }
   func back() {
     guard !busy, nativeCommandInteractionAllowed else { return }
-    if draft != nil {
+    if destination == "quick-links", quickLinkDraft != nil {
+      cancelQuickLinkEdit()
+    } else if draft != nil {
       draft = nil
       contexts[destination]?.draft = nil
     } else if confirmClear {

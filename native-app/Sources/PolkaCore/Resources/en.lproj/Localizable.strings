@@ -688,7 +688,9 @@
 "Copy Region to Clipboard" = "Copy Region to Clipboard";
 "Select a region to copy it immediately, without opening the editor." = "Select a region to copy it immediately, without opening the editor.";
 "Quick Links" = "Quick Links";
-"Search the shelf for saved web and app links." = "Search the shelf for saved web and app links.";
+"Save and open web and app links" = "Save and open web and app links";
+"Find a link…" = "Find a link…";
+"Open Link" = "Open Link";
 "No saved links." = "No saved links.";
 "Add Link" = "Add Link";
 "Edit Link" = "Edit Link";

@@ -9,6 +9,7 @@ struct NativeShelfView: View {
       if model.topInset > 0 { Color.clear.frame(height: model.topInset) }
       switch model.destination {
       case "clipboard", "snippets": NativeClipboardView(model: model)
+      case "quick-links": NativeQuickLinksView(model: model)
       case "emoji": NativeEmojiView(model: model)
       case "files": NativeFileShelfView(model: model)
       case "system-status": NativeSystemStatusView(model: model)
@@ -184,6 +185,7 @@ struct NativeLauncherView: View {
     switch result.id {
     case "builtin:emoji": return "face.smiling"
     case "builtin:snippets": return "text.bubble"
+    case "builtin:quick-links": return "link"
     case "builtin:screenshots": return "viewfinder"
     case "builtin:files": return "folder"
     case "builtin:system-status": return "gauge.with.dots.needle.50percent"

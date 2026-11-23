@@ -408,6 +408,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       (localized("Open Shelf"), #selector(shelfAction)),
       (localized("Clipboard History"), #selector(historyAction)),
       (localized("Snippets"), #selector(snippetsAction)),
+      (localized("Quick Links"), #selector(quickLinksAction)),
       (localized("Files on the Shelf"), #selector(filesAction)),
       (localized("Screenshots"), #selector(screenshotsAction)),
       (localized("Settings…"), #selector(settingsAction)),
@@ -435,6 +436,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   }
   @objc private func historyAction() { Task { await show("clipboard") } }
   @objc private func snippetsAction() { Task { await show("snippets") } }
+  @objc private func quickLinksAction() { Task { await show("quick-links") } }
   @objc private func screenshotsAction() { Task { await show("screenshots") } }
   @objc private func filesAction() { Task { await show("files") } }
   @objc private func settingsAction() { openSettings(nil) }
@@ -464,6 +466,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   func validateMenuItem(_ item: NSMenuItem) -> Bool {
     let destinations: [Selector: String] = [
       #selector(historyAction): "clipboard", #selector(snippetsAction): "snippets",
+      #selector(quickLinksAction): "quick-links",
       #selector(filesAction): "files", #selector(screenshotsAction): "screenshots",
     ]
     if let destination = item.action.flatMap({ destinations[$0] }) {

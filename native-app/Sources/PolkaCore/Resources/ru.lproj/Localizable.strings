@@ -688,7 +688,9 @@
 "Copy Region to Clipboard" = "Скопировать область в буфер";
 "Select a region to copy it immediately, without opening the editor." = "Выделите область — она сразу скопируется в буфер без открытия редактора.";
 "Quick Links" = "Быстрые ссылки";
-"Search the shelf for saved web and app links." = "Ищите на полке сохранённые ссылки на сайты и приложения.";
+"Save and open web and app links" = "Сохраняйте и открывайте ссылки на сайты и приложения";
+"Find a link…" = "Найти ссылку…";
+"Open Link" = "Открыть ссылку";
 "No saved links." = "Нет сохранённых ссылок.";
 "Add Link" = "Добавить ссылку";
 "Edit Link" = "Изменить ссылку";

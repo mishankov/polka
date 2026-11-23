@@ -207,7 +207,8 @@ import UserNotifications
       usage = (try? JSONDecoder().decode([String: LauncherUsage].self, from: data)) ?? [:]
     }
     model.settings.introduced = (try? settings.get(key: "shelfIntroduced")) as? Bool ?? false
-    model.settingsPane = (try? settings.get(key: "settingsPane")) as? String ?? "general"
+    let savedPane = (try? settings.get(key: "settingsPane")) as? String ?? "general"
+    model.settingsPane = savedPane == "quick-links" ? "builtin-apps" : savedPane
     model.settingsPaneChanged = { [weak self] pane in
       guard let self, !self.disposed else { return }
       do { try self.settings.set(key: "settingsPane", value: pane) } catch {
@@ -746,7 +747,8 @@ import UserNotifications
         id: $0.id, kind: "app", title: $0.name, detail: $0.description, icon: $0.icon)
     }
     let nameQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !nameQuery.isEmpty, !model.quickLinks.isEmpty {
+    if !nameQuery.isEmpty, !model.quickLinks.isEmpty, builtinApps.allows(destination: "quick-links")
+    {
       let links = model.quickLinks.map {
         NativeLauncherApp(id: $0.resultID, name: $0.name)
       }
@@ -832,7 +834,7 @@ import UserNotifications
     }
     if let index { links[index] = link } else { links.append(link) }
     try saveQuickLinks(links)
-    model.selectedQuickLinkID = link.id
+    if model.destination == "quick-links" { model.selectedQuickLinkID = link.id }
   }
   private func copy(_ content: ClipboardClip, selection: Bool, transformation: String? = nil)
     async throws
@@ -941,6 +943,8 @@ import UserNotifications
     case "clipboardHistory.show", "clipboardHistory.clear": try requireEnabled("clipboard")
     case "shelf.showSnippets", "clipboardHistory.createSnippet", "clipboardHistory.edit":
       try requireEnabled("snippets")
+    case "quickLinks.save", "quickLinks.delete", "quickLinks.open":
+      try requireEnabled("quick-links")
     case "shelf.showEmoji", "shelf.selectEmoji", "shelf.copyEmoji": try requireEnabled("emoji")
     case "screenshots.capture", "screenshots.copy":
       try requireEnabled("screenshots")
@@ -1081,7 +1085,6 @@ import UserNotifications
     case "quickLinks.save": try saveQuickLink(id: id, command: command)
     case "quickLinks.delete":
       try saveQuickLinks(model.quickLinks.filter { $0.id.uuidString != id })
-      model.selectedQuickLinkID = nil
     case "quickLinks.open":
       guard let link = model.quickLinks.first(where: { $0.resultID == id }) else {
         throw PolkaCoreError.invalid(localized("This Quick Link is no longer available."))
@@ -1315,7 +1318,7 @@ import UserNotifications
 }
 
 extension QuickLink {
-  fileprivate var resultID: String { "quick-link:" + id.uuidString }
+  var resultID: String { "quick-link:" + id.uuidString }
 }
 
 func nativeImageSaveError(_ error: Error) -> String {

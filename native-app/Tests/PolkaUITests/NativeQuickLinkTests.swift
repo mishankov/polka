@@ -4,6 +4,42 @@ import XCTest
 @testable import PolkaApp
 
 final class NativeQuickLinkTests: XCTestCase {
+  @MainActor func testShelfSelectionResetsWithSearchAndKeepsNeighborAfterDeletion() async throws {
+    let model = NativeUIModel()
+    let alpha = try QuickLink(name: "Team Alpha", url: "https://example.invalid/alpha")
+    let beta = try QuickLink(name: "Team Beta", url: "https://example.invalid/beta")
+    let gamma = try QuickLink(name: "Team Gamma", url: "https://example.invalid/gamma")
+    model.quickLinks = [alpha, beta, gamma]
+    model.present(destination: "quick-links")
+    var openedID: String?
+    model.action = { [weak model] command in
+      switch command.name {
+      case "quickLinks.open": openedID = command.strings["id"]
+      case "quickLinks.delete":
+        model?.quickLinks.removeAll { $0.id.uuidString == command.strings["id"] }
+      default: XCTFail("Unexpected command \(command.name)")
+      }
+    }
+    func waitForCommand() async {
+      for _ in 0..<100 where model.commandPending { await Task.yield() }
+      XCTAssertFalse(model.commandPending)
+    }
+
+    model.selectedQuickLinkID = gamma.id
+    model.query = "Alpha"
+    model.query = "Team"
+    XCTAssertTrue(model.handleKeyboard(NativeKeyInput(code: 36, characters: "\r", modifiers: [])))
+    await waitForCommand()
+    XCTAssertEqual(openedID, alpha.resultID)
+
+    model.selectedQuickLinkID = beta.id
+    XCTAssertTrue(
+      model.handleKeyboard(NativeKeyInput(code: 51, characters: "", modifiers: .command)))
+    await waitForCommand()
+    XCTAssertEqual(model.quickLinkResults, [alpha, gamma])
+    XCTAssertEqual(model.selectedQuickLink?.id, gamma.id)
+  }
+
   @MainActor func testQuickLinksPersistAndRefreshShelfSearchAfterWrites() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(
       "polka-quick-links-\(UUID())")
@@ -40,6 +76,14 @@ final class NativeQuickLinkTests: XCTestCase {
     reopened.model.query = name
     XCTAssertEqual(reopened.model.quickLinks, [saved])
     XCTAssertEqual(reopened.model.searchResults.first { $0.kind == "quick-link" }, row)
+    for enabled in [false, true] {
+      try await reopened.handle(
+        NativeUICommand(
+          "builtinApps.setEnabled", strings: ["id": "builtin:quick-links"],
+          bools: ["enabled": enabled]))
+      XCTAssertEqual(reopened.model.searchResults.contains(row), enabled)
+      XCTAssertEqual(reopened.model.quickLinks, [saved])
+    }
 
     try await reopened.handle(
       NativeUICommand(

@@ -7,7 +7,6 @@ var nativeSettingsPanes: [(id: String, label: String, icon: String)] {
     ("general", localized("General"), "slider.horizontal.3"),
     ("shelf", localized("Shelf and Shortcuts"), "command"),
     ("clipboard", localized("Clipboard"), "clipboard"),
-    ("quick-links", localized("Quick Links"), "link"),
     ("builtin-apps", localized("Built-in Apps"), "square.grid.2x2"),
     ("about", localized("About"), "info.circle"),
   ]
@@ -23,7 +22,6 @@ struct NativeSettingsView: View {
     case "builtin-apps": localized("Choose the apps you need on the shelf.")
     case "shelf": localized("Opening the shelf, quick commands, and device activity indicators.")
     case "clipboard": localized("Recording, pasting, and history on other Macs.")
-    case "quick-links": localized("Search the shelf for saved web and app links.")
     case "about": localized("App version and updates.")
     default: localized("Language, app startup, and background operation.")
     }
@@ -66,25 +64,19 @@ struct NativeSettingsView: View {
           Text(pane.label).font(.system(size: 23, weight: .semibold))
           Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary)
         }.padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 22)
-        if model.settingsPane == "quick-links" {
-          NativeQuickLinksSettings(model: model).frame(maxWidth: 640, alignment: .leading)
+        ScrollView {
+          VStack(alignment: .leading, spacing: 20) {
+            NativeErrorNotice(text: model.error)
+            switch model.settingsPane {
+            case "shelf": shelf
+            case "clipboard": clipboard
+            case "about": about
+            case "builtin-apps": builtinApps
+            default: general
+            }
+          }.frame(maxWidth: 640, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 28).padding(.bottom, 28)
-        } else {
-          ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-              NativeErrorNotice(text: model.error)
-              switch model.settingsPane {
-              case "shelf": shelf
-              case "clipboard": clipboard
-              case "about": about
-              case "builtin-apps": builtinApps
-              default: general
-              }
-            }.frame(maxWidth: 640, alignment: .leading)
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .padding(.horizontal, 28).padding(.bottom, 28)
-          }
         }
       }.frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .underPageBackgroundColor))
