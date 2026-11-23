@@ -18,6 +18,7 @@ struct NativeUICommand {
       "builtinApps.setEnabled", "clipboardHistory.preferences", "mediaIndicator.setTracking",
       "system.login", "clipboardHistory.syncEnabled", "settings.set", "settings.language",
       "quickLinks.save", "quickLinks.delete", "updates.channel",
+      "theme.select", "theme.save", "theme.duplicate", "theme.delete",
     ].contains(name)
   }
   init(
@@ -94,6 +95,7 @@ struct NativeUISettings: Equatable {
   var languagePreference = AppLanguagePreference.system
   var language = AppLocalization.language
   var builtinApps = BuiltinAppAvailability()
+  var themes = NativeThemeSettings()
   var clipboardShortcutError = ""
   var login = false
   var paused = false
@@ -251,6 +253,9 @@ struct NativeBrowseContext {
   @Published var pairingCode = ""
   @Published var selectedPeerID: String?
   @Published var settingsPane = "general"
+  @Published var themeFilter = NativeThemeFilter.all
+  @Published var themeDraft: NativeThemeDraft?
+  @Published var themePendingDeletion: NativeShelfTheme?
   var settingsFocusRevision = 0
   var settingsPaneChanged: ((String) -> Void)?
   var action: ((NativeUICommand) async throws -> Void)?
@@ -418,6 +423,8 @@ struct NativeBrowseContext {
     }
     if !error.isEmpty { error = "" }
     let revision = presentationRevision
+    // The Themes editor belongs to Settings, independently of shelf navigation.
+    let editsThemes = command.name.hasPrefix("theme.")
     commandTask = Task { @MainActor in
       defer {
         commandTask = nil
@@ -435,9 +442,11 @@ struct NativeBrowseContext {
             ])
         }
         try await action(command)
-        if revision == presentationRevision { completion?() }
+        if editsThemes || revision == presentationRevision { completion?() }
       } catch {
-        if !Task.isCancelled, !(error is CancellationError), revision == presentationRevision {
+        if !Task.isCancelled, !(error is CancellationError),
+          editsThemes || revision == presentationRevision
+        {
           if command.name == "quickLinks.save" {
             self.quickLinkDraft?.error = error.localizedDescription
           } else {

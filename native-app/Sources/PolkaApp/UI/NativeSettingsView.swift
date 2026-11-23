@@ -6,6 +6,7 @@ var nativeSettingsPanes: [(id: String, label: String, icon: String)] {
   [
     ("general", localized("General"), "slider.horizontal.3"),
     ("shelf", localized("Shelf and Shortcuts"), "command"),
+    ("themes", localized("Themes"), "paintpalette"),
     ("clipboard", localized("Clipboard"), "clipboard"),
     ("builtin-apps", localized("Built-in Apps"), "square.grid.2x2"),
     ("about", localized("About"), "info.circle"),
@@ -17,10 +18,15 @@ struct NativeSettingsView: View {
   private var pane: (id: String, label: String, icon: String) {
     nativeSettingsPanes.first { $0.id == model.settingsPane } ?? nativeSettingsPanes[0]
   }
+  private var themeGallery: Bool {
+    model.settingsPane == "themes" && model.themeDraft == nil && model.themePendingDeletion == nil
+  }
   private var subtitle: String {
     switch model.settingsPane {
     case "builtin-apps": localized("Choose the apps you need on the shelf.")
     case "shelf": localized("Opening the shelf, quick commands, and device activity indicators.")
+    case "themes":
+      themeGallery ? localized("Active theme: {0}", model.settings.themes.active.name) : ""
     case "clipboard": localized("Recording, pasting, and history on other Macs.")
     case "about": localized("App version and updates.")
     default: localized("Language, app startup, and background operation.")
@@ -61,14 +67,25 @@ struct NativeSettingsView: View {
       Divider().ignoresSafeArea(.container, edges: .top)
       VStack(alignment: .leading, spacing: 0) {
         VStack(alignment: .leading, spacing: 7) {
-          Text(pane.label).font(.system(size: 23, weight: .semibold))
-          Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary)
+          HStack {
+            Text(pane.label).font(.system(size: 23, weight: .semibold))
+            if themeGallery {
+              Spacer(minLength: 8)
+              NativeThemeGalleryActions(model: model)
+            }
+          }
+          if !subtitle.isEmpty {
+            Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary)
+          }
         }.padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 22)
         ScrollView {
           VStack(alignment: .leading, spacing: 20) {
-            NativeErrorNotice(text: model.error)
+            if model.settingsPane != "themes" || model.themeDraft == nil {
+              NativeErrorNotice(text: model.error)
+            }
             switch model.settingsPane {
             case "shelf": shelf
+            case "themes": NativeThemeSettingsView(model: model)
             case "clipboard": clipboard
             case "about": about
             case "builtin-apps": builtinApps
@@ -77,6 +94,14 @@ struct NativeSettingsView: View {
           }.frame(maxWidth: 640, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 28).padding(.bottom, 28)
+        }
+        .id(
+          model.settingsPane == "themes"
+            ? (themeGallery ? "theme-gallery" : "theme-detail") : "settings")
+        if model.settingsPane == "themes", let draft = model.themeDraft {
+          Divider()
+          NativeThemeEditorActions(model: model, draft: draft)
+            .padding(.horizontal, 28).padding(.vertical, 12)
         }
       }.frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .underPageBackgroundColor))
@@ -615,6 +640,7 @@ struct NativeUpdatesView: View {
 
 struct NativeUpdateNotice: View {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var shelfColors
   var body: some View {
     let displayedVersion = model.settings.updateVersion
     if !displayedVersion.isEmpty, model.settings.updateNotification == "visible",
@@ -628,7 +654,7 @@ struct NativeUpdateNotice: View {
           ).font(
             .system(size: 13, weight: .semibold))
           Spacer()
-          Text(status).font(.system(size: 11)).foregroundStyle(.secondary)
+          Text(status).font(.system(size: 11)).nativeShelfSecondary()
         }
         HStack(spacing: 5) {
           NativeCommandButton(
@@ -662,7 +688,8 @@ struct NativeUpdateNotice: View {
           }
         }
       }.padding(10).background(
-        Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+        shelfColors?.surfaceColor ?? Color.accentColor.opacity(0.06),
+        in: RoundedRectangle(cornerRadius: 7))
     }
   }
   private var status: String {

@@ -14,7 +14,7 @@ struct NativeFileShelfView: View {
         ) { model.removeSelectedFiles(clear: true) }.accessibilityIdentifier("files-clear")
       }
       Text(localized("Drag files here, then take them to another app.")).font(.system(size: 12))
-        .foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(
+        .nativeShelfSecondary().frame(maxWidth: .infinity, alignment: .leading).padding(
           .horizontal, 12
         ).padding(.bottom, 10)
       Divider()
@@ -23,7 +23,7 @@ struct NativeFileShelfView: View {
         LazyVStack(spacing: 4) {
           if model.files.isEmpty {
             VStack(spacing: 12) {
-              Image(systemName: "folder").font(.system(size: 40)).foregroundStyle(.secondary)
+              Image(systemName: "folder").font(.system(size: 40)).nativeShelfSecondary()
               Text(localized("Leave Files Here")).font(.system(size: 16, weight: .semibold))
               Text(
                 localized(
@@ -31,7 +31,7 @@ struct NativeFileShelfView: View {
                 )
               ).font(
                 .system(size: 12)
-              ).foregroundStyle(.secondary).multilineTextAlignment(.center)
+              ).nativeShelfSecondary().multilineTextAlignment(.center)
             }.frame(maxWidth: .infinity).padding(40)
           }
           ForEach(model.files) { file in
@@ -46,10 +46,8 @@ struct NativeFileShelfView: View {
                 model.selectedFiles = [file.id]
                 model.removeSelectedFiles()
               }.padding(.trailing, 8)
-            }.background(
-              model.selectedFiles.contains(file.id) ? Color.accentColor.opacity(0.12) : .clear,
-              in: RoundedRectangle(cornerRadius: 7)
-            ).padding(.horizontal, 6)
+            }.nativeShelfRow(selected: model.selectedFiles.contains(file.id), defaultOpacity: 0.12)
+              .padding(.horizontal, 6)
           }
         }.padding(.vertical, 8).background(
           NativeScrollPositionBridge(
@@ -66,7 +64,7 @@ struct NativeFileShelfView: View {
           title: localized("Remove from Shelf"), symbol: "trash", shortcut: "⌘⌫",
           disabled: model.busy || model.selectedFiles.isEmpty
         ) { model.removeSelectedFiles() }.accessibilityIdentifier("files-remove")
-      }.font(.system(size: 11)).foregroundStyle(.secondary)
+      }.font(.system(size: 11)).nativeShelfSecondary()
       NativeKeyboardHint(text: localized("⌘ / ⇧ select multiple · ⌘A all"))
       Text(
         localized(
@@ -74,7 +72,7 @@ struct NativeFileShelfView: View {
       )
       .font(
         .system(size: 10)
-      ).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.bottom, 10)
+      ).nativeShelfSecondary().padding(.horizontal, 12).padding(.bottom, 10)
     }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("native-files")
@@ -82,12 +80,14 @@ struct NativeFileShelfView: View {
 }
 
 struct NativeDraggableFileRow: NSViewRepresentable {
+  @Environment(\.shelfColors) private var colors
   var model: NativeUIModel
   var file: NativeUIFile
   func makeNSView(context: Context) -> NativeFileDragView { NativeFileDragView() }
   func updateNSView(_ view: NativeFileDragView, context: Context) {
     view.model = model
     view.file = file
+    view.colors = colors
     view.needsDisplay = true
     view.setAccessibilityLabel(file.name)
     view.setAccessibilityHelp(
@@ -100,6 +100,7 @@ struct NativeDraggableFileRow: NSViewRepresentable {
 @MainActor final class NativeFileDragView: NSView, NSDraggingSource {
   weak var model: NativeUIModel?
   var file: NativeUIFile?
+  var colors: NativeThemeColors?
   private var down: NSEvent?
   private var dragging = false
   override var acceptsFirstResponder: Bool { true }
@@ -116,16 +117,21 @@ struct NativeDraggableFileRow: NSViewRepresentable {
       in: NSRect(x: 12, y: (bounds.height - 32) / 2, width: 32, height: 32), from: .zero,
       operation: .sourceOver, fraction: file.available ? 1 : 0.4)
     let width = max(0, bounds.width - 62)
+    let selected = model?.selectedFiles.contains(file.id) == true
+    let primary = colors?.appKitForeground(selected: selected) ?? NSColor.labelColor
+    let secondary =
+      colors?.appKitForeground(selected: selected, muted: true)
+      ?? NSColor.secondaryLabelColor
     file.name.draw(
       in: NSRect(x: 56, y: 31, width: width, height: 18),
       withAttributes: [
         .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-        .foregroundColor: file.available ? NSColor.labelColor : NSColor.secondaryLabelColor,
+        .foregroundColor: file.available ? primary : secondary,
       ])
     (file.available ? file.path : localized("Moved, deleted, or unavailable")).draw(
       in: NSRect(x: 56, y: 13, width: width, height: 15),
       withAttributes: [
-        .font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor,
+        .font: NSFont.systemFont(ofSize: 10), .foregroundColor: secondary,
       ])
   }
   override func mouseDown(with event: NSEvent) {
@@ -333,20 +339,21 @@ extension NativeUIModel {
 /// The incoming target covers the results area, retaining the heading and the
 /// existing controls above it. Its outline communicates where to release files.
 struct NativeIncomingFileDropHint: View {
+  @Environment(\.shelfColors) private var colors
   var topInset: CGFloat
   var body: some View {
     Text(localized("Drop to Leave Files on the Shelf"))
-      .font(.system(size: 14)).foregroundStyle(.white)
+      .font(.system(size: 14)).foregroundStyle(colors?.textColor ?? .white)
       .multilineTextAlignment(.center).padding(20)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .background(
-        Color(red: 21 / 255, green: 21 / 255, blue: 21 / 255).opacity(237 / 255),
+        colors?.surfaceColor ?? Color(white: 21 / 255).opacity(237 / 255),
         in: RoundedRectangle(cornerRadius: 12)
       )
       .overlay {
         RoundedRectangle(cornerRadius: 12)
           .strokeBorder(
-            Color(red: 170 / 255, green: 170 / 255, blue: 170 / 255),
+            colors?.focusColor ?? Color(white: 170 / 255),
             style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
       }
       .padding(.top, topInset + 90).padding(.horizontal, 12).padding(.bottom, 12)

@@ -282,7 +282,7 @@ import SwiftUI
     view.needsDisplay = true
     view.displayIfNeeded()
     if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1",
-      name.hasPrefix("controls-") || name.hasPrefix("settings-")
+      name.hasPrefix("controls-") || name.hasPrefix("settings-") || name.hasPrefix("shelf-theme-")
         || name.hasPrefix("clipboard-filter-") || name.hasPrefix("clipboard-files-")
         || name.hasPrefix("clipboard-row-layout-")
         || name.hasPrefix("quick-links-shelf-")
@@ -315,6 +315,170 @@ import SwiftUI
       }
     } else {
       failures.append("cannot render screenshot \(name)")
+    }
+  }
+  func exerciseThemes(in settings: NSWindow) async {
+    if !(await wait({ model.settingsPane == "themes" })) {
+      failures.append("native settings sidebar ArrowDown did not select Themes")
+    }
+    await settle()
+    if let content = settings.contentView,
+      let card = accessible("theme-card-midnight", in: content)
+    {
+      card.accessibilityPerformPress()
+      if !(await wait({ model.settings.themes.activeID == "midnight" && !model.commandPending })) {
+        failures.append("accessible theme card did not apply Midnight")
+      }
+    } else {
+      failures.append("Midnight theme card is missing from the Themes gallery")
+    }
+    await screenshot("settings-themes", window: settings, includeTitlebar: true)
+    if let row = await nativeSmokeWaitForView(
+      in: settings, ofType: NSScrollView.self,
+      ready: { ($0.documentView?.frame.width ?? 0) > $0.contentView.bounds.width }
+    ),
+      let event = CGEvent(
+        scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: -160,
+        wheel3: 0
+      ).flatMap(NSEvent.init(cgEvent:))
+    {
+      let origin = row.contentView.bounds.origin.x
+      row.scrollWheel(with: event)
+      if !(await wait({ row.contentView.bounds.origin.x > origin })) {
+        failures.append("an overview theme row did not respond to horizontal scrolling")
+      }
+    } else {
+      failures.append("the Themes overview is missing its horizontal rows")
+    }
+    let themesFrame = settings.frame
+    settings.setContentSize(NSSize(width: 660, height: 480))
+    await screenshot("settings-themes-compact", window: settings, includeTitlebar: true)
+    if let content = settings.contentView {
+      if accessible("theme-customize", in: content) == nil {
+        failures.append("Customize is missing at the minimum Settings size")
+      }
+    }
+    post(14, .command, "у", window: settings)
+    if await wait({ model.themeDraft != nil }) {
+      if await wait({
+        (settings.firstResponder as? NSTextView)?.string == model.themeDraft?.name
+      }), let editor = settings.firstResponder as? NSTextView {
+        editor.insertText(
+          "Midnight Ember",
+          replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        if !(await wait({ model.themeDraft?.name == "Midnight Ember" })) {
+          failures.append("typing into the theme name field did not update the draft")
+        }
+      } else {
+        failures.append("Command E did not move focus to the theme name field")
+      }
+      model.themeDraft?.colors.accent = "#FFB08A"
+      model.themeDraft?.colors.selection = "#B55042"
+      if model.settings.themes.activeID != "midnight" {
+        failures.append("customizing a theme changed the active palette before saving")
+      }
+      await screenshot("settings-theme-editor-compact", window: settings, includeTitlebar: true)
+      if let content = settings.contentView, accessible("theme-save", in: content) == nil {
+        failures.append("Save & Apply is missing at the minimum Settings size")
+      }
+      settings.setFrame(themesFrame, display: true)
+      await screenshot("settings-theme-editor", window: settings, includeTitlebar: true)
+      post(1, .command, "ы", repeatKey: true, window: settings)
+      await settle()
+      if model.themeDraft == nil || !model.settings.themes.custom.isEmpty {
+        failures.append("repeated Command S saved a theme draft")
+      }
+      post(1, .command, "ы", window: settings)
+      if !(await wait({
+        model.themeDraft == nil && !model.commandPending
+          && model.settings.themes.active.name == "Midnight Ember"
+          && model.settings.themes.active.colors.accent == "#FFB08A"
+      })) {
+        failures.append("Command S did not save and apply the edited theme")
+      }
+      post(51, .command, window: settings)
+      if await wait({ model.themePendingDeletion != nil }) {
+        post(51, .command, window: settings)
+        if !(await wait({
+          model.themePendingDeletion == nil && !model.commandPending
+            && model.settings.themes.activeID == "polka" && model.settings.themes.custom.isEmpty
+        })) {
+          failures.append("Command Backspace did not confirm deletion and restore Polka")
+        }
+      } else {
+        failures.append("Command Backspace did not open theme deletion confirmation")
+      }
+    } else {
+      failures.append("Command E did not open theme customization")
+      settings.setFrame(themesFrame, display: true)
+    }
+    if let content = settings.contentView {
+      model.themeFilter = .pastel
+      await settle()
+      if let card = accessible("theme-card-lilac-mist", in: content) {
+        card.accessibilityPerformPress()
+        if await wait({ model.settings.themes.activeID == "lilac-mist" && !model.commandPending }) {
+          let themedInk = model.settings.themes.active.colors.appKitForeground()
+          settings.close()
+          await application.show("apps")
+          model.query = ""
+          if let field = await nativeSmokeWaitForView(
+            in: shelf, ofType: NativeLargeSearchField.self,
+            ready: {
+              if let editor = $0.currentEditor(), shelf.firstResponder === editor { return true }
+              return false
+            }
+          ) {
+            let placeholderFont =
+              field.placeholderAttributedString?.attribute(.font, at: 0, effectiveRange: nil)
+              as? NSFont
+            if placeholderFont?.pointSize != field.font?.pointSize {
+              failures.append("the theme shrank the launcher search placeholder")
+            }
+            if let editor = field.currentEditor() as? NSTextView,
+              editor.insertionPointColor != themedInk
+            {
+              failures.append("the launcher search caret did not use the themed text color")
+            }
+            post(12, [], "q")
+            post(13, [], "w")
+            if !(await wait({ model.query == "qw" && field.stringValue == "qw" })) {
+              failures.append("typing in the themed launcher search did not update its query")
+            }
+            post(51, [], "\u{7F}")
+            if !(await wait({ model.query == "q" && field.stringValue == "q" })) {
+              failures.append("Backspace did not edit the themed launcher query")
+            }
+          } else {
+            failures.append("the themed launcher search did not receive keyboard focus")
+          }
+          model.query = ""
+          await screenshot("shelf-theme-pastel")
+          application.openSettings("themes")
+          await settle()
+          model.selectTheme("polka")
+          if await wait({ model.settings.themes.activeID == "polka" && !model.commandPending }) {
+            settings.close()
+            await application.show("apps")
+            if !(await wait({
+              guard let editor = shelf.firstResponder as? NSTextView,
+                (editor.delegate as? NSTextField)?.identifier?.rawValue == "polka-search"
+              else { return false }
+              return editor.insertionPointColor != themedInk
+            })) {
+              failures.append("the original launcher retained the light theme's dark caret")
+            }
+            application.openSettings("themes")
+            await settle()
+          } else {
+            failures.append("restoring the original theme after rendering did not finish")
+          }
+        } else {
+          failures.append("accessible theme card did not apply Lilac Mist")
+        }
+      } else {
+        failures.append("Lilac Mist theme card is missing from the Pastel category")
+      }
     }
   }
   if previewsOnly {
@@ -1685,6 +1849,9 @@ import SwiftUI
       } else {
         failures.append("settings launcher shortcut recorder missing")
       }
+      settings.makeFirstResponder(sidebar)
+      post(125, window: settings)
+      await exerciseThemes(in: settings)
       settings.makeFirstResponder(sidebar)
       post(125, window: settings)
       if !(await wait({ model.settingsPane == "clipboard" })) {

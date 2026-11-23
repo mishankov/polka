@@ -26,6 +26,9 @@ extension NativeUIModel {
     let delete = key.code == 51 || key.code == 117
     let escape = key.code == 53
     let cmd = flags == .command
+    if key.isSettings, settingsPane == "themes", handleThemeShortcut(key, flags: flags) {
+      return true
+    }
     // Native menus, attached sheets, and shortcut recording own keyboard input.
     let filterShortcut =
       destination == "clipboard" && !key.isSettings

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct NativeSystemStatusView: View {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
   var body: some View {
     VStack(spacing: 0) {
       NativeBuiltinHeader(model: model, title: localized("System Status")) { EmptyView() }
@@ -111,7 +112,7 @@ struct NativeSystemStatusView: View {
   ) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       Label(localized(title), systemImage: symbol).font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(.secondary)
+        .nativeShelfSecondary()
       if let value = reading.value {
         content(value)
         if reading.state == .stale {
@@ -120,7 +121,7 @@ struct NativeSystemStatusView: View {
               "Stale · last read {0}",
               reading.sampledAt?.formatted(date: .omitted, time: .standard) ?? "—")
           )
-          .font(.system(size: 11)).foregroundStyle(.orange)
+          .font(.system(size: 11)).foregroundStyle(colors?.statusColor() ?? .orange)
           if !reading.message.isEmpty { detail(localized(reading.message)) }
         }
       } else {
@@ -131,7 +132,10 @@ struct NativeSystemStatusView: View {
         if !reading.message.isEmpty { detail(localized(reading.message)) }
       }
     }.frame(maxWidth: .infinity, minHeight: 178, alignment: .topLeading).padding(12)
-      .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
+      .background(
+        colors?.surfaceColor ?? Color.white.opacity(0.055),
+        in: RoundedRectangle(cornerRadius: 10)
+      )
       .accessibilityElement(children: .combine)
       .accessibilityIdentifier("system-status-" + title.lowercased())
   }
@@ -173,10 +177,8 @@ struct NativeSystemStatusView: View {
     }
   }
   private var collectingActivity: some View {
-    Text(localized("Collecting recent activity…")).font(.system(size: 11)).foregroundStyle(
-      .secondary
-    )
-    .frame(maxWidth: .infinity, minHeight: 47, alignment: .bottomLeading)
+    Text(localized("Collecting recent activity…")).font(.system(size: 11)).nativeShelfSecondary()
+      .frame(maxWidth: .infinity, minHeight: 47, alignment: .bottomLeading)
   }
   private func metric(_ value: String) -> some View {
     Text(value).font(.system(size: 18, weight: .medium)).monospacedDigit()
@@ -184,11 +186,13 @@ struct NativeSystemStatusView: View {
   }
   private func status(_ value: String, warning: Bool = false) -> some View {
     Text(value).font(.system(size: 12, weight: .medium))
-      .foregroundStyle(warning ? Color.orange : Color.primary)
+      .foregroundStyle(
+        warning ? (colors?.statusColor() ?? .orange) : (colors?.textColor ?? .primary)
+      )
       .fixedSize(horizontal: false, vertical: true)
   }
   private func detail(_ value: String) -> some View {
-    Text(value).font(.system(size: 11)).foregroundStyle(.secondary)
+    Text(value).font(.system(size: 11)).nativeShelfSecondary()
       .fixedSize(horizontal: false, vertical: true)
   }
   private func bytes(_ value: UInt64, storage: Bool = false) -> String {

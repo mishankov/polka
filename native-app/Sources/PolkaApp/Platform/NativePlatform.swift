@@ -68,6 +68,8 @@ import UserNotifications
     AppLocalization.configure(languagePreference)
     model.settings.languagePreference = languagePreference
     model.settings.language = AppLocalization.language
+    model.settings.themes = NativeThemeSettings.load(
+      try settings.get(key: NativeThemeSettings.settingsKey))
     do {
       if let saved = try settings.get(key: Self.quickLinksKey) {
         let data = try JSONSerialization.data(withJSONObject: saved, options: [.fragmentsAllowed])
@@ -1011,6 +1013,57 @@ import UserNotifications
       }
     }
   }
+  private func changeTheme(_ command: NativeUICommand) throws {
+    let id = command.strings["id"] ?? ""
+    var next = model.settings.themes
+    let customIndex = next.custom.firstIndex { $0.id == id }
+    let invalid = PolkaCoreError.invalid(localized("Invalid settings"))
+    func proposedName() throws -> String {
+      let name = (command.strings["name"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !name.isEmpty, name.count <= NativeThemeSettings.maxNameLength else {
+        throw PolkaCoreError.invalid(localized("Enter a theme name of up to 35 characters."))
+      }
+      guard !next.containsName(name, excluding: id) else {
+        throw PolkaCoreError.invalid(localized("A theme with this name already exists."))
+      }
+      return name
+    }
+
+    switch command.name {
+    case "theme.select":
+      guard next.theme(id: id) != nil else { throw invalid }
+      next.activeID = id
+    case "theme.save":
+      guard id.isEmpty || customIndex != nil else { throw invalid }
+      let input = NativeThemeColors(
+        background: command.strings["background"] ?? "", surface: command.strings["surface"] ?? "",
+        text: command.strings["text"] ?? "", accent: command.strings["accent"] ?? "",
+        selection: command.strings["selection"] ?? "")
+      guard let colors = input.normalized else {
+        throw PolkaCoreError.invalid(localized("Enter a six-digit hex color for each field."))
+      }
+      let theme = NativeShelfTheme(
+        id: id.isEmpty ? UUID().uuidString.lowercased() : id, name: try proposedName(),
+        colors: colors)
+      if let customIndex { next.custom[customIndex] = theme } else { next.custom.append(theme) }
+      next.activeID = theme.id
+    case "theme.duplicate":
+      guard let source = next.theme(id: id) else { throw invalid }
+      let theme = NativeShelfTheme(
+        id: UUID().uuidString.lowercased(), name: next.copyName(for: source), colors: source.colors)
+      next.custom.append(theme)
+      next.activeID = theme.id
+    case "theme.delete":
+      guard let customIndex else { throw invalid }
+      next.custom.remove(at: customIndex)
+      if next.activeID == id { next.activeID = NativeThemeSettings.standard.id }
+    default: throw invalid
+    }
+    guard next != model.settings.themes else { return }
+    let value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(next))
+    try settings.set(key: NativeThemeSettings.settingsKey, value: value)
+    model.settings.themes = next
+  }
   func handle(_ command: NativeUICommand) async throws {
     try validateAvailability(command)
     guard updates.status != "installing" || command.name == "system.quit" else {
@@ -1263,6 +1316,8 @@ import UserNotifications
       try settings.set(key: AppLanguagePreference.settingsKey, value: preference.rawValue)
       model.settings.languagePreference = preference
       updateSystemLanguage()
+    case "theme.select", "theme.save", "theme.duplicate", "theme.delete":
+      try changeTheme(command)
     case "settings.set":
       let key = command.strings["key"] ?? ""
       try settings.set(
