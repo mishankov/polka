@@ -331,6 +331,22 @@ import SwiftUI
         await application.show("apps")
         model.query = ""
         await screenshot("shelf-theme-dracula")
+        do {
+          let originalLinks = model.quickLinks
+          defer { model.quickLinks = originalLinks }
+          model.quickLinks = try [
+            QuickLink(name: "Documentation", url: "https://example.com/docs"),
+            QuickLink(name: "Release notes", url: "https://example.com/releases"),
+          ]
+          await application.show("quick-links")
+          if model.destination == "quick-links" {
+            await screenshot("shelf-theme-quick-links")
+          } else {
+            failures.append("Quick Links did not open with Dracula active")
+          }
+        } catch {
+          failures.append("could not create the themed Quick Links fixture: \(error)")
+        }
         application.openSettings("themes")
         await settle()
       } else {
