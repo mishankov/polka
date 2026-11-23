@@ -8,8 +8,8 @@ struct NativeFileShelfView: View {
   var body: some View {
     VStack(spacing: 0) {
       NativeBuiltinHeader(model: model, title: localized("Files on the Shelf")) {
-        NativeCommandButton(
-          title: localized("Clear Shelf"), shortcut: "⌘⇧⌫",
+        NativeBuiltinHeaderAction(
+          title: localized("Clear Shelf"), symbol: "trash", shortcut: "⌘⇧⌫",
           disabled: model.busy || model.files.isEmpty
         ) { model.removeSelectedFiles(clear: true) }.accessibilityIdentifier("files-clear")
       }

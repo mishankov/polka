@@ -7,7 +7,6 @@ struct NativeShelfView: View {
   var body: some View {
     let colors = model.settings.themes.active.shelfColors
     VStack(spacing: 0) {
-      if model.topInset > 0 { Color.clear.frame(height: model.topInset) }
       switch model.destination {
       case "clipboard", "snippets": NativeClipboardView(model: model)
       case "quick-links": NativeQuickLinksView(model: model)
@@ -25,12 +24,13 @@ struct NativeShelfView: View {
     .tint(colors?.accentColor)
     .environment(\.colorScheme, colors?.colorScheme ?? .dark)
     .background(NativeKeyboardBridge(model: model).frame(width: 0, height: 0))
-    .background(alignment: .top) {
-      (colors?.backgroundColor ?? .black).overlay(alignment: .top) {
-        if colors != nil, !model.visible || model.topInset > 0 {
-          Color.black.frame(
-            width: NativeShelfPresentationView.collapsedWidth, height: max(3, model.topInset))
-        }
+    .background(colors?.backgroundColor ?? .black)
+    .overlay(alignment: .top) {
+      if !model.visible || model.topInset > 0 {
+        Color.black.frame(
+          width: max(model.notchWidth, NativeShelfPresentationView.collapsedWidth),
+          height: max(3, model.topInset)
+        ).allowsHitTesting(false).accessibilityHidden(true)
       }
     }
     .modifier(NativeFileDropModifier(model: model))
@@ -55,7 +55,7 @@ struct NativeLauncherView: View {
         NativeIconButton(
           label: localized("Settings"), symbol: "gearshape", shortcut: "⌘,", disabled: model.busy
         ) { model.perform(NativeUICommand("shelf.settings")) }
-      }.padding(14).background(colors?.searchHeaderColor ?? .clear)
+      }.padding(14).padding(.top, model.topInset).background(colors?.searchHeaderColor ?? .clear)
       Divider()
       NativeFileDownloadProgress(model: model)
       ScrollViewReader { reader in
@@ -290,17 +290,11 @@ struct NativeClipboardView: View {
   var body: some View {
     VStack(spacing: 0) {
       NativeBuiltinHeader(
-        model: model,
-        title: model.draft.map {
-          $0.id.isEmpty ? localized("Create Snippet") : localized("Edit Snippet")
-        }
-          ?? (isSnippets ? localized("Snippets") : localized("Clipboard"))
+        model: model, title: isSnippets ? localized("Snippets") : localized("Clipboard"),
+        status: !isSnippets && model.settings.paused ? localized("Recording Paused") : nil
       ) {
-        if model.settings.paused, !isSnippets {
-          Text(localized("Recording Paused")).font(.system(size: 11)).nativeShelfSecondary()
-        }
         if isSnippets, model.draft == nil, model.previewID == nil {
-          NativeCommandButton(
+          NativeBuiltinHeaderAction(
             title: localized("Create"), symbol: "plus", shortcut: "⌘N",
             disabled: !model.writable || model.busy, prominent: true
           ) { model.createSnippet() }.accessibilityIdentifier("snippet-create")
@@ -424,6 +418,8 @@ struct NativeClipboardView: View {
   }
   private var editor: some View {
     VStack(alignment: .leading, spacing: 10) {
+      Text(localized(model.draft?.id.isEmpty == true ? "Create Snippet" : "Edit Snippet"))
+        .font(.system(size: 17, weight: .semibold)).accessibilityAddTraits(.isHeader)
       Text(localized("Name (optional)")).font(.system(size: 12))
       TextField(
         "",

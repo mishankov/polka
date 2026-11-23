@@ -464,6 +464,30 @@ import SwiftUI
     }
     model.themeFilter = .all
     await screenshot("settings-themes", window: settings, includeTitlebar: true)
+    let themesFrame = settings.frame
+    settings.setContentSize(NSSize(width: 1120, height: themesFrame.height))
+    if let row = await nativeSmokeWaitForView(
+      in: settings, ofType: NSScrollView.self,
+      ready: {
+        $0.contentView.bounds.width > 800
+          && ($0.documentView?.frame.width ?? 0) > $0.contentView.bounds.width
+      }
+    ), let content = settings.contentView,
+      let card = accessible("theme-card-tokyo-night", in: content)
+    {
+      let viewport = row.contentView
+      let visible = settings.convertToScreen(viewport.convert(viewport.bounds, to: nil))
+      let cardFrame = card.accessibilityFrame()
+      if cardFrame.width < 140 || cardFrame.minX < visible.minX - 1
+        || cardFrame.maxX > visible.maxX + 1
+      {
+        failures.append("the fifth Popular theme card is clipped in wide Settings")
+      }
+    } else {
+      failures.append("the Themes overview did not expand to use wide Settings")
+    }
+    await screenshot("settings-themes-wide", window: settings, includeTitlebar: true)
+    settings.setFrame(themesFrame, display: true)
     if let row = await nativeSmokeWaitForView(
       in: settings, ofType: NSScrollView.self,
       ready: { ($0.documentView?.frame.width ?? 0) > $0.contentView.bounds.width }
@@ -481,7 +505,6 @@ import SwiftUI
     } else {
       failures.append("the Themes overview is missing its horizontal rows")
     }
-    let themesFrame = settings.frame
     settings.setContentSize(NSSize(width: 660, height: 480))
     await screenshot("settings-themes-compact", window: settings, includeTitlebar: true)
     if let content = settings.contentView {
@@ -585,6 +608,9 @@ import SwiftUI
           }
           model.query = ""
           await screenshot("shelf-theme-pastel")
+          failures += await nativeSmokeNotchedShelf(
+            application: application, shelf: shelf, model: model,
+            accessible: { accessible($0) }, screenshot: { await screenshot($0) })
           if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1" {
             await application.show("clipboard")
             await screenshot("shelf-theme-clipboard-lilac")
@@ -2187,6 +2213,67 @@ final class NativeSmokeBlockedEncryption: EncryptionCodec {
   if FileManager.default.fileExists(atPath: platform.history.storage.state().path) {
     failures.append("startup preflight wrote an encrypted history file")
   }
+  return failures
+}
+
+@MainActor private func nativeSmokeNotchedShelf(
+  application: NativeApplication, shelf: NSWindow, model: NativeUIModel,
+  accessible: (String) -> NativeSmokeAccessibility?, screenshot: (String) async -> Void
+) async -> [String] {
+  var failures: [String] = []
+  let notch = CGSize(width: 185, height: 34)
+  let mediaBadgesVisible = model.mediaBadgesVisible
+  model.mediaBadgesVisible = false
+  application.setSmokeNotch(notch)
+  defer {
+    application.setSmokeNotch(nil)
+    model.mediaBadgesVisible = mediaBadgesVisible
+  }
+  await screenshot("shelf-theme-notched-launcher")
+  if let view = shelf.contentView,
+    let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+  {
+    view.cacheDisplay(in: view.bounds, to: image)
+    let scale = CGFloat(image.pixelsHigh) / view.bounds.height
+    let band = image.colorAt(x: 12, y: Int(8 * scale))
+    let search = image.colorAt(x: 12, y: Int((notch.height + 8) * scale))
+    let results = image.colorAt(x: 12, y: Int((notch.height + 84) * scale))
+    if band == nil || band != search || band == results {
+      failures.append("themed launcher notch band and search header do not share a fill")
+    }
+  } else {
+    failures.append("cannot inspect the themed launcher notch band")
+  }
+
+  func checkControls(actionID: String, shortcut: String, clearance: CGFloat) {
+    let top = shelf.frame.maxY
+    let center = shelf.frame.midX
+    for (id, key) in [("builtin-back", "⌫"), (actionID, shortcut), ("builtin-close", "⌘W")] {
+      guard let button = accessible(id) else {
+        failures.append("notched \(model.destination) is missing \(id)")
+        continue
+      }
+      let frame = button.accessibilityFrame()
+      let clearsNotch =
+        id == "builtin-back" ? frame.maxX <= center - clearance : frame.minX >= center + clearance
+      if frame.maxY > top + 1 || frame.minY < top - notch.height - 1 || !clearsNotch {
+        failures.append("\(id) is outside the usable part of the notch band")
+      }
+      if button.accessibilityHelp()?.contains(key) != true {
+        failures.append("\(id) has no discoverable keyboard shortcut in the notch band")
+      }
+    }
+  }
+  await application.show("quick-links")
+  await screenshot("shelf-theme-notched-quick-links")
+  checkControls(actionID: "quick-link-add", shortcut: "⌘N", clearance: notch.width / 2)
+
+  model.mediaBadgesVisible = true
+  await application.show("files")
+  await screenshot("shelf-theme-notched-files")
+  checkControls(
+    actionID: "files-clear", shortcut: "⌘⇧⌫",
+    clearance: notch.width / 2 + NativeMediaIndicatorGeometry.notchedSideWidth)
   return failures
 }
 

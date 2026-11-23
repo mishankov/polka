@@ -206,8 +206,8 @@ struct NativeThemeSettingsView: View {
   @ObservedObject var model: NativeUIModel
   @FocusState private var focusedCard: String?
 
-  private let columns = Array(
-    repeating: GridItem(.flexible(minimum: 100), spacing: 8, alignment: .top), count: 3)
+  private let cardSpacing: CGFloat = 8
+  private let minimumCardWidth: CGFloat = 140
 
   var body: some View {
     if let draft = model.themeDraft {
@@ -268,7 +268,11 @@ struct NativeThemeSettingsView: View {
       } else if themes.isEmpty {
         Text(localized("Customize a theme to add it here.")).foregroundStyle(.secondary)
       } else {
-        LazyVGrid(columns: columns, spacing: 8) {
+        LazyVGrid(
+          columns: [
+            GridItem(.adaptive(minimum: minimumCardWidth), spacing: cardSpacing, alignment: .top)
+          ], spacing: cardSpacing
+        ) {
           ForEach(themes) { theme in card(theme) }
         }
       }
@@ -278,10 +282,13 @@ struct NativeThemeSettingsView: View {
   private func themeRow(_ themes: [NativeShelfTheme], label: String) -> some View {
     ScrollViewReader { proxy in
       ScrollView(.horizontal) {
-        HStack(spacing: 8) {
+        HStack(spacing: cardSpacing) {
           ForEach(Array(themes.enumerated()), id: \.element.id) { index, theme in
             card(theme)
-              .containerRelativeFrame(.horizontal) { width, _ in max(108, (width - 48) / 3) }
+              .containerRelativeFrame(.horizontal) { width, _ in
+                let count = max(1, Int((width + cardSpacing) / (minimumCardWidth + cardSpacing)))
+                return (width - CGFloat(count - 1) * cardSpacing) / CGFloat(count)
+              }
               .id(theme.id)
               .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { press in
                 guard press.modifiers.isEmpty else { return .ignored }

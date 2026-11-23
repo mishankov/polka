@@ -75,16 +75,16 @@ final class LocalizationTests: XCTestCase {
       (AppLanguagePreference.english, "Clipboard History"), (.russian, "История буфера обмена"),
     ] {
       AppLocalization.configure(preference)
-      XCTAssertEqual(LauncherSearch.builtinApps.first { $0.id == "builtin:clipboard" }?.name, name)
+      let catalog = LauncherSearch.builtinApps
+      XCTAssertEqual(catalog.first { $0.id == "builtin:clipboard" }?.name, name)
+      XCTAssertEqual(LauncherSearch.apps(catalog, query: ""), catalog)
       for query in ["Clipboard History", "История буфера обмена"] {
         XCTAssertEqual(
-          LauncherSearch.apps(LauncherSearch.builtinApps, query: query).first?.id,
-          "builtin:clipboard")
+          LauncherSearch.apps(catalog, query: query).first?.id, "builtin:clipboard")
       }
       for query in ["Quick Links", "Быстрые ссылки"] {
         XCTAssertEqual(
-          LauncherSearch.apps(LauncherSearch.builtinApps, query: query).first?.id,
-          "builtin:quick-links")
+          LauncherSearch.apps(catalog, query: query).first?.id, "builtin:quick-links")
       }
       XCTAssertEqual(EmojiCatalog.categories.first?.label, localized("All emoji"))
     }

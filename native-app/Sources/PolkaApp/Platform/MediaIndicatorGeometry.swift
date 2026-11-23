@@ -4,6 +4,10 @@ import SwiftUI
 /// AppKit exposes the cutout's safe bounds, not its corner curves. Keep the
 /// approximation and all screen-to-overlay coordinates in one place.
 struct NativeMediaIndicatorGeometry {
+  static let badgeSize: CGFloat = 40
+  static let badgeCenterOffset: CGFloat = 38
+  static let notchedSideWidth = badgeCenterOffset + badgeSize / 2 + 4
+
   let panelFrame: CGRect
   /// Top-down coordinates in the overlay's content view.
   let notch: CGRect
@@ -46,7 +50,7 @@ struct NativeMediaIndicatorGeometry {
       height = 0
       center = screenFrame.midX
     }
-    let panelWidth = min(screenFrame.width, width > 0 ? width + 124 : 116)
+    let panelWidth = min(screenFrame.width, width > 0 ? width + 2 * Self.notchedSideWidth : 116)
     let panelHeight = min(screenFrame.height, max(46, height + gap + strokeWidth + 2))
     // NSWindow rounds frames to whole points, even on Retina. Integralize
     // first, then preserve the fractional hardware position inside the panel.

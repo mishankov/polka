@@ -169,6 +169,8 @@ struct NativeBrowseContext {
   @Published var systemStatus = SystemStatusSnapshot()
   @Published var visible = false
   @Published var topInset: CGFloat = 0
+  @Published var notchWidth: CGFloat = 0
+  @Published var mediaBadgesVisible = false
   @Published var query = "" {
     didSet {
       guard query != oldValue else { return }

@@ -53,6 +53,7 @@ import SwiftUI
     timer = nil
     lastState = nil
     for overlay in overlays.values { overlay.orderOut(nil) }
+    model.mediaBadgesVisible = false
     guard !fixture, suspended.isEmpty, preferences.values.contains(true) else { return }
     timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.poll() }
@@ -84,6 +85,7 @@ import SwiftUI
   }
   private func render(_ state: NativeMediaPresentation) {
     lastState = state
+    if model.mediaBadgesVisible != state.visible { model.mediaBadgesVisible = state.visible }
     for screen in NSScreen.screens {
       let id = String(
         describing: screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
@@ -190,7 +192,7 @@ struct NativeMediaIndicatorView: View {
             .position(
               x: center
                 - (notched
-                  ? geometry.notch.width / 2 + 38
+                  ? geometry.notch.width / 2 + NativeMediaIndicatorGeometry.badgeCenterOffset
                   : state.microphone == "inactive" || state.microphone == "disabled"
                     ? 0 : 24),
               y: 23)
@@ -200,7 +202,7 @@ struct NativeMediaIndicatorView: View {
             .position(
               x: center
                 + (notched
-                  ? geometry.notch.width / 2 + 38
+                  ? geometry.notch.width / 2 + NativeMediaIndicatorGeometry.badgeCenterOffset
                   : state.camera == "inactive" || state.camera == "disabled"
                     ? 0 : 24),
               y: 23)
@@ -234,7 +236,10 @@ struct NativeMediaIndicatorView: View {
       .font(.system(size: 25, weight: .semibold))
       .foregroundStyle(.black)
       .frame(height: iconHeight)
-      .frame(width: 40, height: 40)
+      .frame(
+        width: NativeMediaIndicatorGeometry.badgeSize,
+        height: NativeMediaIndicatorGeometry.badgeSize
+      )
       .background(
         value == "unknown" ? Color(red: 169 / 255, green: 175 / 255, blue: 166 / 255) : color,
         in: RoundedRectangle(cornerRadius: 10)
