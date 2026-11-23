@@ -1,9 +1,9 @@
 ---
-name: leaving-pr-comments
+name: github-comments
 description: Use whenever leaving comments on GitHub.
 ---
 
-# Leaving PR Comments
+# GitHub Comments
 
 Prefix every agent-authored comment left on the user's behalf with this GitHub
 note callout:
