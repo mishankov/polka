@@ -306,15 +306,7 @@ struct NativeClipboardView: View {
           ) { model.createSnippet() }.accessibilityIdentifier("snippet-create")
         }
         if !isSnippets, model.draft == nil, !model.confirmClear {
-          Menu {
-            Button(localized("Clear History on All Linked Macs… · ⌘⇧⌫")) {
-              model.showClearConfirmation()
-            }.disabled(!model.writable || model.clips.isEmpty || model.busy)
-          } label: {
-            Image(systemName: "ellipsis").frame(width: 20, height: 20)
-          }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(.glass).buttonBorderShape(.circle)
-            .controlSize(.regular).disabled(model.busy)
-            .help(localized("History actions")).accessibilityLabel(localized("History actions"))
+          historyActions
         }
       }
       if model.draft == nil, model.previewID == nil, !model.confirmClear {
@@ -389,6 +381,30 @@ struct NativeClipboardView: View {
     }.accessibilityElement(children: .contain).accessibilityIdentifier(
       isSnippets ? "native-snippets" : "native-clipboard")
   }
+
+  @ViewBuilder private var historyActions: some View {
+    let menu = Menu {
+      Button(localized("Clear History on All Linked Macs… · ⌘⇧⌫")) {
+        model.showClearConfirmation()
+      }.disabled(!model.writable || model.clips.isEmpty || model.busy)
+    } label: {
+      Image(systemName: "ellipsis").frame(width: 20, height: 20)
+    }
+    .menuIndicator(.hidden).controlSize(.regular).disabled(model.busy)
+    .help(localized("History actions")).accessibilityLabel(localized("History actions"))
+
+    if let colors {
+      // The standard glass Menu dilutes its tint. Pair the themed glyph with
+      // the actual accent fill while keeping AppKit's native menu behavior.
+      menu.menuStyle(.borderlessButton).buttonStyle(.plain)
+        .tint(colors.accentTextColor)
+        .frame(width: 28, height: 28)
+        .background(colors.accentColor, in: Circle())
+    } else {
+      menu.menuStyle(.button).buttonStyle(.glass).buttonBorderShape(.circle)
+    }
+  }
+
   private var filterBar: some View {
     HStack(spacing: 8) {
       ForEach(Array(ClipboardFilter.allCases.enumerated()), id: \.element) { index, filter in

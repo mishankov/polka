@@ -177,18 +177,21 @@ struct NativeThemeSettings: Codable, Equatable, Sendable {
   }
 
   static func load(_ value: Any?) -> Self {
-    guard let object = value as? [String: Any],
-      let data = try? JSONSerialization.data(withJSONObject: object),
-      var settings = try? JSONDecoder().decode(Self.self, from: data)
-    else { return Self() }
+    guard let object = value as? [String: Any] else { return Self() }
+    let entries = object["custom"] as? [Any] ?? []
+    let decoder = JSONDecoder()
     var ids = Set(builtIns.map(\.id))
-    settings.custom = settings.custom.compactMap { theme in
-      guard !theme.id.isEmpty, let colors = theme.colors.normalized,
+    let custom = entries.compactMap { entry -> NativeShelfTheme? in
+      guard let record = entry as? [String: Any],
+        let data = try? JSONSerialization.data(withJSONObject: record),
+        let theme = try? decoder.decode(NativeShelfTheme.self, from: data),
+        !theme.id.isEmpty, let colors = theme.colors.normalized,
         !theme.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
         theme.name.count <= maxNameLength, ids.insert(theme.id).inserted
       else { return nil }
       return NativeShelfTheme(id: theme.id, name: theme.name, colors: colors)
     }
+    var settings = Self(activeID: object["activeID"] as? String ?? standard.id, custom: custom)
     settings.activeID = settings.active.id
     return settings
   }

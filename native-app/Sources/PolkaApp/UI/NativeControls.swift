@@ -32,9 +32,12 @@ struct NativeCommandButton: View {
   var destructive = false
   var action: () -> Void
   var body: some View {
-    let ink =
-      prominent && !destructive
-      ? (colors?.accentTextColor).map { AnyShapeStyle($0) } : nil
+    let ink: Color =
+      destructive
+      ? .black
+      : prominent
+        ? colors?.accentTextColor ?? NativeThemeColors.contrastingText(on: .controlAccentColor)
+        : .primary
     Button {
       if !disabled, nativeCommandInteractionAllowed, !NSMenuTrackingState.shared.active { action() }
     } label: {
@@ -42,9 +45,9 @@ struct NativeCommandButton: View {
         if !symbol.isEmpty { Image(systemName: symbol) }
         Text(title)
         if !shortcut.isEmpty {
-          Text(shortcut).font(.system(size: 11)).foregroundStyle(ink ?? AnyShapeStyle(.secondary))
+          Text(shortcut).font(.system(size: 11))
         }
-      }.foregroundStyle(ink ?? AnyShapeStyle(.primary)).frame(minHeight: 20)
+      }.foregroundStyle(ink).frame(minHeight: 20)
     }
     .modifier(NativeCommandStyle(prominent: prominent))
     .buttonBorderShape(.capsule)

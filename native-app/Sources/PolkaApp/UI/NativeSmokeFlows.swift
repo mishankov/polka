@@ -412,6 +412,10 @@ import SwiftUI
         await application.show("apps")
         model.query = ""
         await screenshot("shelf-theme-dracula")
+        if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1" {
+          await application.show("clipboard")
+          await screenshot("shelf-theme-clipboard-dracula")
+        }
         do {
           let originalLinks = model.quickLinks
           defer { model.quickLinks = originalLinks }
@@ -581,6 +585,21 @@ import SwiftUI
           }
           model.query = ""
           await screenshot("shelf-theme-pastel")
+          if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1" {
+            await application.show("clipboard")
+            await screenshot("shelf-theme-clipboard-lilac")
+            do {
+              let originalLinks = model.quickLinks
+              defer { model.quickLinks = originalLinks }
+              model.quickLinks = [
+                try QuickLink(name: "Documentation", url: "https://example.com/docs")
+              ]
+              await application.show("quick-links")
+              await screenshot("shelf-theme-quick-links-lilac")
+            } catch {
+              failures.append("could not prepare the light-themed Quick Links capture: \(error)")
+            }
+          }
           application.openSettings("themes")
           await settle()
           model.selectTheme("polka")

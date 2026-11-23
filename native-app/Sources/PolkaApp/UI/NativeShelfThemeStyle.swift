@@ -40,7 +40,7 @@ private struct ThemeRGB {
     blue = Double(value & 0xff) / 255
   }
 
-  private init(red: Double, green: Double, blue: Double) {
+  init(red: Double, green: Double, blue: Double) {
     self.red = red
     self.green = green
     self.blue = blue
@@ -100,6 +100,11 @@ extension NativeThemeColors {
   var secondaryTextColor: Color { mutedInk(selected: false).swiftUI }
   var accentColor: Color { ThemeRGB(accent).swiftUI }
   var accentTextColor: Color { ThemeRGB(accent).legibleText.swiftUI }
+  static func contrastingText(on color: NSColor) -> Color {
+    guard let rgb = color.usingColorSpace(.sRGB) else { return .primary }
+    return ThemeRGB(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent)
+      .legibleText.swiftUI
+  }
   var selectionColor: Color { ThemeRGB(selection).swiftUI }
   var selectionTextColor: Color { selectionInk.swiftUI }
 

@@ -21,6 +21,10 @@ enum NativeThemeFilter: String, CaseIterable, Identifiable {
   func themes(in settings: NativeThemeSettings) -> [NativeShelfTheme] {
     category?.themes ?? settings.custom
   }
+
+  static func overviewSections(in settings: NativeThemeSettings) -> [Self] {
+    allCases.filter { $0.category != nil || ($0 == .custom && !settings.custom.isEmpty) }
+  }
 }
 
 struct NativeThemeDraft {
@@ -202,7 +206,6 @@ struct NativeThemeSettingsView: View {
   @ObservedObject var model: NativeUIModel
   @FocusState private var focusedCard: String?
 
-  private let overview = NativeThemeFilter.allCases.filter { $0.category != nil }
   private let columns = Array(
     repeating: GridItem(.flexible(minimum: 100), spacing: 8, alignment: .top), count: 3)
 
@@ -240,7 +243,9 @@ struct NativeThemeSettingsView: View {
           .accessibilityIdentifier("theme-category-menu")
       }
       if model.themeFilter == .all {
-        ForEach(overview) { section($0, overview: true) }
+        ForEach(NativeThemeFilter.overviewSections(in: model.settings.themes)) {
+          section($0, overview: true)
+        }
       } else {
         section(model.themeFilter, overview: false)
       }

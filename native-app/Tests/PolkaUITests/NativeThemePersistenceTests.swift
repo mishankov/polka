@@ -19,6 +19,17 @@ final class NativeThemePersistenceTests: XCTestCase {
     XCTAssertEqual(NativeThemeSettings().active, NativeThemeSettings.standard)
   }
 
+  func testAllGalleryIncludesMyThemesOnlyWhenPopulated() {
+    var settings = NativeThemeSettings()
+    let builtInSections: [NativeThemeFilter] = [.popular, .neutral, .vibrant, .pastel]
+    XCTAssertEqual(NativeThemeFilter.overviewSections(in: settings), builtInSections)
+
+    settings.custom = [
+      NativeShelfTheme(id: "custom-test", name: "Saved theme", colors: settings.active.colors)
+    ]
+    XCTAssertEqual(NativeThemeFilter.overviewSections(in: settings), builtInSections + [.custom])
+  }
+
   @MainActor func testThemeShortcutsRespectScopeAndFinishAcrossShelfNavigation() async {
     let model = NativeUIModel()
     var commands: [NativeUICommand] = []
@@ -215,6 +226,42 @@ final class NativeThemePersistenceTests: XCTestCase {
     let reopened = try NativePlatform(model: NativeUIModel(), root: root, fixture: true)
     addTeardownBlock { await reopened.shutdown() }
     XCTAssertEqual(reopened.model.settings.themes, beforeFailure)
+  }
+
+  @MainActor func testMalformedThemeEntriesDoNotDiscardOtherThemesOnSave() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "polka-theme-recovery-\(UUID())")
+    defer {
+      AppLocalization.configure(.system)
+      try? FileManager.default.removeItem(at: root)
+    }
+    let legacy = NativeShelfTheme(
+      id: "legacy-theme", name: "Legacy Theme", colors: NativeThemeSettings.standard.colors)
+    var modern = NativeShelfTheme(id: "modern-theme", name: "Modern Theme", colors: legacy.colors)
+    modern.colors.detailAccent = " 8be9fd "
+    let encoder = JSONEncoder()
+    let legacyRecord = try JSONSerialization.jsonObject(with: encoder.encode(legacy))
+    let modernRecord = try JSONSerialization.jsonObject(with: encoder.encode(modern))
+    let malformed: [String: Any] = [
+      "id": "broken-theme", "name": "Broken Theme", "colors": ["background": "#080808"],
+    ]
+    let entries: [Any] = [legacyRecord, 17, malformed, NSNull(), modernRecord, legacyRecord]
+    let store = try SettingsStore(root: root)
+    try store.set(
+      key: NativeThemeSettings.settingsKey, value: ["activeID": "broken-theme", "custom": entries])
+    store.close()
+
+    modern.colors.detailAccent = "#8BE9FD"
+    let platform = try NativePlatform(model: NativeUIModel(), root: root, fixture: true)
+    addTeardownBlock { await platform.shutdown() }
+    XCTAssertEqual(platform.model.settings.themes.active, NativeThemeSettings.standard)
+    XCTAssertEqual(platform.model.settings.themes.custom, [legacy, modern])
+    try await platform.handle(NativeUICommand("theme.select", strings: ["id": "midnight"]))
+
+    let reopened = try NativePlatform(model: NativeUIModel(), root: root, fixture: true)
+    addTeardownBlock { await reopened.shutdown() }
+    XCTAssertEqual(reopened.model.settings.themes.activeID, "midnight")
+    XCTAssertEqual(reopened.model.settings.themes.custom, [legacy, modern])
   }
 
   @MainActor func testExistingCustomThemeCanKeepANameAddedToTheCatalog() async throws {
