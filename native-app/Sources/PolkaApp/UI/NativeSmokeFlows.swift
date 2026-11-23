@@ -575,6 +575,19 @@ import SwiftUI
       }
     }
     await application.show("apps")
+    trace("scattered launcher search and keyboard activation")
+    model.query = model.settings.language == .russian ? "флп" : "flsh"
+    await settle()
+    if model.searchResults.first?.id != "builtin:files" {
+      failures.append("scattered launcher query did not find Files on the Shelf")
+    } else {
+      await screenshot("launcher-scattered-search")
+      post(36, [], "\r")
+      if !(await wait({ model.visible && model.destination == "files" })) {
+        failures.append("Return did not open the scattered launcher result: \(keyboardState())")
+      }
+    }
+    await application.show("apps")
     trace("calculator inline results and keyboard copy")
     let minimumBinary = "-0b1" + String(repeating: "0", count: 63)
     for (query, title, copied, name) in [

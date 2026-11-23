@@ -1018,9 +1018,7 @@ import UserNotifications
         }
         throw error
       }
-      let old = usage[id] ?? LauncherUsage()
-      usage[id] = LauncherUsage(
-        count: old.count + 1, lastLaunchedAt: Date().timeIntervalSince1970 * 1000)
+      usage[id, default: LauncherUsage()].recordLaunch(at: Date())
       model.searchRevision += 1
       do {
         try settings.set(

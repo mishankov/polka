@@ -92,4 +92,113 @@ final class SearchTests: XCTestCase {
     }
     XCTAssertLessThan(Date().timeIntervalSince(start), 10)
   }
+
+  func testRecentLaunchesRankDirectMatchesAndExpire() throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let safari = app("Safari")
+    let preview = app("Safari Technology Preview")
+    let typo = app("Safira")
+    let apps = [typo, preview, safari]
+    let day: TimeInterval = 24 * 60 * 60
+    var previewUsage = LauncherUsage()
+    previewUsage.recordLaunch(at: now.addingTimeInterval(-2 * day))
+    previewUsage.recordLaunch(at: now.addingTimeInterval(-day))
+    var safariUsage = LauncherUsage()
+    safariUsage.recordLaunch(at: now)
+    let usage = [
+      preview.id: previewUsage, safari.id: safariUsage,
+      typo.id: LauncherUsage(count: 100, lastLaunchedAt: now.timeIntervalSince1970 * 1000),
+    ]
+    let persisted = try JSONEncoder().encode(usage)
+    let restored = try JSONDecoder().decode([String: LauncherUsage].self, from: persisted)
+    XCTAssertEqual(restored, usage)
+    XCTAssertEqual(LauncherSearch.apps(apps, query: "safari", now: now), [safari, preview, typo])
+    XCTAssertEqual(
+      LauncherSearch.apps(apps, query: "safari", usage: restored, now: now),
+      [preview, safari, typo])
+    XCTAssertEqual(
+      LauncherSearch.apps(
+        apps, query: "safari", usage: restored, now: now.addingTimeInterval(7 * day + 1)),
+      [safari, preview, typo])
+  }
+
+  func testLaunchFrequencySurvivesClockRollbackAndCountsEveryInWindowLaunch() {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let keynote = app("Keynote")
+    let beta = app("Keynote Beta")
+    var keynoteUsage = LauncherUsage()
+    var betaUsage = LauncherUsage()
+    keynoteUsage.recordLaunch(at: now.addingTimeInterval(-1))
+    for _ in 0..<500 {
+      keynoteUsage.recordLaunch(at: now.addingTimeInterval(-2))
+      betaUsage.recordLaunch(at: now)
+    }
+    XCTAssertEqual(keynoteUsage.lastLaunchedAt, 1_799_999_999_000)
+    XCTAssertEqual(
+      LauncherSearch.apps(
+        [beta, keynote], query: "keynote", usage: [keynote.id: keynoteUsage, beta.id: betaUsage],
+        now: now), [keynote, beta])
+  }
+
+  func testTypedNameMatchesRankAboveBundleIdentifiersAndLayoutCorrection() {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let appleTV = app("Apple TV")
+    let mail = NativeLauncherApp(id: "mac:Mail", name: "Mail", bundleIdentifier: "com.apple.mail")
+    let terminal = app("Terminal")
+    let notes = app("Заметки")
+    let safari = app("Safari")
+    let preview = app("Safari Technology Preview")
+    let literalCyrillic = app("Ыфафкш Tools")
+    var recent = LauncherUsage()
+    recent.recordLaunch(at: now)
+    let usage = [mail.id: recent, notes.id: recent, preview.id: recent]
+    XCTAssertEqual(
+      LauncherSearch.apps([mail, appleTV], query: "apple", usage: usage, now: now), [appleTV, mail])
+    XCTAssertEqual(LauncherSearch.apps([appleTV, mail], query: "com.apple.mail"), [mail])
+    XCTAssertEqual(
+      LauncherSearch.apps([notes, terminal], query: "t", usage: usage, now: now), [terminal, notes])
+    XCTAssertEqual(
+      LauncherSearch.apps([safari, literalCyrillic], query: "ЫФАФКШ", now: now),
+      [literalCyrillic, safari])
+    XCTAssertEqual(
+      LauncherSearch.apps([safari, preview], query: "ыфафкш", usage: usage, now: now),
+      [preview, safari])
+  }
+
+  func testLegacyUsageRetainsItsLastKnownLaunch() throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let preview = app("Safari Technology Preview")
+    let safari = app("Safari")
+    let legacy = try JSONDecoder().decode(
+      LauncherUsage.self, from: Data(#"{"count":100,"lastLaunchedAt":1799999999000}"#.utf8))
+    var updated = legacy
+    updated.recordLaunch(at: now.addingTimeInterval(-0.5))
+    var safariUsage = LauncherUsage()
+    safariUsage.recordLaunch(at: now)
+    let apps = [safari, preview]
+    XCTAssertEqual(
+      LauncherSearch.apps(apps, query: "safari", usage: [preview.id: legacy], now: now).first,
+      preview)
+    XCTAssertEqual(
+      LauncherSearch.apps(
+        apps, query: "safari", usage: [preview.id: updated, safari.id: safariUsage], now: now
+      ).first, preview, "A known legacy launch still counts after the first new launch")
+  }
+
+  func testScatteredNameMatchesStayBelowDirectMatches() {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let safari = app("Safari")
+    let direct = app("SFR Viewer")
+    let password = app("1Password")
+    let metadataOnly = app("Notes", aliases: ["org.safari"])
+    let apps = [safari, direct, password, metadataOnly]
+    let usage = [
+      safari.id: LauncherUsage(count: 100, lastLaunchedAt: now.timeIntervalSince1970 * 1000)
+    ]
+    XCTAssertEqual(
+      LauncherSearch.apps(apps, query: "sfr", usage: usage, now: now), [direct, safari])
+    XCTAssertEqual(LauncherSearch.apps(apps, query: "1pwd"), [password])
+    XCTAssertEqual(LauncherSearch.apps([safari], query: "sfi"), [safari])
+    XCTAssertTrue(LauncherSearch.apps([safari], query: "sf").isEmpty)
+  }
 }

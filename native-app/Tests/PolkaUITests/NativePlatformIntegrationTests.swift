@@ -104,6 +104,19 @@ final class NativePlatformIntegrationTests: XCTestCase {
         XCTAssertTrue(model.visible, "Late launch completion must not close a reopened shelf")
         XCTAssertEqual(model.query, scenario == "failure" ? "Slow" : "Another search")
         XCTAssertEqual(model.error, scenario == "failure" ? launchError.localizedDescription : "")
+        let savedUsage = try platform.settings.get(key: "launcherUsage")
+        if scenario.hasPrefix("failure") {
+          XCTAssertNil(savedUsage, "A failed launch must not affect ranking")
+        } else {
+          let data = try JSONSerialization.data(withJSONObject: XCTUnwrap(savedUsage))
+          let usage = try JSONDecoder().decode([String: LauncherUsage].self, from: data)
+          let opened = try XCTUnwrap(usage[row.id])
+          XCTAssertEqual(opened.count, 1)
+          let exact = NativeLauncherApp(id: "synthetic-exact", name: "Slo")
+          XCTAssertEqual(
+            LauncherSearch.apps([exact] + applications.apps, query: "slo", usage: usage).first?.id,
+            row.id, "A successfully launched prefix match should outrank an unused exact match")
+        }
       }
     }
   }

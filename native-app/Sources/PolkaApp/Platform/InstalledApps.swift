@@ -154,13 +154,14 @@ import PolkaCore
         entries[id]?.signature == signature ? entries[id]!.app.icon : Self.iconDataURL(path)
       let terms = [
         url.deletingPathExtension().lastPathComponent, info["CFBundleDisplayName"] as? String,
-        info["CFBundleName"] as? String, info["CFBundleIdentifier"] as? String,
+        info["CFBundleName"] as? String,
       ].compactMap { $0 }
       next[id] = Entry(
         path: path, bundleID: info["CFBundleIdentifier"] as? String,
         app: NativeLauncherApp(
           id: id, name: name, icon: icon,
-          description: "macOS · \(url.deletingLastPathComponent().path)", searchTerms: terms),
+          description: "macOS · \(url.deletingLastPathComponent().path)", searchTerms: terms,
+          bundleIdentifier: info["CFBundleIdentifier"] as? String),
         signature: signature)
     }
     entries = next
