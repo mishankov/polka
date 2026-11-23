@@ -57,6 +57,11 @@ public enum TimeConversions {
     return calendar
   }
   private static let utc = Zone(id: "UTC", label: "UTC", offset: 0)
+  private static let unixSecondsRange: ClosedRange<Int64> = {
+    let first = stamp([1900, 1, 1]).timeIntervalSince1970
+    let last = stamp([9999, 12, 31, 23, 59, 59]).timeIntervalSince1970
+    return Int64(first)...Int64(last)
+  }()
   private static func parts(_ instant: Date, _ zone: Zone) -> [Int] {
     let values = calendar(zone).dateComponents(
       [.year, .month, .day, .hour, .minute, .second], from: instant)
@@ -75,8 +80,9 @@ public enum TimeConversions {
   private static func dateLabel(_ values: [Int]) -> String {
     String(format: "%04d-%02d-%02d", values[0], values[1], values[2])
   }
-  private static func timeLabel(_ values: [Int]) -> String {
-    pad(values[3]) + ":" + pad(values[4]) + (values[5] != 0 ? ":" + pad(values[5]) : "")
+  private static func timeLabel(_ values: [Int], includeSeconds: Bool = false) -> String {
+    pad(values[3]) + ":" + pad(values[4])
+      + (includeSeconds || values[5] != 0 ? ":" + pad(values[5]) : "")
   }
   private static func parseDate(_ input: String) -> [Int]? {
     let values: [Int]
@@ -141,9 +147,45 @@ public enum TimeConversions {
     return offsets.map { wanted.addingTimeInterval(Double(-$0)) }.filter { parts($0, zone) == wall }
       .sorted()
   }
+  private static func convertUnix(_ expression: String) -> Calculation? {
+    let separator = "\\s+(?:in|to|в)\\s+"
+    let secondsPattern = "([+−-]?[0-9]+)" + separator + "UTC"
+    let datePattern = "([0-9]{4}-[0-9]{2}-[0-9]{2})\\s+([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?"
+    guard
+      let match = regexGroups(
+        "^(?:" + secondsPattern + "|" + datePattern + "\\s+UTC" + separator + "unix)$",
+        expression, insensitive: true)
+    else { return nil }
+    func error(_ message: String) -> Calculation {
+      Calculation(status: .error, expression: expression, message: message)
+    }
+    guard expression.count <= 512 else { return error(localized("Expression is too long")) }
+    let value: String
+    if !match[1].isEmpty {
+      guard
+        let seconds = Int64(match[1].replacingOccurrences(of: "−", with: "-")),
+        unixSecondsRange.contains(seconds)
+      else {
+        return error(localized("Result date is outside the supported range: 1900–9999"))
+      }
+      let wall = parts(Date(timeIntervalSince1970: Double(seconds)), utc)
+      value = dateLabel(wall) + " " + timeLabel(wall, includeSeconds: true) + " UTC"
+    } else {
+      let hour = Int(match[3])!
+      let minute = Int(match[4])!
+      let second = Int(match[5]) ?? 0
+      guard let date = parseDate(match[2]), hour < 24, minute < 60, second < 60 else {
+        return error(
+          localized("Enter a valid UTC date and time from 1900 to 9999: YYYY-MM-DD HH:MM[:SS] UTC"))
+      }
+      value = String(Int64(stamp(date + [hour, minute, second]).timeIntervalSince1970))
+    }
+    return Calculation(status: .result, expression: expression, value: value, conversion: "unix")
+  }
   public static func convert(
     _ expression: String, context: CalculationContext = CalculationContext()
   ) -> Calculation? {
+    if let unix = convertUnix(expression) { return unix }
     let datePattern = "(?:\\d{4}-\\d{2}-\\d{2}|\\d{2}\\.\\d{2}\\.\\d{4})"
     guard
       let match = regexGroups(
