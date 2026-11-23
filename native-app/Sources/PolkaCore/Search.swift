@@ -55,38 +55,9 @@ public struct LauncherUsage: Equatable, Codable, Sendable {
   }
 }
 public enum LauncherSearch {
+  // Catalog order also determines the built-in apps' launcher shortcuts.
   public static var builtinApps: [NativeLauncherApp] {
     [
-      NativeLauncherApp(
-        id: "builtin:screenshots", name: localized("Screenshots"), kind: .builtin,
-        icon: "screenshots", description: localized("Capture, mark up, and share"),
-        searchTerms: ["screenshot", "capture", "screen", "скриншот", "снимок", "экран"]),
-      NativeLauncherApp(
-        id: "builtin:system-status", name: localized("System Status"), kind: .builtin,
-        icon: "system-status",
-        description: localized("Battery, memory, storage, and network at a glance"),
-        searchTerms: [
-          "System Status", "Состояние системы", "system", "resources", "система", "ресурсы",
-          "battery", "power", "батарея", "аккумулятор", "заряд", "memory", "RAM", "память", "ОЗУ",
-          "storage", "disk", "space", "диск", "место", "хранилище", "network", "Wi-Fi", "Ethernet",
-          "VPN", "сеть", "интернет",
-        ]),
-      NativeLauncherApp(
-        id: "builtin:snippets", name: localized("Snippets"), kind: .builtin, icon: "snippets",
-        description: localized("Addresses, details, and ready-made replies — create and paste"),
-        searchTerms: [
-          "Snippets", "Сниппеты", "snippet", "snippets", "сниппет", "шаблоны", "готовые ответы",
-        ]),
-      NativeLauncherApp(
-        id: "builtin:quick-links", name: localized("Quick Links"), kind: .builtin,
-        icon: "quick-links", description: localized("Save and open web and app links"),
-        searchTerms: ["Quick Links", "Быстрые ссылки"]),
-      NativeLauncherApp(
-        id: "builtin:files", name: localized("Files on the Shelf"), kind: .builtin, icon: "files",
-        description: localized("Temporarily keep files and drag them to another app"),
-        searchTerms: [
-          "Files on the Shelf", "Файлы на полке", "files", "shelf", "файлы", "перетащить",
-        ]),
       NativeLauncherApp(
         id: "builtin:clipboard", name: localized("Clipboard History"), kind: .builtin,
         icon: "clipboard",
@@ -99,8 +70,40 @@ public enum LauncherSearch {
         id: "builtin:emoji", name: localized("Emoji"), kind: .builtin, icon: "emoji",
         description: localized("Smileys, gestures, and symbols — find and paste"),
         searchTerms: ["Emoji", "Эмодзи", "emoji", "emojis", "эмоджи", "смайлик", "смайлики"]),
+      NativeLauncherApp(
+        id: "builtin:files", name: localized("Files on the Shelf"), kind: .builtin, icon: "files",
+        description: localized("Temporarily keep files and drag them to another app"),
+        searchTerms: [
+          "Files on the Shelf", "Файлы на полке", "files", "shelf", "файлы", "перетащить",
+        ]),
+      NativeLauncherApp(
+        id: "builtin:quick-links", name: localized("Quick Links"), kind: .builtin,
+        icon: "quick-links", description: localized("Save and open web and app links"),
+        searchTerms: ["Quick Links", "Быстрые ссылки"]),
+      NativeLauncherApp(
+        id: "builtin:screenshots", name: localized("Screenshots"), kind: .builtin,
+        icon: "screenshots", description: localized("Capture, mark up, and share"),
+        searchTerms: ["screenshot", "capture", "screen", "скриншот", "снимок", "экран"]),
+      NativeLauncherApp(
+        id: "builtin:snippets", name: localized("Snippets"), kind: .builtin, icon: "snippets",
+        description: localized("Addresses, details, and ready-made replies — create and paste"),
+        searchTerms: [
+          "Snippets", "Сниппеты", "snippet", "snippets", "сниппет", "шаблоны", "готовые ответы",
+        ]),
+      NativeLauncherApp(
+        id: "builtin:system-status", name: localized("System Status"), kind: .builtin,
+        icon: "system-status",
+        description: localized("Battery, memory, storage, and network at a glance"),
+        searchTerms: [
+          "System Status", "Состояние системы", "system", "resources", "система", "ресурсы",
+          "battery", "power", "батарея", "аккумулятор", "заряд", "memory", "RAM", "память", "ОЗУ",
+          "storage", "disk", "space", "диск", "место", "хранилище", "network", "Wi-Fi", "Ethernet",
+          "VPN", "сеть", "интернет",
+        ]),
     ]
   }
+  private static let builtinAppOrder = Dictionary(
+    uniqueKeysWithValues: builtinApps.enumerated().map { ($0.element.id, $0.offset) })
   private struct Field {
     let text: String
     let length: Int
@@ -213,7 +216,14 @@ public enum LauncherSearch {
       return (app, best, recent ?? (0, 0))
     }
     return matches.sorted { a, b in
-      if input.isEmpty && a.app.kind != b.app.kind { return a.app.kind == .builtin }
+      if input.isEmpty {
+        if a.app.kind != b.app.kind { return a.app.kind == .builtin }
+        if a.app.kind == .builtin {
+          let aOrder = builtinAppOrder[a.app.id] ?? Int.max
+          let bOrder = builtinAppOrder[b.app.id] ?? Int.max
+          if aOrder != bOrder { return aOrder < bOrder }
+        }
+      }
       if a.match.rankingTier != b.match.rankingTier {
         return a.match.rankingTier < b.match.rankingTier
       }

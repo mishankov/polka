@@ -206,8 +206,8 @@ struct NativeThemeSettingsView: View {
   @ObservedObject var model: NativeUIModel
   @FocusState private var focusedCard: String?
 
-  private let columns = Array(
-    repeating: GridItem(.flexible(minimum: 100), spacing: 8, alignment: .top), count: 3)
+  private let cardSpacing: CGFloat = 8
+  private let minimumCardWidth: CGFloat = 140
 
   var body: some View {
     if let draft = model.themeDraft {
@@ -262,48 +262,34 @@ struct NativeThemeSettingsView: View {
     let themes = filter.themes(in: model.settings.themes)
     return VStack(alignment: .leading, spacing: 7) {
       if overview {
-        Text(filter.label).font(.system(size: 13, weight: .semibold))
-          .accessibilityAddTraits(.isHeader)
-        themeRow(themes, label: filter.label)
+        NativeThemeOverviewRow(
+          model: model, filter: filter, themes: themes, focusedCard: $focusedCard,
+          cardSpacing: cardSpacing)
       } else if themes.isEmpty {
         Text(localized("Customize a theme to add it here.")).foregroundStyle(.secondary)
       } else {
-        LazyVGrid(columns: columns, spacing: 8) {
-          ForEach(themes) { theme in card(theme) }
-        }
-      }
-    }
-  }
-
-  private func themeRow(_ themes: [NativeShelfTheme], label: String) -> some View {
-    ScrollViewReader { proxy in
-      ScrollView(.horizontal) {
-        HStack(spacing: 8) {
-          ForEach(Array(themes.enumerated()), id: \.element.id) { index, theme in
-            card(theme)
-              .containerRelativeFrame(.horizontal) { width, _ in max(108, (width - 48) / 3) }
-              .id(theme.id)
-              .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { press in
-                guard press.modifiers.isEmpty else { return .ignored }
-                let target = index + (press.key == .leftArrow ? -1 : 1)
-                if themes.indices.contains(target) { focusedCard = themes[target].id }
-                return .handled
-              }
+        LazyVGrid(
+          columns: [
+            GridItem(.adaptive(minimum: minimumCardWidth), spacing: cardSpacing, alignment: .top)
+          ], spacing: cardSpacing
+        ) {
+          ForEach(themes) { theme in
+            NativeThemeCard(model: model, theme: theme, focusedCard: $focusedCard)
           }
         }
-        .padding(.top, 2)
-        .padding(.bottom, NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay) + 2)
-      }
-      .accessibilityLabel(label)
-      .onChange(of: focusedCard) { _, id in
-        if let id, themes.contains(where: { $0.id == id }) {
-          proxy.scrollTo(id)
-        }
       }
     }
   }
 
-  private func card(_ theme: NativeShelfTheme) -> some View {
+}
+
+private struct NativeThemeCard: View {
+  @ObservedObject var model: NativeUIModel
+  let theme: NativeShelfTheme
+  @FocusState.Binding var focusedCard: String?
+  var moveFocus: ((Int) -> Void)? = nil
+
+  var body: some View {
     let active = theme.id == model.settings.themes.activeID
     let focused = theme.id == focusedCard
     return Button {
@@ -332,6 +318,11 @@ struct NativeThemeSettingsView: View {
     }.buttonStyle(.plain)
       .focusable()
       .focused($focusedCard, equals: theme.id)
+      .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { press in
+        guard press.modifiers.isEmpty, let moveFocus else { return .ignored }
+        moveFocus(press.key == .leftArrow ? -1 : 1)
+        return .handled
+      }
       .onKeyPress(keys: [.return], phases: .down) { press in
         guard press.modifiers.isEmpty else { return .ignored }
         model.selectTheme(theme.id)
@@ -344,6 +335,93 @@ struct NativeThemeSettingsView: View {
       .accessibilityHint(localized("Apply Theme"))
       .accessibilityCustomContent(Text(localized("Keyboard shortcut")), Text("↵"))
       .accessibilityIdentifier("theme-card-\(theme.id)")
+  }
+}
+
+private struct NativeThemeOverviewRow: View {
+  @ObservedObject var model: NativeUIModel
+  let filter: NativeThemeFilter
+  let themes: [NativeShelfTheme]
+  @FocusState.Binding var focusedCard: String?
+  let cardSpacing: CGFloat
+  @State private var scroll = ScrollState()
+  private let cardWidth: CGFloat = 184
+
+  private struct ScrollState: Equatable {
+    var offset: CGFloat = 0
+    var limit: CGFloat = 0
+    var viewportWidth: CGFloat = 0
+    var canScrollBack: Bool { offset > 1 }
+    var canScrollForward: Bool { offset < limit - 1 }
+  }
+
+  var body: some View {
+    ScrollViewReader { proxy in
+      VStack(alignment: .leading, spacing: 7) {
+        HStack {
+          Text(filter.label).font(.system(size: 13, weight: .semibold))
+            .accessibilityAddTraits(.isHeader)
+          Spacer()
+          if scroll.limit > 1 {
+            HStack(spacing: 4) {
+              scrollButton(forward: false, proxy: proxy)
+              scrollButton(forward: true, proxy: proxy)
+            }.accessibilityElement(children: .contain)
+          }
+        }
+        ScrollView(.horizontal) {
+          HStack(spacing: cardSpacing) {
+            ForEach(Array(themes.enumerated()), id: \.element.id) { index, theme in
+              NativeThemeCard(model: model, theme: theme, focusedCard: $focusedCard) { offset in
+                let target = index + offset
+                if themes.indices.contains(target) {
+                  let id = themes[target].id
+                  let start = CGFloat(target) * (cardWidth + cardSpacing)
+                  if start < scroll.offset {
+                    proxy.scrollTo(id, anchor: .leading)
+                  } else if start + cardWidth > scroll.offset + scroll.viewportWidth {
+                    proxy.scrollTo(id, anchor: .trailing)
+                  }
+                  focusedCard = id
+                }
+              }.frame(width: cardWidth).id(theme.id)
+            }
+          }
+          .padding(.top, 2)
+          .padding(.bottom, NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay) + 2)
+        }
+        .accessibilityLabel(filter.label)
+        .onScrollGeometryChange(for: ScrollState.self) { geometry in
+          let insets = geometry.contentInsets
+          let limit = max(
+            0,
+            geometry.contentSize.width + insets.leading + insets.trailing
+              - geometry.containerSize.width)
+          let offset = min(limit, max(0, geometry.contentOffset.x + insets.leading))
+          return ScrollState(
+            offset: offset, limit: limit,
+            viewportWidth: geometry.containerSize.width - insets.leading - insets.trailing)
+        } action: { _, state in
+          scroll = state
+        }
+      }
+    }
+  }
+
+  private func scrollButton(forward: Bool, proxy: ScrollViewProxy) -> some View {
+    let label = forward ? localized("Scroll themes right") : localized("Scroll themes left")
+    let direction = forward ? "right" : "left"
+    return NativeIconButton(
+      label: label, symbol: "chevron." + direction,
+      disabled: forward ? !scroll.canScrollForward : !scroll.canScrollBack
+    ) {
+      let stride = cardWidth + cardSpacing
+      let target =
+        forward
+        ? Int((scroll.offset + 1) / stride) + 1 : Int(ceil((scroll.offset - 1) / stride)) - 1
+      proxy.scrollTo(themes[min(max(0, target), themes.count - 1)].id, anchor: .leading)
+    }
+    .accessibilityIdentifier("theme-scroll-\(filter.rawValue)-\(direction)")
   }
 }
 

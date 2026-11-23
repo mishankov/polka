@@ -5,18 +5,19 @@ import UniformTypeIdentifiers
 
 struct NativeFileShelfView: View {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
   var body: some View {
     VStack(spacing: 0) {
       NativeBuiltinHeader(model: model, title: localized("Files on the Shelf")) {
-        NativeCommandButton(
-          title: localized("Clear Shelf"), shortcut: "⌘⇧⌫",
+        NativeBuiltinHeaderAction(
+          title: localized("Clear Shelf"), symbol: "trash", shortcut: "⌘⇧⌫",
           disabled: model.busy || model.files.isEmpty
         ) { model.removeSelectedFiles(clear: true) }.accessibilityIdentifier("files-clear")
       }
       Text(localized("Drag files here, then take them to another app.")).font(.system(size: 12))
         .nativeShelfSecondary().frame(maxWidth: .infinity, alignment: .leading).padding(
           .horizontal, 12
-        ).padding(.bottom, 10)
+        ).padding(.bottom, 10).background(colors?.searchHeaderColor ?? .clear)
       Divider()
       NativeErrorNotice(text: model.error).padding(.horizontal, 10)
       ScrollView {

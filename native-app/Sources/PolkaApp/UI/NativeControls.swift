@@ -85,8 +85,6 @@ struct NativeIconButton: View {
   }
 }
 
-/// Shared chrome keeps navigation, command targets and insets stable across
-/// built-in apps. Each surface supplies only its own title and extra actions.
 struct NativeToolbar<Content: View>: View {
   @ViewBuilder var content: () -> Content
   var body: some View {
@@ -98,27 +96,66 @@ struct NativeBuiltinHeader<Actions: View>: View {
   @ObservedObject var model: NativeUIModel
   @Environment(\.shelfColors) private var colors
   var title: String
+  var status: String? = nil
   @ViewBuilder var actions: () -> Actions
   var body: some View {
     let editing =
       model.draft != nil
       || (model.destination == "quick-links" && model.quickLinkDraft != nil)
-    NativeToolbar {
+    let badgeClearance =
+      model.topInset > 0 && model.mediaBadgesVisible
+      ? NativeMediaIndicatorGeometry.notchedSideWidth : 0
+    HStack(spacing: 0) {
+      HStack(spacing: 8) {
+        NativeIconButton(
+          label: editing
+            ? localized("Cancel Editing")
+            : model.previewID != nil || model.confirmClear
+              ? localized("Back to List") : localized("Back to Apps"),
+          symbol: "arrow.left", shortcut: editing ? "esc" : "⌫", disabled: model.busy
+        ) { model.back() }.accessibilityIdentifier("builtin-back")
+        if model.busy {
+          ProgressView().controlSize(.small).accessibilityLabel(localized("Working…"))
+        }
+        if let status {
+          Text(status).font(.system(size: 11)).nativeShelfSecondary().lineLimit(1)
+        }
+      }.frame(maxWidth: .infinity, alignment: .leading)
+      Color.clear.frame(width: model.notchWidth + 2 * badgeClearance, height: 0)
+        .accessibilityHidden(true)
+      HStack(spacing: 8) {
+        actions()
+        NativeIconButton(
+          label: localized("Close Shelf"), symbol: "xmark", shortcut: "⌘W", disabled: model.busy
+        ) { model.closeShelf() }.accessibilityIdentifier("builtin-close")
+      }.frame(maxWidth: .infinity, alignment: .trailing)
+    }
+    .frame(minHeight: model.topInset > 0 ? max(32, model.topInset) : 56)
+    .padding(.horizontal, 12)
+    .padding(.top, model.topInset > 0 ? 6 : 0)
+    .background(colors?.searchHeaderColor ?? .clear)
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel(title)
+  }
+}
+
+struct NativeBuiltinHeaderAction: View {
+  var title: String
+  var symbol: String
+  var shortcut: String
+  var disabled: Bool
+  var prominent = false
+  var action: () -> Void
+  var body: some View {
+    ViewThatFits(in: .horizontal) {
+      NativeCommandButton(
+        title: title, symbol: symbol, shortcut: shortcut, disabled: disabled,
+        prominent: prominent, action: action
+      ).fixedSize(horizontal: true, vertical: false)
       NativeIconButton(
-        label: editing
-          ? localized("Cancel Editing")
-          : model.previewID != nil || model.confirmClear
-            ? localized("Back to List") : localized("Back to Apps"),
-        symbol: "arrow.left", shortcut: editing ? "esc" : "⌫", disabled: model.busy
-      ) { model.back() }.accessibilityIdentifier("builtin-back")
-      Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
-      Spacer(minLength: 8)
-      if model.busy { ProgressView().controlSize(.small).accessibilityLabel(localized("Working…")) }
-      actions()
-      NativeIconButton(
-        label: localized("Close Shelf"), symbol: "xmark", shortcut: "⌘W", disabled: model.busy
-      ) { model.closeShelf() }.accessibilityIdentifier("builtin-close")
-    }.background(colors?.searchHeaderColor ?? .clear)
+        label: title, symbol: symbol, shortcut: shortcut, disabled: disabled,
+        prominent: prominent, action: action)
+    }
   }
 }
 
@@ -150,7 +187,7 @@ struct NativeBuiltinSearch: View {
       focusToken: "\(model.destination)-\(model.visible)-list-\(model.sessionRevision)"
     ).frame(maxWidth: .infinity).frame(height: NativeLargeSearchField.controlHeight)
       .disabled(model.fileDownloadProgress != nil)
-      .padding(.horizontal, 12).padding(.bottom, 10)
+      .padding(.horizontal, 12).padding(.top, model.topInset > 0 ? 6 : 0).padding(.bottom, 10)
       .background(colors?.searchHeaderColor ?? .clear)
   }
 }

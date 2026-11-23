@@ -8,14 +8,9 @@ struct NativeQuickLinksView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      NativeBuiltinHeader(
-        model: model,
-        title: model.quickLinkDraft.map {
-          $0.id == nil ? localized("Add Link") : localized("Edit Link")
-        } ?? localized("Quick Links")
-      ) {
+      NativeBuiltinHeader(model: model, title: localized("Quick Links")) {
         if model.quickLinkDraft == nil {
-          NativeCommandButton(
+          NativeBuiltinHeaderAction(
             title: localized("Create"), symbol: "plus", shortcut: "⌘N",
             disabled: !model.canManageQuickLinks, prominent: true
           ) { model.addQuickLink() }.accessibilityIdentifier("quick-link-add")
@@ -98,6 +93,8 @@ struct NativeQuickLinksView: View {
 
   private var editor: some View {
     VStack(alignment: .leading, spacing: 12) {
+      Text(localized(model.quickLinkDraft?.id == nil ? "Add Link" : "Edit Link"))
+        .font(.system(size: 17, weight: .semibold)).accessibilityAddTraits(.isHeader)
       VStack(alignment: .leading, spacing: 5) {
         Text(localized("Name (optional)")).font(.system(size: 12))
         TextField(

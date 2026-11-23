@@ -91,7 +91,7 @@ struct NativeSettingsView: View {
             case "builtin-apps": builtinApps
             default: general
             }
-          }.frame(maxWidth: 640, alignment: .leading)
+          }.frame(maxWidth: themeGallery ? .infinity : 640, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 28).padding(.bottom, 28)
         }
@@ -111,7 +111,7 @@ struct NativeSettingsView: View {
       .accessibilityIdentifier("native-settings")
   }
   private var builtinApps: some View {
-    let apps = LauncherSearch.apps(LauncherSearch.builtinApps, query: "")
+    let apps = LauncherSearch.builtinApps
     return VStack(alignment: .leading, spacing: 20) {
       NativeSettingsGroup(localized("Apps on the Shelf")) {
         ForEach(apps) { app in

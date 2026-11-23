@@ -67,6 +67,12 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   private var quitKeyMonitor: Any?
   private let fixture = NativeProfile.isolatedFixture
   private(set) var smokeLifecycleTrace: [String] = []
+  private var smokeNotchSize: CGSize?
+  func setSmokeNotch(_ size: CGSize?) {
+    precondition(fixture)
+    smokeNotchSize = size
+    geometry()
+  }
   private func traceLifecycle(_ event: String) {
     guard fixture else { return }
     smokeLifecycleTrace.append(
@@ -506,13 +512,19 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     let expanded = model.previewID != nil && model.draft == nil
     // Every shelf destination, preview and editor shares the launcher's width.
     let width = min(CGFloat(560), screen.frame.width)
-    let top = screen.safeAreaInsets.top
-    let center =
-      (screen.auxiliaryTopLeftArea.flatMap { left in
-        screen.auxiliaryTopRightArea.map { (left.maxX + $0.minX) / 2 }
-      }) ?? screen.frame.midX
+    let top = smokeNotchSize?.height ?? screen.safeAreaInsets.top
+    let notch = screen.auxiliaryTopLeftArea.flatMap { left in
+      screen.auxiliaryTopRightArea.map { right in
+        (center: (left.maxX + right.minX) / 2, width: right.minX - left.maxX)
+      }
+    }
+    let center = notch?.center ?? screen.frame.midX
     let height = min((expanded ? CGFloat(680) : 510) + top, screen.frame.height)
     if model.topInset != top { model.topInset = top }
+    let displayNotchWidth = smokeNotchSize?.width ?? notch?.width ?? 0
+    let notchWidth =
+      top > 0 ? max(NativeShelfPresentationView.collapsedWidth, displayNotchWidth) : 0
+    if model.notchWidth != notchWidth { model.notchWidth = notchWidth }
     let frame = NSRect(
       x: max(screen.frame.minX, min(screen.frame.maxX - width, center - width / 2)),
       y: screen.frame.maxY - height, width: width, height: height)
@@ -987,13 +999,12 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       // Rasterizing every display/state fixture must not consume the core
       // keyboard suite's deadline. The harness always runs this separate phase.
       failures += nativeMediaSmokeScreenshots(shelf: shelf)
-    } else {
-      failures += await nativeSmokeAdditionalFlows(
-        application: self, shelf: shelf, model: model, platform: platform,
-        settingsOnly: settingsOnly,
-        previewsOnly: previewsOnly, browsingOnly: browsingOnly, systemStatusOnly: systemStatusOnly,
-        screenshotsOnly: screenshotsOnly)
     }
+    failures += await nativeSmokeAdditionalFlows(
+      application: self, shelf: shelf, model: model, platform: platform,
+      settingsOnly: settingsOnly, previewsOnly: previewsOnly, browsingOnly: browsingOnly,
+      systemStatusOnly: systemStatusOnly, screenshotsOnly: screenshotsOnly, lifecycleOnly: mediaOnly
+    )
     _ = media?.showFixture(.init(camera: "inactive", microphone: "inactive"))
     let result: [String: Any] = [
       "ok": failures.isEmpty, "failures": failures, "nativeVisible": shelf.isVisible,

@@ -30,7 +30,7 @@ import SwiftUI
 @MainActor func nativeSmokeAdditionalFlows(
   application: NativeApplication, shelf: NSWindow, model: NativeUIModel, platform: NativePlatform,
   settingsOnly: Bool = false, previewsOnly: Bool = false, browsingOnly: Bool = false,
-  systemStatusOnly: Bool = false, screenshotsOnly: Bool = false
+  systemStatusOnly: Bool = false, screenshotsOnly: Bool = false, lifecycleOnly: Bool = false
 ) async -> [String] {
   guard NativeProfile.isolatedFixture else { return ["native smoke requires an isolated profile"] }
   // Ask this fixture process to materialize SwiftUI's virtual accessibility
@@ -464,6 +464,67 @@ import SwiftUI
     }
     model.themeFilter = .all
     await screenshot("settings-themes", window: settings, includeTitlebar: true)
+    let themesFrame = settings.frame
+    let initialCardWidth = settings.contentView.flatMap {
+      accessible("theme-card-dracula", in: $0)?.accessibilityFrame().width
+    }
+    settings.setContentSize(NSSize(width: 1120, height: themesFrame.height))
+    if let row = await nativeSmokeWaitForView(
+      in: settings, ofType: NSScrollView.self,
+      ready: {
+        let viewport = $0.contentView
+        let visible = settings.convertToScreen(viewport.convert(viewport.bounds, to: nil))
+        guard let first = accessible("theme-card-dracula", in: settings.contentView)
+        else { return false }
+        return viewport.bounds.width > 800
+          && ($0.documentView?.frame.width ?? 0) > viewport.bounds.width
+          && visible.minY <= first.accessibilityFrame().midY
+          && first.accessibilityFrame().midY <= visible.maxY
+      }
+    ), let content = settings.contentView,
+      let card = accessible("theme-card-dracula", in: content),
+      let initialCardWidth
+    {
+      if initialCardWidth < 140 || abs(card.accessibilityFrame().width - initialCardWidth) > 1 {
+        failures.append("Popular theme cards changed width when Settings was resized")
+      }
+      let origin = row.contentView.bounds.origin.x
+      if await wait({ accessible("theme-scroll-popular-right", in: content) != nil }),
+        let forward = accessible("theme-scroll-popular-right", in: content)
+      {
+        forward.accessibilityPerformPress()
+        if await wait({
+          row.contentView.bounds.origin.x > origin + 1
+            && accessible("theme-scroll-popular-left", in: content) != nil
+        }),
+          let back = accessible("theme-scroll-popular-left", in: content)
+        {
+          let advancedOrigin = row.contentView.bounds.origin.x
+          back.accessibilityPerformPress()
+          if !(await wait({ row.contentView.bounds.origin.x < advancedOrigin - 1 })) {
+            failures.append("the Popular theme scroll back button did not reveal previous cards")
+          }
+        } else {
+          failures.append("the Popular theme scroll forward button did not reveal more cards")
+        }
+      } else {
+        failures.append("the Popular row overflows without a visible scroll forward button")
+      }
+      await screenshot("settings-themes-wide", window: settings, includeTitlebar: true)
+      func nextThemeFocused() -> Bool {
+        accessible("theme-card-tokyo-night", in: content)?.isAccessibilityFocused() == true
+      }
+      for _ in 0..<24 where !nextThemeFocused() {
+        post(48, [], "\t", window: settings)
+        try? await Task.sleep(nanoseconds: 35_000_000)
+      }
+      if !nextThemeFocused() {
+        failures.append("Tab did not reach the theme beyond the viewport")
+      }
+    } else {
+      failures.append("the Themes overview did not expand to use wide Settings")
+    }
+    settings.setFrame(themesFrame, display: true)
     if let row = await nativeSmokeWaitForView(
       in: settings, ofType: NSScrollView.self,
       ready: { ($0.documentView?.frame.width ?? 0) > $0.contentView.bounds.width }
@@ -481,7 +542,6 @@ import SwiftUI
     } else {
       failures.append("the Themes overview is missing its horizontal rows")
     }
-    let themesFrame = settings.frame
     settings.setContentSize(NSSize(width: 660, height: 480))
     await screenshot("settings-themes-compact", window: settings, includeTitlebar: true)
     if let content = settings.contentView {
@@ -585,6 +645,9 @@ import SwiftUI
           }
           model.query = ""
           await screenshot("shelf-theme-pastel")
+          failures += await nativeSmokeNotchedShelf(
+            application: application, shelf: shelf, model: model,
+            accessible: { accessible($0) }, screenshot: { await screenshot($0) })
           if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1" {
             await application.show("clipboard")
             await screenshot("shelf-theme-clipboard-lilac")
@@ -771,7 +834,15 @@ import SwiftUI
       failures.append(failure)
     }
   }
-  if !settingsOnly && !browsingOnly {
+  func makeGuardedSheet() -> NSWindow {
+    let sheet = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 160, height: 80), styleMask: [.titled],
+      backing: .buffered, defer: false)
+    sheet.isReleasedWhenClosed = false
+    return sheet
+  }
+  if lifecycleOnly {
+    trace("shelf lifecycle and focus with active media indicators")
     // Real window lifecycle, not just model dispatch: a delayed close must not
     // order out a reopened panel, and repeated requests must remain harmless.
     await application.show("apps")
@@ -808,10 +879,7 @@ import SwiftUI
     post(53, repeatKey: true)
     await settle()
     if !model.visible || !shelf.isVisible { failures.append("repeated Escape dismissed shelf") }
-    let guardedSheet = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 160, height: 80), styleMask: [.titled],
-      backing: .buffered, defer: false)
-    guardedSheet.isReleasedWhenClosed = false
+    let guardedSheet = makeGuardedSheet()
     shelf.beginSheet(guardedSheet, completionHandler: nil)
     post(53, window: guardedSheet)
     application.hide(force: true)
@@ -902,6 +970,11 @@ import SwiftUI
         break
       }
     }
+    await application.show("clipboard")
+    return failures
+  }
+  if !settingsOnly && !browsingOnly {
+    let guardedSheet = makeGuardedSheet()
     await application.show("apps")
     trace("scattered launcher search and keyboard activation")
     model.query = model.settings.language == .russian ? "флп" : "flsh"
@@ -2190,6 +2263,71 @@ final class NativeSmokeBlockedEncryption: EncryptionCodec {
   return failures
 }
 
+@MainActor private func nativeSmokeNotchedShelf(
+  application: NativeApplication, shelf: NSWindow, model: NativeUIModel,
+  accessible: (String) -> NativeSmokeAccessibility?, screenshot: (String) async -> Void
+) async -> [String] {
+  var failures: [String] = []
+  let notch = CGSize(width: 185, height: 34)
+  let mediaBadgesVisible = model.mediaBadgesVisible
+  model.mediaBadgesVisible = false
+  application.setSmokeNotch(notch)
+  defer {
+    application.setSmokeNotch(nil)
+    model.mediaBadgesVisible = mediaBadgesVisible
+  }
+  await screenshot("shelf-theme-notched-launcher")
+  if let view = shelf.contentView,
+    let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+  {
+    view.cacheDisplay(in: view.bounds, to: image)
+    let scale = CGFloat(image.pixelsHigh) / view.bounds.height
+    let band = image.colorAt(x: 12, y: Int(8 * scale))
+    let search = image.colorAt(x: 12, y: Int((notch.height + 8) * scale))
+    let results = image.colorAt(x: 12, y: Int((notch.height + 84) * scale))
+    if band == nil || band != search || band == results {
+      failures.append("themed launcher notch band and search header do not share a fill")
+    }
+    let middle = image.colorAt(x: Int(view.bounds.midX * scale), y: Int(8 * scale))
+    if middle != band {
+      failures.append("the themed launcher paints a simulated cutout over the window")
+    }
+  } else {
+    failures.append("cannot inspect the themed launcher notch band")
+  }
+
+  func checkControls(actionID: String, shortcut: String, clearance: CGFloat) {
+    let top = shelf.frame.maxY
+    let center = shelf.frame.midX
+    for (id, key) in [("builtin-back", "⌫"), (actionID, shortcut), ("builtin-close", "⌘W")] {
+      guard let button = accessible(id) else {
+        failures.append("notched \(model.destination) is missing \(id)")
+        continue
+      }
+      let frame = button.accessibilityFrame()
+      let clearsNotch =
+        id == "builtin-back" ? frame.maxX <= center - clearance : frame.minX >= center + clearance
+      if frame.maxY > top - 6 || frame.minY < top - notch.height - 7 || !clearsNotch {
+        failures.append("\(id) is outside the padded notch toolbar")
+      }
+      if button.accessibilityHelp()?.contains(key) != true {
+        failures.append("\(id) has no discoverable keyboard shortcut in the notch band")
+      }
+    }
+  }
+  await application.show("quick-links")
+  await screenshot("shelf-theme-notched-quick-links")
+  checkControls(actionID: "quick-link-add", shortcut: "⌘N", clearance: notch.width / 2)
+
+  model.mediaBadgesVisible = true
+  await application.show("files")
+  await screenshot("shelf-theme-notched-files")
+  checkControls(
+    actionID: "files-clear", shortcut: "⌘⇧⌫",
+    clearance: notch.width / 2 + NativeMediaIndicatorGeometry.notchedSideWidth)
+  return failures
+}
+
 /// SwiftUI's virtual accessibility nodes do not all inherit NSObject or declare
 /// NSAccessibilityProtocol conformance. Query their public Objective-C methods
 /// dynamically, as AppKit does, rather than dropping nodes at a Swift cast.
@@ -2202,5 +2340,6 @@ private struct NativeSmokeAccessibility {
   func accessibilityRole() -> NSAccessibility.Role? { object.accessibilityRole?() }
   func accessibilityFrame() -> NSRect { object.accessibilityFrame?() ?? .zero }
   func isAccessibilityEnabled() -> Bool { object.isAccessibilityEnabled?() ?? false }
+  func isAccessibilityFocused() -> Bool { object.isAccessibilityFocused?() ?? false }
   func accessibilityPerformPress() { _ = object.accessibilityPerformPress?() }
 }

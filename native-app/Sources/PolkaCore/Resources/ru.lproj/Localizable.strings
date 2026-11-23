@@ -716,6 +716,8 @@
 "Theme category" = "Категория тем";
 "Customize a theme to add it here." = "Настройте тему, чтобы добавить её сюда.";
 "Apply Theme" = "Применить тему";
+"Scroll themes left" = "Прокрутить темы влево";
+"Scroll themes right" = "Прокрутить темы вправо";
 "Browse Themes" = "Выбрать тему";
 "Give your Shelf a new look" = "Новый облик полки";
 "Pick a theme or customize your own." = "Выберите тему или настройте свою.";
