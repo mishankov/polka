@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import QuartzCore
 import SwiftUI
 
@@ -7,10 +8,12 @@ import SwiftUI
 final class NativeShelfPresentationView: NSView {
   static let openingDuration: TimeInterval = 0.1
   static let closingDuration: TimeInterval = 0.15
+  static let collapsedWidth: CGFloat = 96
   static let animationKey = "shelf-reveal"
   let revealMask = CAShapeLayer()
   private let outline = NativeShelfOutlineView()
   private let hosting: NSHostingView<NativeShelfView>
+  private var themeObservation: AnyCancellable?
   private var presented = false
   private var topInset: CGFloat = 0
 
@@ -24,6 +27,14 @@ final class NativeShelfPresentationView: NSView {
     addSubview(hosting)
     outline.autoresizingMask = [.width, .height]
     addSubview(outline)
+    themeObservation = model.$settings.map { $0.themes.active.shelfColors }.removeDuplicates()
+      .sink { [weak self] colors in
+        self?.hosting.appearance =
+          colors.map {
+            NSAppearance(named: $0.colorScheme == .light ? .aqua : .darkAqua)
+          } ?? nil
+        self?.outline.colors = colors
+      }
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -75,7 +86,7 @@ final class NativeShelfPresentationView: NSView {
   }
 
   static func path(in bounds: CGRect, visible: Bool, topInset: CGFloat) -> CGPath {
-    let width = visible ? bounds.width : min(96, bounds.width)
+    let width = visible ? bounds.width : min(collapsedWidth, bounds.width)
     let height = visible ? bounds.height : min(bounds.height, max(3, topInset))
     let left = bounds.midX - width / 2
     let right = left + width
@@ -121,12 +132,16 @@ final class NativeShelfPresentationView: NSView {
 
 /// Draw above the hosted content, while letting every pointer event through.
 private final class NativeShelfOutlineView: NSView {
+  var colors: NativeThemeColors? { didSet { needsDisplay = true } }
   override func hitTest(_ point: NSPoint) -> NSView? { nil }
   override func draw(_ dirtyRect: NSRect) {
     guard let context = NSGraphicsContext.current?.cgContext else { return }
     context.saveGState()
     defer { context.restoreGState() }
-    context.setStrokeColor(NSColor(white: 1, alpha: 0.12).cgColor)
+    let stroke =
+      colors?.appKitForeground().withAlphaComponent(0.22)
+      ?? NSColor(white: 1, alpha: 0.12)
+    context.setStrokeColor(stroke.cgColor)
     context.setLineWidth(1)
     context.addPath(NativeShelfPresentationView.outlinePath(in: bounds))
     context.strokePath()

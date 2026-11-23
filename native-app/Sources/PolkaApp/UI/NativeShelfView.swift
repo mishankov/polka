@@ -5,6 +5,7 @@ import SwiftUI
 struct NativeShelfView: View {
   @ObservedObject var model: NativeUIModel
   var body: some View {
+    let colors = model.settings.themes.active.shelfColors
     VStack(spacing: 0) {
       if model.topInset > 0 { Color.clear.frame(height: model.topInset) }
       switch model.destination {
@@ -16,11 +17,24 @@ struct NativeShelfView: View {
       default: NativeLauncherView(model: model)
       }
     }
-    // Keep the shelf and its controls in the established dark appearance.
-    .environment(\.colorScheme, .dark)
+    .foregroundStyle(
+      AnyShapeStyle(colors?.textColor ?? .primary),
+      AnyShapeStyle(colors?.secondaryTextColor ?? .secondary),
+      colors.map { AnyShapeStyle($0.secondaryTextColor) } ?? AnyShapeStyle(.tertiary)
+    )
+    .tint(colors?.accentColor)
+    .environment(\.colorScheme, colors?.colorScheme ?? .dark)
     .background(NativeKeyboardBridge(model: model).frame(width: 0, height: 0))
-    .background(Color.black)
+    .background(alignment: .top) {
+      (colors?.backgroundColor ?? .black).overlay(alignment: .top) {
+        if colors != nil, !model.visible || model.topInset > 0 {
+          Color.black.frame(
+            width: NativeShelfPresentationView.collapsedWidth, height: max(3, model.topInset))
+        }
+      }
+    }
     .modifier(NativeFileDropModifier(model: model))
+    .environment(\.shelfColors, colors)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("native-shelf")
   }
@@ -28,6 +42,7 @@ struct NativeShelfView: View {
 
 struct NativeLauncherView: View {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
   var body: some View {
     let results = model.searchResults
     let selectedID = results.first(where: { $0.id == model.selectedID })?.id ?? results.first?.id
@@ -40,7 +55,7 @@ struct NativeLauncherView: View {
         NativeIconButton(
           label: localized("Settings"), symbol: "gearshape", shortcut: "⌘,", disabled: model.busy
         ) { model.perform(NativeUICommand("shelf.settings")) }
-      }.padding(14)
+      }.padding(14).background(colors?.searchHeaderColor ?? .clear)
       Divider()
       NativeFileDownloadProgress(model: model)
       ScrollViewReader { reader in
@@ -48,7 +63,11 @@ struct NativeLauncherView: View {
           LazyVStack(alignment: .leading, spacing: 2) {
             if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
               NativeUpdateNotice(model: model).padding(.horizontal, 10)
-              if !model.settings.introduced { welcome.padding(10) }
+              if !model.settings.introduced {
+                welcome.padding(10)
+              } else if model.offersShelfThemeDiscovery {
+                NativeShelfThemeAnnouncement(model: model).padding(10)
+              }
             }
             NativeErrorNotice(text: model.error.isEmpty ? model.catalogError : model.error).padding(
               .horizontal, 10)
@@ -58,19 +77,18 @@ struct NativeLauncherView: View {
               }.padding(.horizontal, 12)
             }
             if let status = model.calculationStatus, !status.isEmpty {
-              Text(status).foregroundStyle(.secondary).padding(12)
+              Text(status).nativeShelfSecondary().padding(12)
             }
             if !model.notice.isEmpty {
-              Text(model.notice).font(.system(size: 12)).foregroundStyle(.secondary).padding(
+              Text(model.notice).font(.system(size: 12)).nativeShelfSecondary().padding(
                 .horizontal, 12
               ).accessibilityIdentifier("native-action-notice")
             }
             ForEach(Array(results.enumerated()), id: \.element.id) { position, result in
               let isCalculation = result.kind == "calculation"
               if position == 0 || group(result) != group(results[position - 1]) {
-                Text(group(result)).font(.system(size: 11, weight: .semibold)).foregroundStyle(
-                  .secondary
-                ).padding(.horizontal, 14).padding(.top, 10)
+                Text(group(result)).font(.system(size: 11, weight: .semibold))
+                  .nativeShelfDetail().padding(.horizontal, 14).padding(.top, 10)
               }
               Button {
                 model.activateSearch(result)
@@ -84,20 +102,18 @@ struct NativeLauncherView: View {
                     ).lineLimit(isCalculation ? nil : 2)
                       .fixedSize(horizontal: false, vertical: isCalculation)
                     if !result.detail.isEmpty {
-                      Text(result.detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                      Text(result.detail).font(.system(size: 11)).nativeShelfSecondary()
                         .lineLimit(2)
                     }
                   }
                   Spacer(minLength: 0)
                   if position < 9 {
-                    Text("⌘\(position + 1)").font(.system(size: 11)).foregroundStyle(.tertiary)
+                    Text("⌘\(position + 1)").font(.system(size: 11)).nativeShelfDetail(.tertiary)
                   }
                 }.padding(.horizontal, 12).padding(.vertical, 10).frame(
                   maxWidth: .infinity, alignment: .leading
                 )
-                .background(
-                  selectedID == result.id ? Color.accentColor.opacity(0.13) : .clear,
-                  in: RoundedRectangle(cornerRadius: 7))
+                .nativeShelfRow(selected: selectedID == result.id, defaultOpacity: 0.13)
               }.buttonStyle(.plain).disabled(model.busy).padding(.horizontal, 6)
                 .id(result.id).accessibilityIdentifier("result-\(result.id)")
                 .accessibilityLabel(result.title)
@@ -123,7 +139,7 @@ struct NativeLauncherView: View {
                   model.query.isEmpty
                     ? localized("The app list is empty. Try refreshing it.")
                     : localized("Nothing found. Try another word.")
-                ).foregroundStyle(.secondary).font(.system(size: 13)).padding(24)
+                ).nativeShelfSecondary().font(.system(size: 13)).padding(24)
               }
             }
           }.padding(.bottom, 10).background(
@@ -142,20 +158,24 @@ struct NativeLauncherView: View {
         localized(
           "Open apps and find copied items. Return here using the menu bar icon, hovering over the camera notch, or {0}.",
           String(describing: nativeShortcutLabel(model.settings.launcherShortcut)))
-      ).font(.system(size: 12)).foregroundStyle(.secondary)
+      ).font(.system(size: 12)).nativeShelfSecondary()
       HStack {
         NativeCommandButton(title: localized("Got It"), disabled: model.busy) {
           model.perform(
             NativeUICommand(
               "settings.set", strings: ["key": "shelfIntroduced"], bools: ["value": true]))
-        }
+        }.accessibilityIdentifier("acknowledge-shelf-welcome")
         NativeCommandButton(title: localized("Set Up Shelf"), shortcut: "⌘,", disabled: model.busy)
         {
           model.perform(NativeUICommand("shelf.settings"))
         }
+        if model.offersShelfThemeDiscovery {
+          NativeBrowseThemesButton(model: model)
+        }
       }
     }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(
-      Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+      colors?.surfaceColor ?? Color.accentColor.opacity(0.06),
+      in: RoundedRectangle(cornerRadius: 8))
   }
   private func group(_ result: NativeUISearchRow) -> String {
     switch result.kind {
@@ -171,7 +191,7 @@ struct NativeLauncherView: View {
     if let image = nativeImage(result.icon) {
       Image(nsImage: image).resizable().scaledToFit().frame(width: 34, height: 34)
     } else {
-      Image(systemName: resultSymbol(result)).font(.system(size: 23)).foregroundStyle(.secondary)
+      Image(systemName: resultSymbol(result)).font(.system(size: 23)).nativeShelfDetail()
         .frame(width: 34, height: 34)
     }
   }
@@ -194,8 +214,77 @@ struct NativeLauncherView: View {
   }
 }
 
+extension NativeUIModel {
+  var offersShelfThemeDiscovery: Bool {
+    themeDiscoveryVisible && (!settings.introduced || !settings.showsUpdateNotice)
+  }
+
+  func browseShelfThemes() {
+    guard offersShelfThemeDiscovery, themeActionsAvailable else { return }
+    perform(NativeUICommand("shelf.settings", strings: ["section": "themes", "filter": "popular"]))
+  }
+
+  func dismissShelfThemeAnnouncement() {
+    guard offersShelfThemeDiscovery, settings.introduced, themeActionsAvailable else { return }
+    perform(NativeUICommand("theme.discovery.dismiss"))
+  }
+}
+
+private struct NativeBrowseThemesButton: View {
+  @ObservedObject var model: NativeUIModel
+
+  var body: some View {
+    NativeCommandButton(
+      title: localized("Browse Themes"), shortcut: "⌘⇧T", disabled: !model.themeActionsAvailable
+    ) { model.browseShelfThemes() }
+    .accessibilityIdentifier("browse-shelf-themes")
+  }
+}
+
+private struct NativeShelfThemeAnnouncement: View {
+  @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
+
+  private static let previews = NativeThemeCategory.popular.themes.filter {
+    ["dracula", "rose-pine-dawn"].contains($0.id)
+  }
+
+  var body: some View {
+    HStack(alignment: .center, spacing: 14) {
+      VStack(alignment: .leading, spacing: 5) {
+        Text(localized("Give your Shelf a new look"))
+          .font(.system(size: 14, weight: .semibold))
+        Text(localized("Pick a theme or customize your own."))
+          .font(.system(size: 12)).nativeShelfSecondary()
+        HStack(spacing: 5) {
+          NativeBrowseThemesButton(model: model)
+          NativeCommandButton(title: localized("Dismiss"), disabled: !model.themeActionsAvailable) {
+            model.dismissShelfThemeAnnouncement()
+          }.accessibilityIdentifier("dismiss-shelf-theme-announcement")
+        }.padding(.top, 3)
+      }
+      Spacer(minLength: 0)
+      HStack(alignment: .top, spacing: 6) {
+        ForEach(Self.previews) { theme in
+          VStack(alignment: .leading, spacing: 4) {
+            NativeThemeShelfPreview(colors: theme.colors, compact: true)
+            Text(theme.name).font(.system(size: 10, weight: .medium)).nativeShelfSecondary()
+          }.frame(width: 105)
+        }
+      }
+    }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        colors?.surfaceColor ?? Color.accentColor.opacity(0.06),
+        in: RoundedRectangle(cornerRadius: 8)
+      )
+      .accessibilityElement(children: .contain)
+      .accessibilityIdentifier("shelf-theme-announcement")
+  }
+}
+
 struct NativeClipboardView: View {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
   @FocusState private var editorNameFocused: Bool
   private var isSnippets: Bool { model.destination == "snippets" }
   var body: some View {
@@ -208,7 +297,7 @@ struct NativeClipboardView: View {
           ?? (isSnippets ? localized("Snippets") : localized("Clipboard"))
       ) {
         if model.settings.paused, !isSnippets {
-          Text(localized("Recording Paused")).font(.system(size: 11)).foregroundStyle(.secondary)
+          Text(localized("Recording Paused")).font(.system(size: 11)).nativeShelfSecondary()
         }
         if isSnippets, model.draft == nil, model.previewID == nil {
           NativeCommandButton(
@@ -217,15 +306,7 @@ struct NativeClipboardView: View {
           ) { model.createSnippet() }.accessibilityIdentifier("snippet-create")
         }
         if !isSnippets, model.draft == nil, !model.confirmClear {
-          Menu {
-            Button(localized("Clear History on All Linked Macs… · ⌘⇧⌫")) {
-              model.showClearConfirmation()
-            }.disabled(!model.writable || model.clips.isEmpty || model.busy)
-          } label: {
-            Image(systemName: "ellipsis").frame(width: 20, height: 20)
-          }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(.glass).buttonBorderShape(.circle)
-            .controlSize(.regular).disabled(model.busy)
-            .help(localized("History actions")).accessibilityLabel(localized("History actions"))
+          historyActions
         }
       }
       if model.draft == nil, model.previewID == nil, !model.confirmClear {
@@ -242,7 +323,7 @@ struct NativeClipboardView: View {
         .horizontal, 10)
       NativeFileDownloadProgress(model: model)
       if !model.notice.isEmpty {
-        Text(model.notice).font(.system(size: 12)).foregroundStyle(.secondary).padding(8)
+        Text(model.notice).font(.system(size: 12)).nativeShelfSecondary().padding(8)
       }
       if model.draft != nil {
         editor
@@ -300,6 +381,30 @@ struct NativeClipboardView: View {
     }.accessibilityElement(children: .contain).accessibilityIdentifier(
       isSnippets ? "native-snippets" : "native-clipboard")
   }
+
+  @ViewBuilder private var historyActions: some View {
+    let menu = Menu {
+      Button(localized("Clear History on All Linked Macs… · ⌘⇧⌫")) {
+        model.showClearConfirmation()
+      }.disabled(!model.writable || model.clips.isEmpty || model.busy)
+    } label: {
+      Image(systemName: "ellipsis").frame(width: 20, height: 20)
+    }
+    .menuIndicator(.hidden).controlSize(.regular).disabled(model.busy)
+    .help(localized("History actions")).accessibilityLabel(localized("History actions"))
+
+    if let colors {
+      // The standard glass Menu dilutes its tint. Pair the themed glyph with
+      // the actual accent fill while keeping AppKit's native menu behavior.
+      menu.menuStyle(.borderlessButton).buttonStyle(.plain)
+        .tint(colors.accentTextColor)
+        .frame(width: 28, height: 28)
+        .background(colors.accentColor, in: Circle())
+    } else {
+      menu.menuStyle(.button).buttonStyle(.glass).buttonBorderShape(.circle)
+    }
+  }
+
   private var filterBar: some View {
     HStack(spacing: 8) {
       ForEach(Array(ClipboardFilter.allCases.enumerated()), id: \.element) { index, filter in
@@ -330,14 +435,18 @@ struct NativeClipboardView: View {
       Text(localized("Text")).font(.system(size: 12))
       TextEditor(
         text: Binding(get: { model.draft?.content ?? "" }, set: { model.draft?.content = $0 })
-      ).font(.system(size: 14)).padding(4).background(
-        Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6)
-      ).disabled(model.busy).accessibilityIdentifier("snippet-content")
+      ).font(.system(size: 14))
+        .scrollContentBackground(colors == nil ? .automatic : .hidden)
+        .padding(4)
+        .background(
+          colors?.surfaceColor ?? Color(nsColor: .textBackgroundColor),
+          in: RoundedRectangle(cornerRadius: 6)
+        ).disabled(model.busy).accessibilityIdentifier("snippet-content")
       Text(
         model.draft?.id.isEmpty == false
           ? localized("Different snippets can have the same text.")
           : localized("The snippet will be saved separately from clipboard history.")
-      ).font(.system(size: 11)).foregroundStyle(.secondary)
+      ).font(.system(size: 11)).nativeShelfSecondary()
     }.padding(12).onAppear { editorNameFocused = true }
   }
   private var confirmation: some View {
@@ -348,7 +457,7 @@ struct NativeClipboardView: View {
         localized(
           "Pinned items will also be deleted. Deletion will be synced to linked Macs, including when they reconnect. Snippets and the current clipboard will be preserved."
         )
-      ).font(.system(size: 13)).foregroundStyle(.secondary)
+      ).font(.system(size: 13)).nativeShelfSecondary()
       Spacer()
     }.padding(12).accessibilityIdentifier("clear-history-confirmation")
   }
@@ -363,7 +472,7 @@ struct NativeClipboardView: View {
           } else if results.isEmpty {
             VStack(spacing: 10) {
               Image(systemName: isSnippets ? "text.bubble" : "clipboard").font(.system(size: 34))
-                .foregroundStyle(.secondary)
+                .nativeShelfSecondary()
               Text(
                 model.storageStatus == "failed"
                   ? localized("History Unavailable")
@@ -385,7 +494,7 @@ struct NativeClipboardView: View {
                         : model.settings.paused
                           ? localized("Enable clipboard recording in app settings.")
                           : localized("Copy text, an image, or files in any app.")
-              ).font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+              ).font(.system(size: 12)).nativeShelfSecondary().multilineTextAlignment(.center)
               if model.storageStatus != "failed", !isSnippets, model.clipboardFilter != .all {
                 NativeCommandButton(
                   title: localized("Show All Types"), shortcut: "⌘⌃1",
@@ -413,7 +522,7 @@ struct NativeClipboardView: View {
                         ? "photo" : clip.kind == "files" ? "doc.on.doc" : "textformat"
                     ).font(
                       .system(size: 23)
-                    ).foregroundStyle(.secondary).frame(width: 38, height: 38)
+                    ).nativeShelfSecondary().frame(width: 38, height: 38)
                   }
                   VStack(alignment: .leading, spacing: 3) {
                     Text(
@@ -424,7 +533,7 @@ struct NativeClipboardView: View {
                           ? (clip.preview.isEmpty ? clip.content : clip.preview) : clip.name
                     ).font(.system(size: 13)).lineLimit(2)
                     if !clip.name.isEmpty {
-                      Text(clip.preview).font(.system(size: 11)).foregroundStyle(.secondary)
+                      Text(clip.preview).font(.system(size: 11)).nativeShelfSecondary()
                         .lineLimit(1)
                     }
                     HStack(spacing: 4) {
@@ -432,7 +541,7 @@ struct NativeClipboardView: View {
                       Text(
                         nativeClipDate(clip.createdAt)
                           + (clip.sourceDevice.isEmpty ? "" : " · " + clip.sourceDevice))
-                    }.font(.system(size: 10)).foregroundStyle(.secondary)
+                    }.font(.system(size: 10)).nativeShelfSecondary()
                   }.frame(maxWidth: .infinity, alignment: .leading)
                 }.frame(maxWidth: .infinity, alignment: .leading)
               }.buttonStyle(.plain).disabled(model.busy).accessibilityIdentifier("clip-\(clip.id)")
@@ -488,14 +597,12 @@ struct NativeClipboardView: View {
               .allowsHitTesting(selectedID == clip.id)
               .accessibilityHidden(selectedID != clip.id)
               if position < 9 {
-                Text("⌘\(position + 1)").font(.system(size: 10)).foregroundStyle(.tertiary)
+                Text("⌘\(position + 1)").font(.system(size: 10)).nativeShelfSecondary(.tertiary)
               }
-            }.padding(10).background(
-              selectedID == clip.id ? Color.accentColor.opacity(0.12) : .clear,
-              in: RoundedRectangle(cornerRadius: 7)
-            ).padding(.horizontal, 5).id(clip.id).onContinuousHover { phase in
-              if case .active = phase { model.selectHoveredItem(clip.id) }
-            }
+            }.padding(10).nativeShelfRow(selected: selectedID == clip.id, defaultOpacity: 0.12)
+              .padding(.horizontal, 5).id(clip.id).onContinuousHover { phase in
+                if case .active = phase { model.selectHoveredItem(clip.id) }
+              }
           }
         }.padding(.vertical, 8).background(
           NativeScrollPositionBridge(
@@ -519,7 +626,7 @@ struct NativePasteAccessHint: View {
               ? localized("The emoji is only copied for now — paste it with ⌘V.")
               : localized("The item is only copied for now — paste it with ⌘V."))
         }
-      }.font(.system(size: 11)).foregroundStyle(.secondary).frame(
+      }.font(.system(size: 11)).nativeShelfSecondary().frame(
         maxWidth: .infinity, alignment: .leading
       ).padding(10)
     } else if model.settings.pasteOnSelect, model.pasteAccess != "granted" {
@@ -529,7 +636,7 @@ struct NativePasteAccessHint: View {
             ? localized(
               "Automatic paste requires Accessibility access. Until it is allowed, use ⌘V.")
             : localized("Automatic paste is unavailable. Copy the item and paste it with ⌘V.")
-        ).font(.system(size: 11)).foregroundStyle(.secondary)
+        ).font(.system(size: 11)).nativeShelfSecondary()
         if model.pasteAccess == "required" {
           Button(localized("Allow…")) {
             model.perform(NativeUICommand("clipboardHistory.requestPasteAccess"))
@@ -566,18 +673,18 @@ struct NativeStorageNotice: View {
               : localized(
                 "Could not load saved history and its settings. Recording, hover activation, the history shortcut, and automatic paste are unavailable. Emoji can be copied."
               )
-        ).font(.system(size: 11)).foregroundStyle(.secondary)
+        ).font(.system(size: 11)).nativeShelfSecondary()
         Text(
           localized(
             "The file has not been reset. Restore access to storage and restart Polka. Before replacing the file, save an encrypted copy."
           )
-        ).font(.system(size: 11)).foregroundStyle(.secondary)
+        ).font(.system(size: 11)).nativeShelfSecondary()
         if ["decrypt", "encrypt"].contains(stage) {
           Text(
             localized(
               "If macOS requests access to “polka Safe Storage”, enter your “login” keychain password and choose “Always Allow”."
             )
-          ).font(.system(size: 11)).foregroundStyle(.secondary)
+          ).font(.system(size: 11)).nativeShelfSecondary()
         }
         DisclosureGroup(localized("Error Details")) {
           Text(diagnostic + (code.isEmpty ? "" : " · " + code)).font(.system(size: 11))

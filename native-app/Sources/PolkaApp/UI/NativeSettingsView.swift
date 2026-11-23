@@ -6,6 +6,7 @@ var nativeSettingsPanes: [(id: String, label: String, icon: String)] {
   [
     ("general", localized("General"), "slider.horizontal.3"),
     ("shelf", localized("Shelf and Shortcuts"), "command"),
+    ("themes", localized("Themes"), "paintpalette"),
     ("clipboard", localized("Clipboard"), "clipboard"),
     ("builtin-apps", localized("Built-in Apps"), "square.grid.2x2"),
     ("about", localized("About"), "info.circle"),
@@ -17,10 +18,15 @@ struct NativeSettingsView: View {
   private var pane: (id: String, label: String, icon: String) {
     nativeSettingsPanes.first { $0.id == model.settingsPane } ?? nativeSettingsPanes[0]
   }
+  private var themeGallery: Bool {
+    model.settingsPane == "themes" && model.themeDraft == nil && model.themePendingDeletion == nil
+  }
   private var subtitle: String {
     switch model.settingsPane {
     case "builtin-apps": localized("Choose the apps you need on the shelf.")
     case "shelf": localized("Opening the shelf, quick commands, and device activity indicators.")
+    case "themes":
+      themeGallery ? localized("Active theme: {0}", model.settings.themes.active.name) : ""
     case "clipboard": localized("Recording, pasting, and history on other Macs.")
     case "about": localized("App version and updates.")
     default: localized("Language, app startup, and background operation.")
@@ -61,14 +67,25 @@ struct NativeSettingsView: View {
       Divider().ignoresSafeArea(.container, edges: .top)
       VStack(alignment: .leading, spacing: 0) {
         VStack(alignment: .leading, spacing: 7) {
-          Text(pane.label).font(.system(size: 23, weight: .semibold))
-          Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary)
+          HStack {
+            Text(pane.label).font(.system(size: 23, weight: .semibold))
+            if themeGallery {
+              Spacer(minLength: 8)
+              NativeThemeGalleryActions(model: model)
+            }
+          }
+          if !subtitle.isEmpty {
+            Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary)
+          }
         }.padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 22)
         ScrollView {
           VStack(alignment: .leading, spacing: 20) {
-            NativeErrorNotice(text: model.error)
+            if model.settingsPane != "themes" || model.themeDraft == nil {
+              NativeErrorNotice(text: model.error)
+            }
             switch model.settingsPane {
             case "shelf": shelf
+            case "themes": NativeThemeSettingsView(model: model)
             case "clipboard": clipboard
             case "about": about
             case "builtin-apps": builtinApps
@@ -77,6 +94,14 @@ struct NativeSettingsView: View {
           }.frame(maxWidth: 640, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 28).padding(.bottom, 28)
+        }
+        .id(
+          model.settingsPane == "themes"
+            ? (themeGallery ? "theme-gallery" : "theme-detail") : "settings")
+        if model.settingsPane == "themes", let draft = model.themeDraft {
+          Divider()
+          NativeThemeEditorActions(model: model, draft: draft)
+            .padding(.horizontal, 28).padding(.vertical, 12)
         }
       }.frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .underPageBackgroundColor))
@@ -605,7 +630,7 @@ struct NativeUpdatesView: View {
           disabled: model.busy || model.settings.updateStatus == "installing", prominent: true
         ) { model.installUpdate() }
       }
-      if !model.settings.updateVersion.isEmpty {
+      if !model.settings.currentVersion.isEmpty || !model.settings.updateVersion.isEmpty {
         Divider()
         NativeReleaseNotesView(settings: model.settings).id(model.settings.updateVersion)
       }
@@ -613,14 +638,19 @@ struct NativeUpdatesView: View {
   }
 }
 
+extension NativeUISettings {
+  var showsUpdateNotice: Bool {
+    !updateVersion.isEmpty && updateNotification == "visible"
+      && ["checking", "downloading", "ready", "installing", "error"].contains(updateStatus)
+  }
+}
+
 struct NativeUpdateNotice: View {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var shelfColors
   var body: some View {
     let displayedVersion = model.settings.updateVersion
-    if !displayedVersion.isEmpty, model.settings.updateNotification == "visible",
-      ["checking", "downloading", "ready", "installing", "error"].contains(
-        model.settings.updateStatus)
-    {
+    if model.settings.showsUpdateNotice {
       VStack(alignment: .leading, spacing: 8) {
         HStack {
           Text(
@@ -628,7 +658,7 @@ struct NativeUpdateNotice: View {
           ).font(
             .system(size: 13, weight: .semibold))
           Spacer()
-          Text(status).font(.system(size: 11)).foregroundStyle(.secondary)
+          Text(status).font(.system(size: 11)).nativeShelfSecondary()
         }
         HStack(spacing: 5) {
           NativeCommandButton(
@@ -662,7 +692,8 @@ struct NativeUpdateNotice: View {
           }
         }
       }.padding(10).background(
-        Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+        shelfColors?.surfaceColor ?? Color.accentColor.opacity(0.06),
+        in: RoundedRectangle(cornerRadius: 7))
     }
   }
   private var status: String {
@@ -823,30 +854,67 @@ final class NativeSettingsSidebarRow: NSTableRowView {
 struct NativeReleaseNotesView: View {
   var settings: NativeUISettings
   @State private var language: String?
+  private static let themePreview = Bundle.module
+    .url(forResource: "theme-release-preview", withExtension: "png")
+    .flatMap { NSImage(contentsOf: $0) }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
         Text(localized("What's New")).font(.system(size: 15, weight: .semibold))
-        Spacer()
-        Picker(
-          localized("Release notes language"),
-          selection: Binding(
-            get: { language ?? settings.language.rawValue }, set: { language = $0 }
-          )
-        ) {
-          Text("Русский").tag("ru")
-          Text("English").tag("en")
-        }.pickerStyle(.segmented).labelsHidden().frame(width: 180).accessibilityLabel(
-          localized("Release notes language"))
+          .accessibilityAddTraits(.isHeader)
+        if !settings.updateVersion.isEmpty {
+          Spacer()
+          Picker(
+            localized("Release notes language"),
+            selection: Binding(
+              get: { language ?? settings.language.rawValue }, set: { language = $0 }
+            )
+          ) {
+            Text("Русский").tag("ru")
+            Text("English").tag("en")
+          }.pickerStyle(.segmented).labelsHidden().frame(width: 180).accessibilityLabel(
+            localized("Release notes language"))
+        }
       }
-      // Release notes are plain text, including any HTML-like characters.
-      Text(nativeReleaseNoteText(settings, language: language ?? settings.language.rawValue)).font(
-        .system(size: 13)
-      )
-      .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+      if settings.updateVersion.isEmpty {
+        Text(localized("Shelf Themes")).font(.system(size: 13, weight: .semibold))
+        if let image = Self.themePreview {
+          NativeThemeReleasePreview(image: image)
+        }
+      } else {
+        // Release notes are plain text, including any HTML-like characters.
+        Text(nativeReleaseNoteText(settings, language: language ?? settings.language.rawValue))
+          .font(.system(size: 13))
+          .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+      }
     }
   }
 }
+
+private struct NativeThemeReleasePreview: NSViewRepresentable {
+  let image: NSImage
+
+  func makeNSView(context: Context) -> NSImageView {
+    let view = NSImageView(image: image)
+    view.imageScaling = .scaleProportionallyUpOrDown
+    view.setAccessibilityElement(true)
+    view.setAccessibilityRole(.image)
+    view.setAccessibilityIdentifier("update-theme-preview")
+    return view
+  }
+
+  func updateNSView(_ view: NSImageView, context: Context) {
+    view.setAccessibilityLabel(localized("Dracula and Rosé Pine Dawn on the Polka Shelf"))
+  }
+
+  func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSImageView, context: Context) -> CGSize?
+  {
+    let width = min(proposal.width ?? 320, image.size.width)
+    let height = min(proposal.height ?? .infinity, width * image.size.height / image.size.width)
+    return CGSize(width: height * image.size.width / image.size.height, height: height)
+  }
+}
+
 func nativeReleaseNoteText(_ settings: NativeUISettings, language: String) -> String {
   let direct = language == "ru" ? settings.updateNotesRussian : settings.updateNotesEnglish
   if !direct.isEmpty { return direct }

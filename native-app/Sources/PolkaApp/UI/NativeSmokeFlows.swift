@@ -282,7 +282,7 @@ import SwiftUI
     view.needsDisplay = true
     view.displayIfNeeded()
     if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1",
-      name.hasPrefix("controls-") || name.hasPrefix("settings-")
+      name.hasPrefix("controls-") || name.hasPrefix("settings-") || name.hasPrefix("shelf-theme-")
         || name.hasPrefix("clipboard-filter-") || name.hasPrefix("clipboard-files-")
         || name.hasPrefix("clipboard-row-layout-")
         || name.hasPrefix("quick-links-shelf-")
@@ -315,6 +315,316 @@ import SwiftUI
       }
     } else {
       failures.append("cannot render screenshot \(name)")
+    }
+  }
+  func exerciseThemeDiscovery() async {
+    let introduced = model.settings.introduced
+    defer { model.settings.introduced = introduced }
+    let browseID = "browse-shelf-themes"
+    let announcementID = "shelf-theme-announcement"
+    func openedPopularThemes() -> Bool {
+      NSApp.keyWindow?.identifier?.rawValue == "polka-settings"
+        && model.settingsPane == "themes" && model.themeFilter == .popular
+        && model.settings.themeDiscoverySeen && !model.commandPending
+    }
+
+    model.settings.introduced = false
+    model.settings.themeDiscoverySeen = false
+    await application.show("apps")
+    if await wait({ accessible(browseID) != nil }) {
+      await screenshot("shelf-theme-first-run")
+      clickAccessible(browseID)
+      if !(await wait(openedPopularThemes)) {
+        failures.append("first-run Browse Themes did not open Popular and retire the announcement")
+      }
+    } else {
+      failures.append("Browse Themes is missing from the first-run Shelf welcome")
+    }
+
+    model.settings.introduced = false
+    model.settings.themeDiscoverySeen = false
+    await application.show("apps")
+    if await wait({ accessible("acknowledge-shelf-welcome") != nil }) {
+      clickAccessible("acknowledge-shelf-welcome")
+      if await wait({ model.settings.introduced && model.settings.themeDiscoverySeen }) {
+        application.hide()
+        await application.show("apps")
+        await settle()
+        if accessible(announcementID) != nil || accessible(browseID) != nil {
+          failures.append("Got It replaced the welcome with a second theme announcement")
+        }
+      } else {
+        failures.append("Got It did not acknowledge the Shelf welcome and theme discovery")
+      }
+    } else {
+      failures.append("Got It is missing from the first-run Shelf welcome")
+    }
+
+    model.settings.introduced = true
+    model.settings.themeDiscoverySeen = false
+    await application.show("apps")
+    if !(await wait({ accessible(announcementID) != nil && shelf.isKeyWindow })) {
+      failures.append("returning users did not see the theme announcement")
+      return
+    }
+    await screenshot("shelf-theme-announcement")
+    post(0, [], "я")
+    if !(await wait({ model.query == "я" && accessible(announcementID) == nil })) {
+      failures.append("typing into the Shelf search did not hide the theme announcement")
+    }
+    post(51, .command)
+    if await wait({ model.query.isEmpty && accessible(announcementID) != nil }) {
+      clickAccessible("dismiss-shelf-theme-announcement")
+      if !(await wait({ model.settings.themeDiscoverySeen && accessible(announcementID) == nil })) {
+        failures.append("Dismiss did not retire the theme announcement")
+      }
+    } else {
+      failures.append("clearing the Shelf query did not restore the undiscovered announcement")
+    }
+
+    model.settings.themeDiscoverySeen = false
+    model.themeFilter = .all
+    if !(await wait({ accessible(browseID) != nil })) {
+      failures.append("Browse Themes did not return for the shortcut fixture")
+      return
+    }
+    post(17, [.command, .shift], "Е")
+    if !(await wait(openedPopularThemes)) {
+      failures.append("physical Command Shift T did not open Popular themes")
+    }
+    await application.show("apps")
+    if model.offersShelfThemeDiscovery {
+      failures.append("the theme announcement returned after browsing Themes")
+    }
+  }
+
+  func exerciseThemes(in settings: NSWindow) async {
+    if !(await wait({ model.settingsPane == "themes" })) {
+      failures.append("native settings sidebar ArrowDown did not select Themes")
+    }
+    model.themeFilter = .popular
+    await settle()
+    if let content = settings.contentView, let card = accessible("theme-card-dracula", in: content)
+    {
+      card.accessibilityPerformPress()
+      if await wait({ model.settings.themes.activeID == "dracula" && !model.commandPending }) {
+        settings.close()
+        await application.show("apps")
+        model.query = ""
+        await screenshot("shelf-theme-dracula")
+        if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1" {
+          await application.show("clipboard")
+          await screenshot("shelf-theme-clipboard-dracula")
+        }
+        do {
+          let originalLinks = model.quickLinks
+          defer { model.quickLinks = originalLinks }
+          model.quickLinks = try [
+            QuickLink(name: "Documentation", url: "https://example.com/docs"),
+            QuickLink(name: "Release notes", url: "https://example.com/releases"),
+          ]
+          await application.show("quick-links")
+          if model.destination == "quick-links" {
+            await screenshot("shelf-theme-quick-links")
+          } else {
+            failures.append("Quick Links did not open with Dracula active")
+          }
+          if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1" {
+            await application.show("apps")
+            model.query = ""
+            for theme in NativeThemeCategory.popular.themes where theme.id != "dracula" {
+              try await platform.handle(NativeUICommand("theme.select", strings: ["id": theme.id]))
+              await screenshot("shelf-theme-\(theme.id)")
+            }
+            try await platform.handle(NativeUICommand("theme.select", strings: ["id": "dracula"]))
+          }
+        } catch {
+          failures.append("could not prepare a Popular theme capture: \(error)")
+        }
+        application.openSettings("themes")
+        await settle()
+      } else {
+        failures.append("accessible theme card did not apply Dracula")
+      }
+    } else {
+      failures.append("Dracula theme card is missing from the Popular gallery")
+    }
+    await screenshot("settings-themes-popular", window: settings, includeTitlebar: true)
+    model.themeFilter = .vibrant
+    await settle()
+    if let content = settings.contentView,
+      let card = accessible("theme-card-midnight", in: content)
+    {
+      card.accessibilityPerformPress()
+      if !(await wait({ model.settings.themes.activeID == "midnight" && !model.commandPending })) {
+        failures.append("accessible theme card did not apply Midnight")
+      }
+    } else {
+      failures.append("Midnight theme card is missing from the Themes gallery")
+    }
+    model.themeFilter = .all
+    await screenshot("settings-themes", window: settings, includeTitlebar: true)
+    if let row = await nativeSmokeWaitForView(
+      in: settings, ofType: NSScrollView.self,
+      ready: { ($0.documentView?.frame.width ?? 0) > $0.contentView.bounds.width }
+    ),
+      let event = CGEvent(
+        scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: -160,
+        wheel3: 0
+      ).flatMap(NSEvent.init(cgEvent:))
+    {
+      let origin = row.contentView.bounds.origin.x
+      row.scrollWheel(with: event)
+      if !(await wait({ row.contentView.bounds.origin.x > origin })) {
+        failures.append("an overview theme row did not respond to horizontal scrolling")
+      }
+    } else {
+      failures.append("the Themes overview is missing its horizontal rows")
+    }
+    let themesFrame = settings.frame
+    settings.setContentSize(NSSize(width: 660, height: 480))
+    await screenshot("settings-themes-compact", window: settings, includeTitlebar: true)
+    if let content = settings.contentView {
+      if accessible("theme-customize", in: content) == nil {
+        failures.append("Customize is missing at the minimum Settings size")
+      }
+    }
+    post(14, .command, "у", window: settings)
+    if await wait({ model.themeDraft != nil }) {
+      if await wait({
+        (settings.firstResponder as? NSTextView)?.string == model.themeDraft?.name
+      }), let editor = settings.firstResponder as? NSTextView {
+        editor.insertText(
+          "Midnight Ember",
+          replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        if !(await wait({ model.themeDraft?.name == "Midnight Ember" })) {
+          failures.append("typing into the theme name field did not update the draft")
+        }
+      } else {
+        failures.append("Command E did not move focus to the theme name field")
+      }
+      model.themeDraft?.colors.accent = "#FFB08A"
+      model.themeDraft?.colors.selection = "#B55042"
+      if model.settings.themes.activeID != "midnight" {
+        failures.append("customizing a theme changed the active palette before saving")
+      }
+      await screenshot("settings-theme-editor-compact", window: settings, includeTitlebar: true)
+      if let content = settings.contentView, accessible("theme-save", in: content) == nil {
+        failures.append("Save & Apply is missing at the minimum Settings size")
+      }
+      settings.setFrame(themesFrame, display: true)
+      await screenshot("settings-theme-editor", window: settings, includeTitlebar: true)
+      post(1, .command, "ы", repeatKey: true, window: settings)
+      await settle()
+      if model.themeDraft == nil || !model.settings.themes.custom.isEmpty {
+        failures.append("repeated Command S saved a theme draft")
+      }
+      post(1, .command, "ы", window: settings)
+      if !(await wait({
+        model.themeDraft == nil && !model.commandPending
+          && model.settings.themes.active.name == "Midnight Ember"
+          && model.settings.themes.active.colors.accent == "#FFB08A"
+      })) {
+        failures.append("Command S did not save and apply the edited theme")
+      }
+      post(51, .command, window: settings)
+      if await wait({ model.themePendingDeletion != nil }) {
+        post(51, .command, window: settings)
+        if !(await wait({
+          model.themePendingDeletion == nil && !model.commandPending
+            && model.settings.themes.activeID == "polka" && model.settings.themes.custom.isEmpty
+        })) {
+          failures.append("Command Backspace did not confirm deletion and restore Polka")
+        }
+      } else {
+        failures.append("Command Backspace did not open theme deletion confirmation")
+      }
+    } else {
+      failures.append("Command E did not open theme customization")
+      settings.setFrame(themesFrame, display: true)
+    }
+    if let content = settings.contentView {
+      model.themeFilter = .pastel
+      await settle()
+      if let card = accessible("theme-card-lilac-mist", in: content) {
+        card.accessibilityPerformPress()
+        if await wait({ model.settings.themes.activeID == "lilac-mist" && !model.commandPending }) {
+          let themedInk = model.settings.themes.active.colors.appKitForeground()
+          settings.close()
+          await application.show("apps")
+          model.query = ""
+          if let field = await nativeSmokeWaitForView(
+            in: shelf, ofType: NativeLargeSearchField.self,
+            ready: {
+              if let editor = $0.currentEditor(), shelf.firstResponder === editor { return true }
+              return false
+            }
+          ) {
+            let placeholderFont =
+              field.placeholderAttributedString?.attribute(.font, at: 0, effectiveRange: nil)
+              as? NSFont
+            if placeholderFont?.pointSize != field.font?.pointSize {
+              failures.append("the theme shrank the launcher search placeholder")
+            }
+            if let editor = field.currentEditor() as? NSTextView,
+              editor.insertionPointColor != themedInk
+            {
+              failures.append("the launcher search caret did not use the themed text color")
+            }
+            post(12, [], "q")
+            post(13, [], "w")
+            if !(await wait({ model.query == "qw" && field.stringValue == "qw" })) {
+              failures.append("typing in the themed launcher search did not update its query")
+            }
+            post(51, [], "\u{7F}")
+            if !(await wait({ model.query == "q" && field.stringValue == "q" })) {
+              failures.append("Backspace did not edit the themed launcher query")
+            }
+          } else {
+            failures.append("the themed launcher search did not receive keyboard focus")
+          }
+          model.query = ""
+          await screenshot("shelf-theme-pastel")
+          if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1" {
+            await application.show("clipboard")
+            await screenshot("shelf-theme-clipboard-lilac")
+            do {
+              let originalLinks = model.quickLinks
+              defer { model.quickLinks = originalLinks }
+              model.quickLinks = [
+                try QuickLink(name: "Documentation", url: "https://example.com/docs")
+              ]
+              await application.show("quick-links")
+              await screenshot("shelf-theme-quick-links-lilac")
+            } catch {
+              failures.append("could not prepare the light-themed Quick Links capture: \(error)")
+            }
+          }
+          application.openSettings("themes")
+          await settle()
+          model.selectTheme("polka")
+          if await wait({ model.settings.themes.activeID == "polka" && !model.commandPending }) {
+            settings.close()
+            await application.show("apps")
+            if !(await wait({
+              guard let editor = shelf.firstResponder as? NSTextView,
+                (editor.delegate as? NSTextField)?.identifier?.rawValue == "polka-search"
+              else { return false }
+              return editor.insertionPointColor != themedInk
+            })) {
+              failures.append("the original launcher retained the light theme's dark caret")
+            }
+            application.openSettings("themes")
+            await settle()
+          } else {
+            failures.append("restoring the original theme after rendering did not finish")
+          }
+        } else {
+          failures.append("accessible theme card did not apply Lilac Mist")
+        }
+      } else {
+        failures.append("Lilac Mist theme card is missing from the Pastel category")
+      }
     }
   }
   if previewsOnly {
@@ -445,6 +755,8 @@ import SwiftUI
     return failures
   }
   if settingsOnly {
+    trace("theme discovery at first launch and after updating")
+    await exerciseThemeDiscovery()
     trace("Quick Links editor and shelf keyboard flow")
     if let failure = await nativeQuickLinksSmoke(
       application: application, shelf: shelf, model: model, platform: platform,
@@ -1467,6 +1779,19 @@ import SwiftUI
         )
       }
       await screenshot("settings-about", window: settings)
+      let aboutFrame = settings.frame
+      settings.setContentSize(NSSize(width: aboutFrame.width, height: 720))
+      if await wait({
+        guard let content = settings.contentView else { return false }
+        return accessible("update-theme-preview", in: content)?.accessibilityRole() == .image
+      }) {
+        if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1" {
+          await screenshot("settings-theme-whats-new", window: settings, includeTitlebar: true)
+        }
+      } else {
+        failures.append("What's New is missing an accessible installed theme preview")
+      }
+      settings.setFrame(aboutFrame, display: true)
       // Use the real channel picker and keyboard events with a synthetic updater.
       // No network feed, installer, clipboard, or other app instance is touched.
       let originalUpdateService = platform.updates
@@ -1685,6 +2010,9 @@ import SwiftUI
       } else {
         failures.append("settings launcher shortcut recorder missing")
       }
+      settings.makeFirstResponder(sidebar)
+      post(125, window: settings)
+      await exerciseThemes(in: settings)
       settings.makeFirstResponder(sidebar)
       post(125, window: settings)
       if !(await wait({ model.settingsPane == "clipboard" })) {

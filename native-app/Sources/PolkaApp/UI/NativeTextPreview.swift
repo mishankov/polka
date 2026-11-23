@@ -29,6 +29,7 @@ struct NativeColorSwatch: View {
 /// NSTextView provides selection, exact text, native accessibility and scrolling
 /// for large records, wrapping text to the available preview width.
 struct NativePlainTextPreview: NSViewRepresentable {
+  @Environment(\.shelfColors) private var colors
   var text: String
   @Binding var scrollOffset: CGFloat
   var scrollToken: String = ""
@@ -69,13 +70,22 @@ struct NativePlainTextPreview: NSViewRepresentable {
     }
     // Restore only after the text view has laid out its full document below.
     defer { position.connect(scroll) }
+    let foreground = colors?.appKitForeground() ?? NSColor(white: 0.92, alpha: 1)
     guard context.coordinator.text != text else {
+      if context.coordinator.foreground != foreground, let storage = view.textStorage,
+        storage.length > 0
+      {
+        storage.addAttribute(
+          .foregroundColor, value: foreground, range: NSRange(location: 0, length: storage.length))
+      }
+      context.coordinator.foreground = foreground
       return
     }
     context.coordinator.text = text
+    context.coordinator.foreground = foreground
     let attributes: [NSAttributedString.Key: Any] = [
       .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-      .foregroundColor: NSColor(white: 0.92, alpha: 1),
+      .foregroundColor: foreground,
     ]
     let styled = NSAttributedString(string: text, attributes: attributes)
     view.textStorage?.setAttributedString(styled)
@@ -96,6 +106,7 @@ struct NativePlainTextPreview: NSViewRepresentable {
   @MainActor
   final class Coordinator {
     var text: String?
+    var foreground: NSColor?
     var position: NativeScrollPositionBridge.Coordinator
     init(position: NativeScrollPositionBridge.Coordinator) { self.position = position }
   }

@@ -38,11 +38,12 @@ import UserNotifications
   private var launcherAccelerator = "CommandOrControl+Shift+Space"
   private var usage: [String: LauncherUsage] = [:]
   private static let quickLinksKey = "quickLinks"
+  private static let themeDiscoveryKey = "themeDiscoverySeen"
   private var calculationDate = Date()
   private var catalogRequests = 0
   var show: ((String?, String) async -> Void)?
   var hide: ((Bool) -> Void)?
-  var openSettings: ((String?) -> Void)?
+  var openSettings: ((String?, NativeThemeFilter?) -> Void)?
   var openQuickLink: (URL) -> Bool = { NSWorkspace.shared.open($0) }
   var currentPanel: (() -> NSWindow?)?
   var showIncomingFiles: (() async -> Void)?
@@ -68,6 +69,8 @@ import UserNotifications
     AppLocalization.configure(languagePreference)
     model.settings.languagePreference = languagePreference
     model.settings.language = AppLocalization.language
+    model.settings.themes = NativeThemeSettings.load(
+      try settings.get(key: NativeThemeSettings.settingsKey))
     do {
       if let saved = try settings.get(key: Self.quickLinksKey) {
         let data = try JSONSerialization.data(withJSONObject: saved, options: [.fragmentsAllowed])
@@ -207,11 +210,16 @@ import UserNotifications
       usage = (try? JSONDecoder().decode([String: LauncherUsage].self, from: data)) ?? [:]
     }
     model.settings.introduced = (try? settings.get(key: "shelfIntroduced")) as? Bool ?? false
+    model.settings.themeDiscoverySeen =
+      (try? settings.get(key: Self.themeDiscoveryKey)) as? Bool ?? false
     let savedPane = (try? settings.get(key: "settingsPane")) as? String ?? "general"
     model.settingsPane = savedPane == "quick-links" ? "builtin-apps" : savedPane
     model.settingsPaneChanged = { [weak self] pane in
       guard let self, !self.disposed else { return }
-      do { try self.settings.set(key: "settingsPane", value: pane) } catch {
+      do {
+        try self.settings.set(key: "settingsPane", value: pane)
+        if pane == "themes" { try self.recordThemeDiscovery() }
+      } catch {
         self.model.error = error.localizedDescription
       }
     }
@@ -1011,6 +1019,65 @@ import UserNotifications
       }
     }
   }
+  func recordThemeDiscovery() throws {
+    guard !disposed, !model.settings.themeDiscoverySeen else { return }
+    try settings.set(key: Self.themeDiscoveryKey, value: true)
+    model.settings.themeDiscoverySeen = true
+  }
+
+  private func changeTheme(_ command: NativeUICommand) throws {
+    let id = command.strings["id"] ?? ""
+    var next = model.settings.themes
+    let customIndex = next.custom.firstIndex { $0.id == id }
+    let invalid = PolkaCoreError.invalid(localized("Invalid settings"))
+    func proposedName() throws -> String {
+      let name = (command.strings["name"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !name.isEmpty, name.count <= NativeThemeSettings.maxNameLength else {
+        throw PolkaCoreError.invalid(localized("Enter a theme name of up to 35 characters."))
+      }
+      guard next.canUseName(name, editingCustomTheme: id) else {
+        throw PolkaCoreError.invalid(localized("A theme with this name already exists."))
+      }
+      return name
+    }
+
+    switch command.name {
+    case "theme.select":
+      guard next.theme(id: id) != nil else { throw invalid }
+      next.activeID = id
+    case "theme.save":
+      guard id.isEmpty || customIndex != nil else { throw invalid }
+      let input = NativeThemeColors(
+        background: command.strings["background"] ?? "", surface: command.strings["surface"] ?? "",
+        text: command.strings["text"] ?? "", accent: command.strings["accent"] ?? "",
+        selection: command.strings["selection"] ?? "",
+        detailAccent: command.strings["detailAccent"].flatMap { $0.isEmpty ? nil : $0 })
+      guard let colors = input.normalized else {
+        throw PolkaCoreError.invalid(
+          localized("Enter six-digit hex colors. Detail Accent can be blank."))
+      }
+      let theme = NativeShelfTheme(
+        id: id.isEmpty ? UUID().uuidString.lowercased() : id, name: try proposedName(),
+        colors: colors)
+      if let customIndex { next.custom[customIndex] = theme } else { next.custom.append(theme) }
+      next.activeID = theme.id
+    case "theme.duplicate":
+      guard let source = next.theme(id: id) else { throw invalid }
+      let theme = NativeShelfTheme(
+        id: UUID().uuidString.lowercased(), name: next.copyName(for: source), colors: source.colors)
+      next.custom.append(theme)
+      next.activeID = theme.id
+    case "theme.delete":
+      guard let customIndex else { throw invalid }
+      next.custom.remove(at: customIndex)
+      if next.activeID == id { next.activeID = NativeThemeSettings.standard.id }
+    default: throw invalid
+    }
+    guard next != model.settings.themes else { return }
+    let value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(next))
+    try settings.set(key: NativeThemeSettings.settingsKey, value: value)
+    model.settings.themes = next
+  }
   func handle(_ command: NativeUICommand) async throws {
     try validateAvailability(command)
     guard updates.status != "installing" || command.name == "system.quit" else {
@@ -1079,7 +1146,10 @@ import UserNotifications
           id: source.isSnippet ? source.id : "", name: source.name ?? "", content: source.content,
           expectedName: source.name ?? "", expectedContent: source.content)
       }
-    case "shelf.settings": openSettings?(command.strings["section"])
+    case "shelf.settings":
+      openSettings?(
+        command.strings["section"],
+        command.strings["filter"].flatMap(NativeThemeFilter.init(rawValue:)))
     case "quickLinks.save": try saveQuickLink(id: id, command: command)
     case "quickLinks.delete":
       try saveQuickLinks(model.quickLinks.filter { $0.id.uuidString != id })
@@ -1263,11 +1333,17 @@ import UserNotifications
       try settings.set(key: AppLanguagePreference.settingsKey, value: preference.rawValue)
       model.settings.languagePreference = preference
       updateSystemLanguage()
+    case "theme.select", "theme.save", "theme.duplicate", "theme.delete":
+      try changeTheme(command)
+    case "theme.discovery.dismiss":
+      guard nativeCommandInteractionAllowed, !NSMenuTrackingState.shared.active else { return }
+      try recordThemeDiscovery()
     case "settings.set":
       let key = command.strings["key"] ?? ""
-      try settings.set(
-        key: key, value: command.bools["value"] ?? (command.strings["value"] == "true"))
-      if key == "shelfIntroduced" { model.settings.introduced = true }
+      let value = command.bools["value"] ?? (command.strings["value"] == "true")
+      if key == "shelfIntroduced", value { try recordThemeDiscovery() }
+      try settings.set(key: key, value: value)
+      if key == "shelfIntroduced" { model.settings.introduced = value }
     case "clipboardHistory.syncEnabled":
       try await sync.setEnabled(command.bools["enabled"] ?? false)
     case "clipboardHistory.syncInvite": try sync.invite()

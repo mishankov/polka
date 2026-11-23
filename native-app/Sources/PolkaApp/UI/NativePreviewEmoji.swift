@@ -77,12 +77,13 @@ extension NativeUIModel {
 
 struct NativeClipboardPreview: View {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
   var clip: NativeUIClip
   var body: some View {
     VStack(spacing: 0) {
       VStack(alignment: .leading, spacing: 8) {
         Text(clip.name.isEmpty ? nativeClipDate(clip.createdAt) : clip.name).font(.system(size: 11))
-          .foregroundStyle(.secondary).lineLimit(1)
+          .nativeShelfSecondary().lineLimit(1)
         HStack(spacing: 8) {
           if clip.kind == "text" { previewActionButtons }
           Spacer(minLength: 8)
@@ -110,7 +111,7 @@ struct NativeClipboardPreview: View {
             String(
               describing: transformation == "upperCase"
                 ? localized("UPPERCASE") : localized("lowercase")))
-        ).font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 10).padding(
+        ).font(.system(size: 11)).nativeShelfSecondary().padding(.horizontal, 10).padding(
           .bottom, 8)
       }
       if clip.kind == "text" {
@@ -123,7 +124,10 @@ struct NativeClipboardPreview: View {
           scrollOffset: $model.previewScrollOffset,
           scrollToken: clip.id + "-preview-" + String(model.visible)
         )
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .background(
+          colors?.surfaceColor ?? Color(nsColor: .textBackgroundColor),
+          in: RoundedRectangle(cornerRadius: 8)
+        )
         .padding(.horizontal, 12).padding(.bottom, 12)
         .accessibilityIdentifier("native-clipboard-preview")
       } else if clip.kind == "files" {
@@ -136,7 +140,7 @@ struct NativeClipboardPreview: View {
                   : localized("Downloads from {0} when you copy or paste.", clip.sourceDevice))
                 : localized("Original files on this Mac. Their contents are not stored in history.")
             )
-            .font(.system(size: 12)).foregroundStyle(.secondary)
+            .font(.system(size: 12)).nativeShelfSecondary()
             if clip.content.isEmpty, let source = clip.fileSource {
               ForEach(Array(source.items.enumerated()), id: \.offset) { _, item in
                 VStack(alignment: .leading, spacing: 4) {
@@ -144,7 +148,7 @@ struct NativeClipboardPreview: View {
                   Text(
                     ByteCountFormatter.string(fromByteCount: Int64(item.size), countStyle: .file)
                   )
-                  .font(.system(size: 12)).foregroundStyle(.secondary)
+                  .font(.system(size: 12)).nativeShelfSecondary()
                 }
               }
             }
@@ -153,10 +157,10 @@ struct NativeClipboardPreview: View {
               id: \.offset
             ) { _, url in
               HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "doc").foregroundStyle(.secondary)
+                Image(systemName: "doc").nativeShelfSecondary()
                 VStack(alignment: .leading, spacing: 4) {
                   Text(url.lastPathComponent).font(.system(size: 14, weight: .medium))
-                  Text(url.path).font(.system(size: 12)).foregroundStyle(.secondary).textSelection(
+                  Text(url.path).font(.system(size: 12)).nativeShelfSecondary().textSelection(
                     .enabled)
                 }
               }
@@ -179,12 +183,12 @@ struct NativeClipboardPreview: View {
             Text(localized("Text in the Image")).font(.system(size: 14, weight: .semibold))
             if clip.ocrStatus.isEmpty {
               Text(localized("Recognizing text on this Mac… You can already copy the image."))
-                .foregroundStyle(.secondary)
+                .nativeShelfSecondary()
             } else if clip.ocrStatus == "failed" {
-              Text(localized("Could not recognize text. Retry text recognition.")).foregroundStyle(
-                .secondary)
+              Text(localized("Could not recognize text. Retry text recognition."))
+                .nativeShelfSecondary()
             } else if clip.ocrStatus == "empty" {
-              Text(localized("No text found in the image.")).foregroundStyle(.secondary)
+              Text(localized("No text found in the image.")).nativeShelfSecondary()
             } else {
               Text(clip.ocrText).font(.system(size: 14, design: .monospaced)).textSelection(
                 .enabled
@@ -196,7 +200,7 @@ struct NativeClipboardPreview: View {
               Text(localized("This version of macOS does not support Russian text recognition."))
                 .font(
                   .system(size: 11)
-                ).foregroundStyle(.secondary)
+                ).nativeShelfSecondary()
             }
           }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(
             NativeScrollPositionBridge(
@@ -271,7 +275,7 @@ struct NativeEmojiView: View {
     let selected = results.first(where: { $0.id == model.selectedID }) ?? results.first
     return VStack(spacing: 0) {
       NativeBuiltinHeader(model: model, title: localized("Emoji")) {
-        Text(localized("English / Русский")).font(.system(size: 11)).foregroundStyle(.secondary)
+        Text(localized("English / Русский")).font(.system(size: 11)).nativeShelfSecondary()
       }
       NativeBuiltinSearch(
         model: model, placeholder: localized("Name or word: smile, heart…"), maxLength: 256)
@@ -292,7 +296,7 @@ struct NativeEmojiView: View {
           ForEach(nativeEmojiTones, id: \.0) { tone in Text(tone.1).tag(tone.0) }
         }.labelsHidden().frame(maxWidth: 160).disabled(model.busy).accessibilityLabel(
           localized("Skin tone"))
-      }.font(.system(size: 11)).foregroundStyle(.secondary).padding(10)
+      }.font(.system(size: 11)).nativeShelfSecondary().padding(10)
       ScrollViewReader { reader in
         ScrollView {
           LazyVGrid(
@@ -305,12 +309,12 @@ struct NativeEmojiView: View {
               } label: {
                 VStack(spacing: 0) {
                   Text(emoji.value).font(.system(size: 29)).frame(height: 38)
-                  Text(index < 9 ? "⌘\(index + 1)" : " ").font(.system(size: 8)).foregroundStyle(
-                    .tertiary)
+                  Text(index < 9 ? "⌘\(index + 1)" : " ").font(.system(size: 8))
+                    .nativeShelfSecondary(.tertiary)
                 }
-                .frame(maxWidth: .infinity).padding(.vertical, 3).background(
-                  selected?.id == emoji.id ? Color.accentColor.opacity(0.16) : .clear,
-                  in: RoundedRectangle(cornerRadius: 6))
+                .frame(maxWidth: .infinity).padding(.vertical, 3)
+                .nativeShelfRow(
+                  selected: selected?.id == emoji.id, defaultOpacity: 0.16, cornerRadius: 6)
               }.buttonStyle(.plain).disabled(model.busy).help(emoji.name).accessibilityLabel(
                 emoji.name == emoji.englishName
                   ? emoji.name : emoji.name + " · " + emoji.englishName
@@ -333,7 +337,7 @@ struct NativeEmojiView: View {
           } else if results.isEmpty {
             VStack(spacing: 10) {
               Text(localized("Nothing Found")).font(.system(size: 15, weight: .semibold))
-              Text(localized("Try another word in English or Russian.")).foregroundStyle(.secondary)
+              Text(localized("Try another word in English or Russian.")).nativeShelfSecondary()
               if model.emojiCategory != "all" || model.emojiTone != "default" {
                 NativeCommandButton(
                   title: localized("Search All Categories and Skin Tones"), disabled: model.busy
@@ -356,7 +360,7 @@ struct NativeEmojiView: View {
           ).lineLimit(1)
           Text(selected?.englishName ?? localized("Search by names and keywords")).font(
             .system(size: 11)
-          ).foregroundStyle(.secondary).lineLimit(1)
+          ).nativeShelfSecondary().lineLimit(1)
         }
         Spacer()
         NativeSelectionActions(
@@ -374,14 +378,17 @@ struct NativeEmojiView: View {
 
 struct NativeEmojiCategoryPicker: NSViewRepresentable {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
   func makeNSView(context: Context) -> NativeEmojiCategoryBar {
     let bar = NativeEmojiCategoryBar()
     bar.model = model
+    bar.colors = colors
     bar.synchronizeSelection()
     return bar
   }
   func updateNSView(_ bar: NativeEmojiCategoryBar, context: Context) {
     bar.model = model
+    bar.colors = colors
     bar.synchronizeSelection()
   }
 }
@@ -401,6 +408,7 @@ extension NativeUIModel {
 
 final class NativeEmojiCategoryBar: NSView {
   weak var model: NativeUIModel?
+  var colors: NativeThemeColors?
   private(set) var buttons: [NativeEmojiCategoryButton] = []
   private let selectionGlass = NativeEmojiSelectionGlass()
   override init(frame frameRect: NSRect) {
@@ -475,9 +483,13 @@ final class NativeEmojiCategoryBar: NSView {
       button.setAccessibilityHelp(button.toolTip)
       button.state = index == selected ? .on : .off
       button.isEnabled = canInteract
+      let tint = colors?.appKitForeground(selected: index == selected)
+      button.contentTintColor = tint ?? .labelColor
+      button.hoverColor = colors?.appKitForeground() ?? .labelColor
       button.setAccessibilitySelected(index == selected)
       button.needsDisplay = true
     }
+    selectionGlass.tintColor = colors.map { NativeThemeColors.appKitColor($0.selection) }
     updateSelectionGlass()
   }
   @objc private func categoryClicked(_ sender: NativeEmojiCategoryButton) {
@@ -511,6 +523,7 @@ private final class NativeEmojiSelectionGlass: NSGlassEffectView {
 }
 
 final class NativeEmojiCategoryButton: NSButton {
+  var hoverColor = NSColor.labelColor
   private var hovering = false
   private var hoverTrackingArea: NSTrackingArea?
   override var acceptsFirstResponder: Bool { isEnabled && state == .on }
@@ -538,7 +551,7 @@ final class NativeEmojiCategoryButton: NSButton {
   }
   override func draw(_ dirtyRect: NSRect) {
     if state == .off && hovering && isEnabled {
-      NSColor.labelColor.withAlphaComponent(0.06).setFill()
+      hoverColor.withAlphaComponent(0.06).setFill()
       NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 3), xRadius: 17, yRadius: 17).fill()
     }
     super.draw(dirtyRect)

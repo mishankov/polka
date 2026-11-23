@@ -23,6 +23,7 @@ private struct NativeCommandStyle: ViewModifier {
 }
 
 struct NativeCommandButton: View {
+  @Environment(\.shelfColors) private var colors
   var title: String
   var symbol: String = ""
   var shortcut: String = ""
@@ -31,18 +32,26 @@ struct NativeCommandButton: View {
   var destructive = false
   var action: () -> Void
   var body: some View {
+    let ink: Color =
+      destructive
+      ? .black
+      : prominent
+        ? colors?.accentTextColor ?? NativeThemeColors.contrastingText(on: .controlAccentColor)
+        : .primary
     Button {
       if !disabled, nativeCommandInteractionAllowed, !NSMenuTrackingState.shared.active { action() }
     } label: {
       HStack(spacing: 5) {
         if !symbol.isEmpty { Image(systemName: symbol) }
         Text(title)
-        if !shortcut.isEmpty { Text(shortcut).font(.system(size: 11)).foregroundStyle(.secondary) }
-      }.foregroundStyle(.primary).frame(minHeight: 20)
+        if !shortcut.isEmpty {
+          Text(shortcut).font(.system(size: 11))
+        }
+      }.foregroundStyle(ink).frame(minHeight: 20)
     }
     .modifier(NativeCommandStyle(prominent: prominent))
     .buttonBorderShape(.capsule)
-    .tint(destructive ? .red : prominent ? .accentColor : nil)
+    .tint(destructive ? .red : prominent ? (colors?.accentColor ?? .accentColor) : nil)
     .disabled(disabled)
     .help(title + (shortcut.isEmpty ? "" : " · " + shortcut))
     .accessibilityHint(shortcut.isEmpty ? "" : localized("Keyboard shortcut: ") + shortcut)
@@ -50,6 +59,7 @@ struct NativeCommandButton: View {
   }
 }
 struct NativeIconButton: View {
+  @Environment(\.shelfColors) private var colors
   var label: String
   var symbol: String
   var shortcut = ""
@@ -60,7 +70,9 @@ struct NativeIconButton: View {
     Button {
       if !disabled, nativeCommandInteractionAllowed, !NSMenuTrackingState.shared.active { action() }
     } label: {
-      Image(systemName: symbol).foregroundStyle(.primary).frame(width: 20, height: 20)
+      Image(systemName: symbol)
+        .foregroundStyle(colors?.accentTextColor ?? .primary)
+        .frame(width: 20, height: 20)
     }
     .modifier(NativeCommandStyle(prominent: prominent)).buttonBorderShape(.circle).disabled(
       disabled
@@ -84,6 +96,7 @@ struct NativeToolbar<Content: View>: View {
 
 struct NativeBuiltinHeader<Actions: View>: View {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
   var title: String
   @ViewBuilder var actions: () -> Actions
   var body: some View {
@@ -105,7 +118,7 @@ struct NativeBuiltinHeader<Actions: View>: View {
       NativeIconButton(
         label: localized("Close Shelf"), symbol: "xmark", shortcut: "⌘W", disabled: model.busy
       ) { model.closeShelf() }.accessibilityIdentifier("builtin-close")
-    }
+    }.background(colors?.searchHeaderColor ?? .clear)
   }
 }
 
@@ -128,6 +141,7 @@ struct NativeFileDownloadProgress: View {
 
 struct NativeBuiltinSearch: View {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
   var placeholder: String
   var maxLength = 10000
   var body: some View {
@@ -137,6 +151,7 @@ struct NativeBuiltinSearch: View {
     ).frame(maxWidth: .infinity).frame(height: NativeLargeSearchField.controlHeight)
       .disabled(model.fileDownloadProgress != nil)
       .padding(.horizontal, 12).padding(.bottom, 10)
+      .background(colors?.searchHeaderColor ?? .clear)
   }
 }
 
@@ -166,27 +181,30 @@ struct NativeSelectionActions: View {
 struct NativeKeyboardHint: View {
   var text: String
   var body: some View {
-    Text(text).font(.system(size: 11)).foregroundStyle(.secondary)
+    Text(text).font(.system(size: 11)).nativeShelfSecondary()
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, 12).padding(.bottom, 12)
   }
 }
 struct NativeErrorNotice: View {
+  @Environment(\.shelfColors) private var colors
   var text: String
   var body: some View {
     if !text.isEmpty {
+      let ink = colors?.statusColor(error: true) ?? .red
       HStack(alignment: .top, spacing: 8) {
         Image(systemName: "exclamationmark.triangle")
         Text(text).textSelection(.enabled)
         Spacer(minLength: 0)
       }
-      .font(.system(size: 12)).foregroundStyle(.red).padding(10)
-      .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+      .font(.system(size: 12)).foregroundStyle(ink).padding(10)
+      .background(colors?.surfaceColor ?? ink.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
       .accessibilityElement(children: .combine)
     }
   }
 }
 struct NativeSearchField: View {
+  @Environment(\.shelfColors) private var colors
   @Binding var text: String
   var placeholder: String
   var maxLength = 10000
@@ -195,12 +213,12 @@ struct NativeSearchField: View {
   var body: some View {
     NativeSearchInput(
       text: $text, placeholder: placeholder, maxLength: maxLength, focusToken: focusToken,
-      focused: $focused
+      focused: $focused, colors: colors
     )
     // AppKit's window-level focus ring bypasses the animated shelf mask.
     // A SwiftUI border shares the same clipping as the field and shelf.
     .overlay {
-      Capsule().strokeBorder(Color.accentColor, lineWidth: 2).clipShape(Capsule())
+      Capsule().strokeBorder(colors?.focusColor ?? .accentColor, lineWidth: 2).clipShape(Capsule())
         .opacity(focused ? 1 : 0).allowsHitTesting(false).accessibilityHidden(true)
     }
   }
@@ -211,6 +229,7 @@ private struct NativeSearchInput: NSViewRepresentable {
   var maxLength: Int
   var focusToken: String
   @Binding var focused: Bool
+  var colors: NativeThemeColors?
   func makeNSView(context: Context) -> NSSearchField {
     let field = NativeLargeSearchField()
     field.identifier = NSUserInterfaceItemIdentifier("polka-search")
@@ -252,7 +271,9 @@ private struct NativeSearchInput: NSViewRepresentable {
   }
   func updateNSView(_ field: NSSearchField, context: Context) {
     context.coordinator.parent = self
-    field.placeholderString = placeholder
+    if let native = field as? NativeLargeSearchField {
+      native.updateColors(colors, placeholder: placeholder)
+    }
     context.coordinator.synchronize(field, text: text)
     if context.coordinator.focusToken != focusToken {
       context.coordinator.focusToken = focusToken
@@ -323,6 +344,32 @@ final class NativeLargeSearchField: NSSearchField {
   var onFocusChanged: ((Bool) -> Void)?
   private var pendingFocus = false
   private var focusObservers: [NSObjectProtocol] = []
+  private var colors: NativeThemeColors?
+  private var appliedPlaceholder: String?
+  func updateColors(_ colors: NativeThemeColors?, placeholder: String) {
+    guard self.colors != colors || appliedPlaceholder != placeholder else { return }
+    if self.colors != colors {
+      self.colors = colors
+      let ink = colors?.appKitForeground()
+      textColor = ink ?? .controlTextColor
+      (cell as? NativeLargeSearchFieldCell)?.themeInk = ink
+      (currentEditor() as? NSTextView)?.insertionPointColor = ink
+      needsDisplay = true
+    }
+    appliedPlaceholder = placeholder
+    setAccessibilityLabel(placeholder)
+    if let colors {
+      placeholderAttributedString = NSAttributedString(
+        string: placeholder,
+        attributes: [
+          .font: font ?? NSFont.systemFont(ofSize: 20),
+          .foregroundColor: colors.appKitForeground(muted: true),
+        ])
+    } else {
+      placeholderAttributedString = nil
+      placeholderString = placeholder
+    }
+  }
   func reportFocus() {
     guard let window, let editor = currentEditor() else {
       onFocusChanged?(false)
@@ -389,9 +436,13 @@ final class NativeLargeSearchField: NSSearchField {
   }
   override func draw(_ dirtyRect: NSRect) {
     let path = bezel
-    NSColor.controlBackgroundColor.setFill()
+    let fill =
+      colors.map { NativeThemeColors.appKitColor($0.surface) }
+      ?? NSColor.controlBackgroundColor
+    fill.setFill()
     path.fill()
-    NSColor.separatorColor.setStroke()
+    let stroke = colors?.appKitForeground().withAlphaComponent(0.2) ?? NSColor.separatorColor
+    stroke.setStroke()
     path.lineWidth = 1
     path.stroke()
     super.draw(dirtyRect)
@@ -401,6 +452,16 @@ final class NativeLargeSearchField: NSSearchField {
 /// The same public metrics position native drawing, button hit targets, and the
 /// field editor, so typed text and IME composition align with the placeholder.
 final class NativeLargeSearchFieldCell: NSSearchFieldCell {
+  var themeInk: NSColor?
+
+  override func setUpFieldEditorAttributes(_ textObj: NSText) -> NSText {
+    let editor = super.setUpFieldEditorAttributes(textObj)
+    if let textView = editor as? NSTextView {
+      textView.insertionPointColor = themeInk
+    }
+    return editor
+  }
+
   override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
     drawInterior(withFrame: cellFrame, in: controlView)
   }

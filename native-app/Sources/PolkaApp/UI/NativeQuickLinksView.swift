@@ -3,6 +3,7 @@ import SwiftUI
 
 struct NativeQuickLinksView: View {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
   @FocusState private var nameFocused: Bool
 
   var body: some View {
@@ -39,7 +40,7 @@ struct NativeQuickLinksView: View {
             model.query.isEmpty
               ? localized("No saved links.") : localized("Nothing found. Try another word.")
           )
-          .font(.system(size: 13)).foregroundStyle(.secondary).padding(24)
+          .font(.system(size: 13)).nativeShelfSecondary().padding(24)
           Spacer(minLength: 0)
         } else {
           linkList
@@ -58,17 +59,21 @@ struct NativeQuickLinksView: View {
           get: { model.selectedQuickLink?.id }, set: { model.selectedQuickLinkID = $0 })
       ) { link in
         HStack(spacing: 10) {
-          Image(systemName: "link").foregroundStyle(.secondary).accessibilityHidden(true)
+          Image(systemName: "link").nativeShelfDetail().accessibilityHidden(true)
           VStack(alignment: .leading, spacing: 4) {
             Text(link.displayName).font(.system(size: 13)).lineLimit(1)
               .truncationMode(link.name.isEmpty ? .middle : .tail)
             if !link.name.isEmpty {
-              Text(link.url.absoluteString).font(.system(size: 11)).foregroundStyle(.secondary)
+              Text(link.url.absoluteString).font(.system(size: 11)).nativeShelfSecondary()
                 .lineLimit(1).truncationMode(.middle)
             }
           }
-        }.padding(.vertical, 4).tag(link.id).id(link.id)
+        }.padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
+          .nativeShelfRow(
+            selected: colors != nil && model.selectedQuickLink?.id == link.id, defaultOpacity: 0
+          ).tag(link.id).id(link.id)
       }.listStyle(.plain).scrollContentBackground(.hidden)
+        .tint(colors?.selectionColor)
         .disabled(!model.canManageQuickLinks).accessibilityLabel(localized("Quick Links"))
         .onChange(of: model.selectedQuickLinkID) { _, id in if let id { reader.scrollTo(id) } }
     }

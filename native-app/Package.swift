@@ -35,7 +35,7 @@ let package = Package(
         .product(name: "NIOPosix", package: "swift-nio"),
         .product(name: "NIOSSL", package: "swift-nio-ssl"),
         .product(name: "X509", package: "swift-certificates"),
-      ]),
+      ], resources: [.copy("Resources/theme-release-preview.png")]),
     .executableTarget(name: "PolkaCoreProbe", dependencies: ["PolkaCore"]),
     .executableTarget(
       name: "PolkaSyncFixture",
