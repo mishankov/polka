@@ -465,28 +465,65 @@ import SwiftUI
     model.themeFilter = .all
     await screenshot("settings-themes", window: settings, includeTitlebar: true)
     let themesFrame = settings.frame
+    let initialCardWidth = settings.contentView.flatMap {
+      accessible("theme-card-dracula", in: $0)?.accessibilityFrame().width
+    }
     settings.setContentSize(NSSize(width: 1120, height: themesFrame.height))
     if let row = await nativeSmokeWaitForView(
       in: settings, ofType: NSScrollView.self,
       ready: {
-        $0.contentView.bounds.width > 800
-          && ($0.documentView?.frame.width ?? 0) > $0.contentView.bounds.width
+        let viewport = $0.contentView
+        let visible = settings.convertToScreen(viewport.convert(viewport.bounds, to: nil))
+        guard let first = accessible("theme-card-dracula", in: settings.contentView)
+        else { return false }
+        return viewport.bounds.width > 800
+          && ($0.documentView?.frame.width ?? 0) > viewport.bounds.width
+          && visible.minY <= first.accessibilityFrame().midY
+          && first.accessibilityFrame().midY <= visible.maxY
       }
     ), let content = settings.contentView,
-      let card = accessible("theme-card-tokyo-night", in: content)
+      let card = accessible("theme-card-dracula", in: content),
+      let initialCardWidth
     {
-      let viewport = row.contentView
-      let visible = settings.convertToScreen(viewport.convert(viewport.bounds, to: nil))
-      let cardFrame = card.accessibilityFrame()
-      if cardFrame.width < 140 || cardFrame.minX < visible.minX - 1
-        || cardFrame.maxX > visible.maxX + 1
+      if initialCardWidth < 140 || abs(card.accessibilityFrame().width - initialCardWidth) > 1 {
+        failures.append("Popular theme cards changed width when Settings was resized")
+      }
+      let origin = row.contentView.bounds.origin.x
+      if await wait({ accessible("theme-scroll-popular-right", in: content) != nil }),
+        let forward = accessible("theme-scroll-popular-right", in: content)
       {
-        failures.append("the fifth Popular theme card is clipped in wide Settings")
+        forward.accessibilityPerformPress()
+        if await wait({
+          row.contentView.bounds.origin.x > origin + 1
+            && accessible("theme-scroll-popular-left", in: content) != nil
+        }),
+          let back = accessible("theme-scroll-popular-left", in: content)
+        {
+          let advancedOrigin = row.contentView.bounds.origin.x
+          back.accessibilityPerformPress()
+          if !(await wait({ row.contentView.bounds.origin.x < advancedOrigin - 1 })) {
+            failures.append("the Popular theme scroll back button did not reveal previous cards")
+          }
+        } else {
+          failures.append("the Popular theme scroll forward button did not reveal more cards")
+        }
+      } else {
+        failures.append("the Popular row overflows without a visible scroll forward button")
+      }
+      await screenshot("settings-themes-wide", window: settings, includeTitlebar: true)
+      func nextThemeFocused() -> Bool {
+        accessible("theme-card-tokyo-night", in: content)?.isAccessibilityFocused() == true
+      }
+      for _ in 0..<24 where !nextThemeFocused() {
+        post(48, [], "\t", window: settings)
+        try? await Task.sleep(nanoseconds: 35_000_000)
+      }
+      if !nextThemeFocused() {
+        failures.append("Tab did not reach the theme beyond the viewport")
       }
     } else {
       failures.append("the Themes overview did not expand to use wide Settings")
     }
-    await screenshot("settings-themes-wide", window: settings, includeTitlebar: true)
     settings.setFrame(themesFrame, display: true)
     if let row = await nativeSmokeWaitForView(
       in: settings, ofType: NSScrollView.self,
@@ -2241,6 +2278,10 @@ final class NativeSmokeBlockedEncryption: EncryptionCodec {
     if band == nil || band != search || band == results {
       failures.append("themed launcher notch band and search header do not share a fill")
     }
+    let middle = image.colorAt(x: Int(view.bounds.midX * scale), y: Int(8 * scale))
+    if middle != band {
+      failures.append("the themed launcher paints a simulated cutout over the window")
+    }
   } else {
     failures.append("cannot inspect the themed launcher notch band")
   }
@@ -2256,8 +2297,8 @@ final class NativeSmokeBlockedEncryption: EncryptionCodec {
       let frame = button.accessibilityFrame()
       let clearsNotch =
         id == "builtin-back" ? frame.maxX <= center - clearance : frame.minX >= center + clearance
-      if frame.maxY > top + 1 || frame.minY < top - notch.height - 1 || !clearsNotch {
-        failures.append("\(id) is outside the usable part of the notch band")
+      if frame.maxY > top - 6 || frame.minY < top - notch.height - 7 || !clearsNotch {
+        failures.append("\(id) is outside the padded notch toolbar")
       }
       if button.accessibilityHelp()?.contains(key) != true {
         failures.append("\(id) has no discoverable keyboard shortcut in the notch band")
@@ -2289,5 +2330,6 @@ private struct NativeSmokeAccessibility {
   func accessibilityRole() -> NSAccessibility.Role? { object.accessibilityRole?() }
   func accessibilityFrame() -> NSRect { object.accessibilityFrame?() ?? .zero }
   func isAccessibilityEnabled() -> Bool { object.isAccessibilityEnabled?() ?? false }
+  func isAccessibilityFocused() -> Bool { object.isAccessibilityFocused?() ?? false }
   func accessibilityPerformPress() { _ = object.accessibilityPerformPress?() }
 }

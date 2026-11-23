@@ -132,6 +132,7 @@ struct NativeBuiltinHeader<Actions: View>: View {
     }
     .frame(minHeight: model.topInset > 0 ? max(32, model.topInset) : 56)
     .padding(.horizontal, 12)
+    .padding(.top, model.topInset > 0 ? 6 : 0)
     .background(colors?.searchHeaderColor ?? .clear)
     .accessibilityElement(children: .contain)
     .accessibilityLabel(title)

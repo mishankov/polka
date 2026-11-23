@@ -26,11 +26,10 @@ struct NativeShelfView: View {
     .background(NativeKeyboardBridge(model: model).frame(width: 0, height: 0))
     .background(colors?.backgroundColor ?? .black)
     .overlay(alignment: .top) {
-      if !model.visible || model.topInset > 0 {
-        Color.black.frame(
-          width: max(model.notchWidth, NativeShelfPresentationView.collapsedWidth),
-          height: max(3, model.topInset)
-        ).allowsHitTesting(false).accessibilityHidden(true)
+      // The display's cutout supplies the notch silhouette as the shelf opens.
+      if !model.visible, model.topInset == 0 {
+        Color.black.frame(width: NativeShelfPresentationView.collapsedWidth, height: 3)
+          .allowsHitTesting(false).accessibilityHidden(true)
       }
     }
     .modifier(NativeFileDropModifier(model: model))
