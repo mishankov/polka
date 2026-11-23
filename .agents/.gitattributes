@@ -1,0 +1,15 @@
+# BEGIN mstack managed skill attributes
+skills/babysit-pr/** linguist-vendored
+skills/capture-issue/** linguist-vendored
+skills/file-pr/** linguist-vendored
+skills/full-send/** linguist-vendored
+skills/full-stop/** linguist-vendored
+skills/impeccable/** linguist-vendored
+skills/implement/** linguist-vendored
+skills/implement-ui/** linguist-vendored
+skills/leaving-pr-comments/** linguist-vendored
+skills/manage-mstack-skills/** linguist-vendored
+skills/pick-next-work/** linguist-vendored
+skills/review-group/** linguist-vendored
+skills/review-loop/** linguist-vendored
+# END mstack managed skill attributes

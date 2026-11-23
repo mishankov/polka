@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "skills": {
+    "babysit-pr": {
+      "commit": "431a25319aaacd7f806bb50cb374698748ce8a85",
+      "sha256": "18cb1fdcab618f1adaa7aba8ee9cbf63018d2ac0a8968312b2cfa961b25844b7"
+    },
+    "capture-issue": {
+      "commit": "431a25319aaacd7f806bb50cb374698748ce8a85",
+      "sha256": "9eb07bedda3a56a5fcf8d0a3d5100d367d506db41ef66e4501bafe1db1d96ca3"
+    },
+    "file-pr": {
+      "commit": "431a25319aaacd7f806bb50cb374698748ce8a85",
+      "sha256": "7909c0a5fc66e0a77d03cedbfc8c37f648cb93416c04398aa2a6face63f4809c"
+    },
+    "full-send": {
+      "commit": "431a25319aaacd7f806bb50cb374698748ce8a85",
+      "sha256": "82643c8ddcaaad74d256e4f3010943cfceeb472a4f6a3bcfba51252c36ed5ac7"
+    },
+    "full-stop": {
+      "commit": "431a25319aaacd7f806bb50cb374698748ce8a85",
+      "sha256": "66d196ad5eb9d00f9114b5e0d43ecf77d5e57597f9cf11a61460274994c43972"
+    },
+    "impeccable": {
+      "commit": "b49177d32788f2dc585c42831d845dacf1ebed2c",
+      "sha256": "100803e6091f6f0033dc4e6f7cfbcdca8aa86473bd031159bcc3d4ec8dda42ec",
+      "release": "skill-v4.10.0",
+      "source": {
+        "repository": "https://github.com/pbakaus/impeccable.git",
+        "path": ".agents/skills/impeccable",
+        "include": [
+          "LICENSE",
+          "NOTICE.md"
+        ]
+      }
+    },
+    "implement": {
+      "commit": "431a25319aaacd7f806bb50cb374698748ce8a85",
+      "sha256": "fbaab379f90983d63bbebc66adcbc16e5bc240ebc467d20d73eea46de2696d35"
+    },
+    "implement-ui": {
+      "commit": "431a25319aaacd7f806bb50cb374698748ce8a85",
+      "sha256": "0fcd4643846bd747507a20372f77c6a6eb2de41867a229c19f3df9351377c954"
+    },
+    "leaving-pr-comments": {
+      "commit": "431a25319aaacd7f806bb50cb374698748ce8a85",
+      "sha256": "dfada04017a20225b7157026f235d13e439b6c673ec9c40bf8592e0ec2ab0c1d"
+    },
+    "manage-mstack-skills": {
+      "commit": "431a25319aaacd7f806bb50cb374698748ce8a85",
+      "sha256": "9c4d48e8a41e9edf3d2d8e00a47101c3325611fbe9fc8c46688aaf33503b99a0"
+    },
+    "pick-next-work": {
+      "commit": "431a25319aaacd7f806bb50cb374698748ce8a85",
+      "sha256": "6ea288ae6b4901eaa9dd877f2c2b76ebaf984c7707354332d58702a925314c90"
+    },
+    "review-group": {
+      "commit": "431a25319aaacd7f806bb50cb374698748ce8a85",
+      "sha256": "4e99ddd8ea43207d63b82895041e5542239a6ae9494eea110bab1d5cb89f0f81"
+    },
+    "review-loop": {
+      "commit": "431a25319aaacd7f806bb50cb374698748ce8a85",
+      "sha256": "8808683662e4db347202ebafc57d84a8b4a31d61d68930607a50daff16b53d03"
+    }
+  }
+}
