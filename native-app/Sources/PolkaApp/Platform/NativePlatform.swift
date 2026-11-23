@@ -37,11 +37,13 @@ import UserNotifications
   private(set) var builtinApps = BuiltinAppAvailability()
   private var launcherAccelerator = "CommandOrControl+Shift+Space"
   private var usage: [String: LauncherUsage] = [:]
+  private static let quickLinksKey = "quickLinks"
   private var calculationDate = Date()
   private var catalogRequests = 0
   var show: ((String?, String) async -> Void)?
   var hide: ((Bool) -> Void)?
   var openSettings: ((String?) -> Void)?
+  var openQuickLink: (URL) -> Bool = { NSWorkspace.shared.open($0) }
   var currentPanel: (() -> NSWindow?)?
   var showIncomingFiles: (() async -> Void)?
   var endIncomingFiles: (() -> Void)?
@@ -66,6 +68,19 @@ import UserNotifications
     AppLocalization.configure(languagePreference)
     model.settings.languagePreference = languagePreference
     model.settings.language = AppLocalization.language
+    do {
+      if let saved = try settings.get(key: Self.quickLinksKey) {
+        let data = try JSONSerialization.data(withJSONObject: saved, options: [.fragmentsAllowed])
+        let links = try JSONDecoder().decode([QuickLink].self, from: data)
+        if Set(links.map(\.id)).count == links.count {
+          model.quickLinks = links
+        } else {
+          model.quickLinksStorageError = true
+        }
+      }
+    } catch {
+      model.quickLinksStorageError = true
+    }
     let historyPath = root.appendingPathComponent("clipboard-history/history.enc")
     let syncPath = root.appendingPathComponent("clipboard-history/sync.enc")
     let codec: EncryptionCodec
@@ -723,14 +738,48 @@ import UserNotifications
           detail: value.interpretation ?? value.expression, expression: value.expression,
           sourceDate: value.sourceDate ?? ""))
     }
-    rows += LauncherSearch.apps(
+    let apps = LauncherSearch.apps(
       builtinApps.catalog(LauncherSearch.builtinApps + applications.apps), query: query,
       usage: usage
     ).map {
       NativeUISearchRow(
         id: $0.id, kind: "app", title: $0.name, detail: $0.description, icon: $0.icon)
     }
-    if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    let nameQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !nameQuery.isEmpty, !model.quickLinks.isEmpty {
+      let links = model.quickLinks.map {
+        NativeLauncherApp(id: $0.resultID, name: $0.name)
+      }
+      let destinations = Dictionary(
+        uniqueKeysWithValues: model.quickLinks.map {
+          ($0.resultID, $0.url.absoluteString)
+        })
+      // The launcher normalizer can tie or omit case-equivalent titles.
+      let lowercasedName = nameQuery.lowercased()
+      let exact =
+        links.first { $0.name == nameQuery }
+        ?? links.first { $0.name.lowercased() == lowercasedName }
+        ?? links.first { $0.name.compare(nameQuery, options: .caseInsensitive) == .orderedSame }
+      var matches = LauncherSearch.apps(links, query: query)
+      if let exact {
+        matches.removeAll { $0.id == exact.id }
+        matches.insert(exact, at: 0)
+      }
+      let linkRows = matches.map {
+        NativeUISearchRow(
+          id: $0.id, kind: "quick-link", title: $0.name,
+          detail: destinations[$0.id] ?? "")
+      }
+      if exact == nil {
+        rows += apps + linkRows
+      } else {
+        rows.insert(contentsOf: linkRows, at: 0)
+        rows += apps
+      }
+    } else {
+      rows += apps
+    }
+    if !nameQuery.isEmpty {
       let snapshot = history.snapshot(includeImageContent: false)
       for (clips, more) in [(snapshot.clips, "more-clips"), (snapshot.snippets, "more-snippets")] {
         guard builtinApps.allows(destination: more == "more-clips" ? "clipboard" : "snippets")
@@ -755,6 +804,35 @@ import UserNotifications
       }
     }
     return rows
+  }
+  private func saveQuickLinks(_ links: [QuickLink]) throws {
+    guard !model.quickLinksStorageError else {
+      throw PolkaCoreError.invalid(localized("Could not load saved links."))
+    }
+    let data = try JSONEncoder().encode(links)
+    try settings.set(key: Self.quickLinksKey, value: JSONSerialization.jsonObject(with: data))
+    model.quickLinks = links
+  }
+  private func saveQuickLink(id: String, command: NativeUICommand) throws {
+    var links = model.quickLinks
+    let index = links.firstIndex { $0.id.uuidString == id }
+    guard id.isEmpty || index != nil else {
+      throw PolkaCoreError.invalid(localized("This Quick Link is no longer available."))
+    }
+    let link: QuickLink
+    do {
+      link = try QuickLink(
+        id: index.map { links[$0].id } ?? UUID(), name: command.strings["name"] ?? "",
+        url: command.strings["url"] ?? "")
+    } catch QuickLink.ValidationError.emptyName {
+      throw PolkaCoreError.invalid(localized("Enter a name for this link."))
+    } catch QuickLink.ValidationError.invalidURL {
+      throw PolkaCoreError.invalid(
+        localized("Enter a valid web URL or app deep link, including its scheme."))
+    }
+    if let index { links[index] = link } else { links.append(link) }
+    try saveQuickLinks(links)
+    model.selectedQuickLinkID = link.id
   }
   private func copy(_ content: ClipboardClip, selection: Bool, transformation: String? = nil)
     async throws
@@ -1000,6 +1078,21 @@ import UserNotifications
           expectedName: source.name ?? "", expectedContent: source.content)
       }
     case "shelf.settings": openSettings?(command.strings["section"])
+    case "quickLinks.save": try saveQuickLink(id: id, command: command)
+    case "quickLinks.delete":
+      try saveQuickLinks(model.quickLinks.filter { $0.id.uuidString != id })
+      model.selectedQuickLinkID = nil
+    case "quickLinks.open":
+      guard let link = model.quickLinks.first(where: { $0.resultID == id }) else {
+        throw PolkaCoreError.invalid(localized("This Quick Link is no longer available."))
+      }
+      guard openQuickLink(link.url) else {
+        throw PolkaCoreError.invalid(
+          localized(
+            "macOS could not open “{0}”. Check the URL and make sure its app is installed.",
+            link.name))
+      }
+      hide?(true)
     case "launcher.openMac":
       if id.hasPrefix("builtin:") {
         await show?(String(id.dropFirst(8)), "")
@@ -1219,6 +1312,10 @@ import UserNotifications
     history.flush()
     settings.close()
   }
+}
+
+extension QuickLink {
+  fileprivate var resultID: String { "quick-link:" + id.uuidString }
 }
 
 func nativeImageSaveError(_ error: Error) -> String {

@@ -49,6 +49,27 @@ extension NativeUIModel {
       return true
     }
     if key.isSettings {
+      if settingsPane == "quick-links" {
+        if quickLinkDraft != nil {
+          if cmd, enter {
+            saveQuickLink()
+            return true
+          }
+          if plain, escape {
+            cancelQuickLinkEdit()
+            return true
+          }
+        } else if cmd {
+          switch key.code {
+          case 45: addQuickLink()
+          case 14: editQuickLink()
+          case 51 where !key.editing, 117 where !key.editing: deleteQuickLink()
+          default: return false
+          }
+          return true
+        }
+        return false
+      }
       if cmd, key.code == 15, settingsPane == "about" {
         checkForUpdates()
         return true

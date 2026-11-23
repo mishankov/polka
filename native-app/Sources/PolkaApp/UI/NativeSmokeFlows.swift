@@ -443,6 +443,21 @@ import SwiftUI
     failures.append(contentsOf: resourceFailures)
     return failures
   }
+  if settingsOnly {
+    trace("Quick Links editor and shelf keyboard flow")
+    if let failure = await nativeQuickLinksSmoke(
+      application: application, shelf: shelf, model: model, platform: platform, post: post,
+      wait: wait, screenshot: screenshot,
+      clickResult: { id in
+        guard await wait({ shelf.isKeyWindow && accessible(id) != nil }) else { return false }
+        clickAccessible(id)
+        return true
+      })
+    {
+      trace(failure)
+      failures.append(failure)
+    }
+  }
   if !settingsOnly && !browsingOnly {
     // Real window lifecycle, not just model dispatch: a delayed close must not
     // order out a reopened panel, and repeated requests must remain harmless.
