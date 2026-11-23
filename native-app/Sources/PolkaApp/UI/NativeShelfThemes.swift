@@ -7,6 +7,7 @@ struct NativeThemeColors: Codable, Equatable, Sendable {
   var text: String
   var accent: String
   var selection: String
+  var detailAccent: String? = nil
 
   static func normalizedHex(_ input: String) -> String? {
     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -25,8 +26,11 @@ struct NativeThemeColors: Codable, Equatable, Sendable {
       let text = Self.normalizedHex(text), let accent = Self.normalizedHex(accent),
       let selection = Self.normalizedHex(selection)
     else { return nil }
+    let detail = detailAccent.flatMap(Self.normalizedHex)
+    guard detailAccent == nil || detail != nil else { return nil }
     return Self(
-      background: background, surface: surface, text: text, accent: accent, selection: selection)
+      background: background, surface: surface, text: text, accent: accent, selection: selection,
+      detailAccent: detail)
   }
 
   var isValid: Bool { normalized != nil }
@@ -52,12 +56,13 @@ enum NativeThemeCategory: String, CaseIterable {
 
   private static func preset(
     _ id: String, _ name: String, _ background: String, _ surface: String, _ text: String,
-    _ accent: String, _ selection: String
+    _ accent: String, _ selection: String, detailAccent: String? = nil
   ) -> NativeShelfTheme {
     NativeShelfTheme(
       id: id, name: name,
       colors: NativeThemeColors(
-        background: background, surface: surface, text: text, accent: accent, selection: selection))
+        background: background, surface: surface, text: text, accent: accent, selection: selection,
+        detailAccent: detailAccent))
   }
 
   static let polka = preset("polka", "Polka", "#080808", "#212123", "#F6F6F7", "#419FFF", "#132B44")
@@ -92,27 +97,40 @@ enum NativeThemeCategory: String, CaseIterable {
     preset("sea-glass", "Sea Glass", "#D9EEED", "#F2FAF9", "#253C3C", "#447877", "#B9DEDB"),
     preset("dusk", "Dusk", "#413A56", "#524967", "#F4EBFF", "#D4B9F1", "#6A557D"),
   ]
-  // Adapt the source palettes to Polka's search surface and highlighted result.
+  // Assign each source palette's colors to the shelf, search, selection and details.
   private static let popularThemes = [
-    // https://github.com/dracula/visual-studio-code/blob/master/src/dracula.yml
-    preset("dracula", "Dracula", "#282A36", "#393246", "#F8F8F2", "#BD93F9", "#8057AC"),
+    // https://github.com/dracula/visual-studio-code/blob/main/src/dracula.yml
+    preset(
+      "dracula", "Dracula", "#282A36", "#21222C", "#F8F8F2", "#BD93F9", "#FF79C6",
+      detailAccent: "#8BE9FD"),
     // https://www.nordtheme.com/docs/colors-and-palettes/
-    preset("nord", "Nord", "#2E3440", "#394653", "#ECEFF4", "#88C0D0", "#4A6B7A"),
-    // https://github.com/ayu-theme/vscode-ayu/blob/master/ayu-mirage.json
-    preset("ayu-mirage", "Ayu Mirage", "#242936", "#3C322B", "#E6E1CF", "#FFCC66", "#815627"),
+    preset(
+      "nord", "Nord", "#2E3440", "#3B4252", "#ECEFF4", "#88C0D0", "#434C5E",
+      detailAccent: "#A3BE8C"),
+    // https://github.com/ayu-theme/ayu-colors
+    preset(
+      "ayu-mirage", "Ayu Mirage", "#1F2430", "#2D3342", "#CCCAC2", "#FFCC66", "#65462F",
+      detailAccent: "#BAE67E"),
     // https://github.com/catppuccin/palette/blob/main/palette.json
     preset(
-      "catppuccin-mocha", "Catppuccin Mocha", "#1E1E2E", "#362F43", "#CDD6F4", "#F5C2E7", "#7D4669"),
+      "catppuccin-mocha", "Catppuccin Mocha", "#1E1E2E", "#313244", "#CDD6F4", "#F5C2E7", "#684E77",
+      detailAccent: "#94E2D5"),
     // https://github.com/tokyo-night/tokyo-night-vscode-theme/blob/master/themes/tokyo-night-color-theme.json
-    preset("tokyo-night", "Tokyo Night", "#1A1B26", "#222B46", "#C0CAF5", "#7AA2F7", "#3850A0"),
+    preset(
+      "tokyo-night", "Tokyo Night", "#1A1B26", "#202A42", "#C0CAF5", "#7AA2F7", "#3454AA",
+      detailAccent: "#7DCFFF"),
     // https://github.com/morhetz/gruvbox/blob/master/colors/gruvbox.vim
-    preset("gruvbox-dark", "Gruvbox Dark", "#282828", "#40382B", "#EBDBB2", "#B8BB26", "#5E602D"),
+    preset(
+      "gruvbox-dark", "Gruvbox Dark", "#282828", "#3C3836", "#EBDBB2", "#FE8019", "#D79921",
+      detailAccent: "#B8BB26"),
     // https://github.com/rose-pine/palette/blob/main/palette.json
     preset(
-      "rose-pine-dawn", "Rosé Pine Dawn", "#FAF4ED", "#FFF8F6", "#464261", "#A64B66", "#EBCBCC"),
+      "rose-pine-dawn", "Rosé Pine Dawn", "#FAF4ED", "#FFF8F6", "#464261", "#B4637A", "#EAD8D7",
+      detailAccent: "#286983"),
     // https://github.com/altercation/solarized#the-values
     preset(
-      "solarized-light", "Solarized Light", "#FDF6E3", "#EEE8D5", "#073642", "#187A74", "#ADCFC6"),
+      "solarized-light", "Solarized Light", "#FDF6E3", "#EEE8D5", "#073642", "#2071A8", "#073642",
+      detailAccent: "#16746D"),
   ]
 }
 

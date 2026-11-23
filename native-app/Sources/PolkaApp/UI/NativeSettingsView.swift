@@ -630,11 +630,18 @@ struct NativeUpdatesView: View {
           disabled: model.busy || model.settings.updateStatus == "installing", prominent: true
         ) { model.installUpdate() }
       }
-      if !model.settings.updateVersion.isEmpty {
+      if !model.settings.currentVersion.isEmpty || !model.settings.updateVersion.isEmpty {
         Divider()
         NativeReleaseNotesView(settings: model.settings).id(model.settings.updateVersion)
       }
     }.accessibilityIdentifier("native-updates")
+  }
+}
+
+extension NativeUISettings {
+  var showsUpdateNotice: Bool {
+    !updateVersion.isEmpty && updateNotification == "visible"
+      && ["checking", "downloading", "ready", "installing", "error"].contains(updateStatus)
   }
 }
 
@@ -643,10 +650,7 @@ struct NativeUpdateNotice: View {
   @Environment(\.shelfColors) private var shelfColors
   var body: some View {
     let displayedVersion = model.settings.updateVersion
-    if !displayedVersion.isEmpty, model.settings.updateNotification == "visible",
-      ["checking", "downloading", "ready", "installing", "error"].contains(
-        model.settings.updateStatus)
-    {
+    if model.settings.showsUpdateNotice {
       VStack(alignment: .leading, spacing: 8) {
         HStack {
           Text(
@@ -850,30 +854,67 @@ final class NativeSettingsSidebarRow: NSTableRowView {
 struct NativeReleaseNotesView: View {
   var settings: NativeUISettings
   @State private var language: String?
+  private static let themePreview = Bundle.module
+    .url(forResource: "theme-release-preview", withExtension: "png")
+    .flatMap { NSImage(contentsOf: $0) }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
         Text(localized("What's New")).font(.system(size: 15, weight: .semibold))
-        Spacer()
-        Picker(
-          localized("Release notes language"),
-          selection: Binding(
-            get: { language ?? settings.language.rawValue }, set: { language = $0 }
-          )
-        ) {
-          Text("Русский").tag("ru")
-          Text("English").tag("en")
-        }.pickerStyle(.segmented).labelsHidden().frame(width: 180).accessibilityLabel(
-          localized("Release notes language"))
+          .accessibilityAddTraits(.isHeader)
+        if !settings.updateVersion.isEmpty {
+          Spacer()
+          Picker(
+            localized("Release notes language"),
+            selection: Binding(
+              get: { language ?? settings.language.rawValue }, set: { language = $0 }
+            )
+          ) {
+            Text("Русский").tag("ru")
+            Text("English").tag("en")
+          }.pickerStyle(.segmented).labelsHidden().frame(width: 180).accessibilityLabel(
+            localized("Release notes language"))
+        }
       }
-      // Release notes are plain text, including any HTML-like characters.
-      Text(nativeReleaseNoteText(settings, language: language ?? settings.language.rawValue)).font(
-        .system(size: 13)
-      )
-      .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+      if settings.updateVersion.isEmpty {
+        Text(localized("Shelf Themes")).font(.system(size: 13, weight: .semibold))
+        if let image = Self.themePreview {
+          NativeThemeReleasePreview(image: image)
+        }
+      } else {
+        // Release notes are plain text, including any HTML-like characters.
+        Text(nativeReleaseNoteText(settings, language: language ?? settings.language.rawValue))
+          .font(.system(size: 13))
+          .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+      }
     }
   }
 }
+
+private struct NativeThemeReleasePreview: NSViewRepresentable {
+  let image: NSImage
+
+  func makeNSView(context: Context) -> NSImageView {
+    let view = NSImageView(image: image)
+    view.imageScaling = .scaleProportionallyUpOrDown
+    view.setAccessibilityElement(true)
+    view.setAccessibilityRole(.image)
+    view.setAccessibilityIdentifier("update-theme-preview")
+    return view
+  }
+
+  func updateNSView(_ view: NSImageView, context: Context) {
+    view.setAccessibilityLabel(localized("Dracula and Rosé Pine Dawn on the Polka Shelf"))
+  }
+
+  func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSImageView, context: Context) -> CGSize?
+  {
+    let width = min(proposal.width ?? 320, image.size.width)
+    let height = min(proposal.height ?? .infinity, width * image.size.height / image.size.width)
+    return CGSize(width: height * image.size.width / image.size.height, height: height)
+  }
+}
+
 func nativeReleaseNoteText(_ settings: NativeUISettings, language: String) -> String {
   let direct = language == "ru" ? settings.updateNotesRussian : settings.updateNotesEnglish
   if !direct.isEmpty { return direct }

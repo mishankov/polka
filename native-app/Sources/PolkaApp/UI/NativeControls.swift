@@ -56,6 +56,7 @@ struct NativeCommandButton: View {
   }
 }
 struct NativeIconButton: View {
+  @Environment(\.shelfColors) private var colors
   var label: String
   var symbol: String
   var shortcut = ""
@@ -66,7 +67,9 @@ struct NativeIconButton: View {
     Button {
       if !disabled, nativeCommandInteractionAllowed, !NSMenuTrackingState.shared.active { action() }
     } label: {
-      Image(systemName: symbol).foregroundStyle(.primary).frame(width: 20, height: 20)
+      Image(systemName: symbol)
+        .foregroundStyle(colors?.accentTextColor ?? .primary)
+        .frame(width: 20, height: 20)
     }
     .modifier(NativeCommandStyle(prominent: prominent)).buttonBorderShape(.circle).disabled(
       disabled
@@ -90,6 +93,7 @@ struct NativeToolbar<Content: View>: View {
 
 struct NativeBuiltinHeader<Actions: View>: View {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
   var title: String
   @ViewBuilder var actions: () -> Actions
   var body: some View {
@@ -111,7 +115,7 @@ struct NativeBuiltinHeader<Actions: View>: View {
       NativeIconButton(
         label: localized("Close Shelf"), symbol: "xmark", shortcut: "⌘W", disabled: model.busy
       ) { model.closeShelf() }.accessibilityIdentifier("builtin-close")
-    }
+    }.background(colors?.searchHeaderColor ?? .clear)
   }
 }
 
@@ -134,6 +138,7 @@ struct NativeFileDownloadProgress: View {
 
 struct NativeBuiltinSearch: View {
   @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
   var placeholder: String
   var maxLength = 10000
   var body: some View {
@@ -143,6 +148,7 @@ struct NativeBuiltinSearch: View {
     ).frame(maxWidth: .infinity).frame(height: NativeLargeSearchField.controlHeight)
       .disabled(model.fileDownloadProgress != nil)
       .padding(.horizontal, 12).padding(.bottom, 10)
+      .background(colors?.searchHeaderColor ?? .clear)
   }
 }
 
@@ -357,6 +363,7 @@ final class NativeLargeSearchField: NSSearchField {
           .foregroundColor: colors.appKitForeground(muted: true),
         ])
     } else {
+      placeholderAttributedString = nil
       placeholderString = placeholder
     }
   }

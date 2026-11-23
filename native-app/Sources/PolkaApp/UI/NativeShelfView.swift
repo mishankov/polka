@@ -55,7 +55,7 @@ struct NativeLauncherView: View {
         NativeIconButton(
           label: localized("Settings"), symbol: "gearshape", shortcut: "⌘,", disabled: model.busy
         ) { model.perform(NativeUICommand("shelf.settings")) }
-      }.padding(14)
+      }.padding(14).background(colors?.searchHeaderColor ?? .clear)
       Divider()
       NativeFileDownloadProgress(model: model)
       ScrollViewReader { reader in
@@ -63,7 +63,11 @@ struct NativeLauncherView: View {
           LazyVStack(alignment: .leading, spacing: 2) {
             if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
               NativeUpdateNotice(model: model).padding(.horizontal, 10)
-              if !model.settings.introduced { welcome.padding(10) }
+              if !model.settings.introduced {
+                welcome.padding(10)
+              } else if model.offersShelfThemeDiscovery {
+                NativeShelfThemeAnnouncement(model: model).padding(10)
+              }
             }
             NativeErrorNotice(text: model.error.isEmpty ? model.catalogError : model.error).padding(
               .horizontal, 10)
@@ -84,7 +88,7 @@ struct NativeLauncherView: View {
               let isCalculation = result.kind == "calculation"
               if position == 0 || group(result) != group(results[position - 1]) {
                 Text(group(result)).font(.system(size: 11, weight: .semibold))
-                  .nativeShelfSecondary().padding(.horizontal, 14).padding(.top, 10)
+                  .nativeShelfDetail().padding(.horizontal, 14).padding(.top, 10)
               }
               Button {
                 model.activateSearch(result)
@@ -104,7 +108,7 @@ struct NativeLauncherView: View {
                   }
                   Spacer(minLength: 0)
                   if position < 9 {
-                    Text("⌘\(position + 1)").font(.system(size: 11)).nativeShelfSecondary(.tertiary)
+                    Text("⌘\(position + 1)").font(.system(size: 11)).nativeShelfDetail(.tertiary)
                   }
                 }.padding(.horizontal, 12).padding(.vertical, 10).frame(
                   maxWidth: .infinity, alignment: .leading
@@ -160,10 +164,13 @@ struct NativeLauncherView: View {
           model.perform(
             NativeUICommand(
               "settings.set", strings: ["key": "shelfIntroduced"], bools: ["value": true]))
-        }
+        }.accessibilityIdentifier("acknowledge-shelf-welcome")
         NativeCommandButton(title: localized("Set Up Shelf"), shortcut: "⌘,", disabled: model.busy)
         {
           model.perform(NativeUICommand("shelf.settings"))
+        }
+        if model.offersShelfThemeDiscovery {
+          NativeBrowseThemesButton(model: model)
         }
       }
     }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(
@@ -184,7 +191,7 @@ struct NativeLauncherView: View {
     if let image = nativeImage(result.icon) {
       Image(nsImage: image).resizable().scaledToFit().frame(width: 34, height: 34)
     } else {
-      Image(systemName: resultSymbol(result)).font(.system(size: 23)).nativeShelfSecondary()
+      Image(systemName: resultSymbol(result)).font(.system(size: 23)).nativeShelfDetail()
         .frame(width: 34, height: 34)
     }
   }
@@ -204,6 +211,74 @@ struct NativeLauncherView: View {
     case "builtin:system-status": return "gauge.with.dots.needle.50percent"
     default: return "app"
     }
+  }
+}
+
+extension NativeUIModel {
+  var offersShelfThemeDiscovery: Bool {
+    themeDiscoveryVisible && (!settings.introduced || !settings.showsUpdateNotice)
+  }
+
+  func browseShelfThemes() {
+    guard offersShelfThemeDiscovery, themeActionsAvailable else { return }
+    perform(NativeUICommand("shelf.settings", strings: ["section": "themes", "filter": "popular"]))
+  }
+
+  func dismissShelfThemeAnnouncement() {
+    guard offersShelfThemeDiscovery, settings.introduced, themeActionsAvailable else { return }
+    perform(NativeUICommand("theme.discovery.dismiss"))
+  }
+}
+
+private struct NativeBrowseThemesButton: View {
+  @ObservedObject var model: NativeUIModel
+
+  var body: some View {
+    NativeCommandButton(
+      title: localized("Browse Themes"), shortcut: "⌘⇧T", disabled: !model.themeActionsAvailable
+    ) { model.browseShelfThemes() }
+    .accessibilityIdentifier("browse-shelf-themes")
+  }
+}
+
+private struct NativeShelfThemeAnnouncement: View {
+  @ObservedObject var model: NativeUIModel
+  @Environment(\.shelfColors) private var colors
+
+  private static let previews = NativeThemeCategory.popular.themes.filter {
+    ["dracula", "rose-pine-dawn"].contains($0.id)
+  }
+
+  var body: some View {
+    HStack(alignment: .center, spacing: 14) {
+      VStack(alignment: .leading, spacing: 5) {
+        Text(localized("Give your Shelf a new look"))
+          .font(.system(size: 14, weight: .semibold))
+        Text(localized("Pick a theme or customize your own."))
+          .font(.system(size: 12)).nativeShelfSecondary()
+        HStack(spacing: 5) {
+          NativeBrowseThemesButton(model: model)
+          NativeCommandButton(title: localized("Dismiss"), disabled: !model.themeActionsAvailable) {
+            model.dismissShelfThemeAnnouncement()
+          }.accessibilityIdentifier("dismiss-shelf-theme-announcement")
+        }.padding(.top, 3)
+      }
+      Spacer(minLength: 0)
+      HStack(alignment: .top, spacing: 6) {
+        ForEach(Self.previews) { theme in
+          VStack(alignment: .leading, spacing: 4) {
+            NativeThemeShelfPreview(colors: theme.colors, compact: true)
+            Text(theme.name).font(.system(size: 10, weight: .medium)).nativeShelfSecondary()
+          }.frame(width: 105)
+        }
+      }
+    }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        colors?.surfaceColor ?? Color.accentColor.opacity(0.06),
+        in: RoundedRectangle(cornerRadius: 8)
+      )
+      .accessibilityElement(children: .contain)
+      .accessibilityIdentifier("shelf-theme-announcement")
   }
 }
 

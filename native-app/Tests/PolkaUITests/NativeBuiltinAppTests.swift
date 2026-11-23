@@ -106,7 +106,7 @@ final class NativeBuiltinAppTests: XCTestCase {
       platform.model.present(destination: "clipboard")
       XCTAssertEqual(platform.model.destination, "apps")
       var openedSettings = false
-      platform.openSettings = { _ in openedSettings = true }
+      platform.openSettings = { _, _ in openedSettings = true }
       try await platform.handle(NativeUICommand("shelf.settings"))
       XCTAssertTrue(openedSettings)
       try await platform.handle(

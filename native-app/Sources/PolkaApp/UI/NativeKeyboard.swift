@@ -34,8 +34,11 @@ extension NativeUIModel {
       destination == "clipboard" && !key.isSettings
       && flags == [.command, .control]
       && nativeNumber(key).map { $0 < ClipboardFilter.allCases.count } == true
+    let browseThemesShortcut =
+      !key.isSettings && flags == [.command, .shift] && key.code == 17
+      && offersShelfThemeDiscovery
     let known =
-      filterShortcut || escape
+      filterShortcut || browseThemesShortcut || escape
       || (enter && (!key.editing || key.searchEditing || command || previewID != nil))
       || (command && (delete || [45, 1, 14, 35, 0, 43, 15, 32, 13].contains(key.code)))
       || (command && nativeNumber(key) != nil)
@@ -47,6 +50,10 @@ extension NativeUIModel {
     }
     if busy { return known }
     if key.repeatKey, known { return true }
+    if browseThemesShortcut {
+      browseShelfThemes()
+      return true
+    }
     if cmd, key.code == 43 {
       perform(NativeUICommand("shelf.settings"))
       return true

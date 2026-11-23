@@ -93,6 +93,9 @@ extension NativeThemeColors {
 
   var backgroundColor: Color { ThemeRGB(background).swiftUI }
   var surfaceColor: Color { ThemeRGB(surface).swiftUI }
+  var searchHeaderColor: Color {
+    ThemeRGB(background).mixed(with: ThemeRGB(surface), amount: 0.6).swiftUI
+  }
   var textColor: Color { ThemeRGB(text).swiftUI }
   var secondaryTextColor: Color { mutedInk(selected: false).swiftUI }
   var accentColor: Color { ThemeRGB(accent).swiftUI }
@@ -130,6 +133,15 @@ extension NativeThemeColors {
   func foreground(selected: Bool = false, muted: Bool = false) -> Color {
     if muted { return mutedInk(selected: selected).swiftUI }
     return (selected ? selectionInk : ThemeRGB(text)).swiftUI
+  }
+
+  func detailForeground(selected: Bool = false) -> Color {
+    if let detailAccent {
+      let ink = ThemeRGB(detailAccent)
+      let fill = ThemeRGB(selected ? selection : background)
+      if ink.contrast(with: fill) >= 4.5 { return ink.swiftUI }
+    }
+    return mutedInk(selected: selected).swiftUI
   }
 
   func appKitForeground(selected: Bool = false, muted: Bool = false) -> NSColor {
@@ -179,17 +191,26 @@ private struct NativeShelfSecondaryStyle: ViewModifier {
   @Environment(\.shelfColors) private var colors
   @Environment(\.shelfRowSelected) private var selected
   let fallback: HierarchicalShapeStyle
+  var usesDetailAccent = false
 
   func body(content: Content) -> some View {
     content.foregroundStyle(
-      colors.map { AnyShapeStyle($0.foreground(selected: selected, muted: true)) }
-        ?? AnyShapeStyle(fallback))
+      colors.map { colors in
+        let ink =
+          usesDetailAccent
+          ? colors.detailForeground(selected: selected)
+          : colors.foreground(selected: selected, muted: true)
+        return AnyShapeStyle(ink)
+      } ?? AnyShapeStyle(fallback))
   }
 }
 
 extension View {
   func nativeShelfSecondary(_ fallback: HierarchicalShapeStyle = .secondary) -> some View {
     modifier(NativeShelfSecondaryStyle(fallback: fallback))
+  }
+  func nativeShelfDetail(_ fallback: HierarchicalShapeStyle = .secondary) -> some View {
+    modifier(NativeShelfSecondaryStyle(fallback: fallback, usesDetailAccent: true))
   }
   func nativeShelfRow(selected: Bool, defaultOpacity: Double, cornerRadius: CGFloat = 7)
     -> some View

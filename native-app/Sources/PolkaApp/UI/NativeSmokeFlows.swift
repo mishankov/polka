@@ -317,6 +317,87 @@ import SwiftUI
       failures.append("cannot render screenshot \(name)")
     }
   }
+  func exerciseThemeDiscovery() async {
+    let introduced = model.settings.introduced
+    defer { model.settings.introduced = introduced }
+    let browseID = "browse-shelf-themes"
+    let announcementID = "shelf-theme-announcement"
+    func openedPopularThemes() -> Bool {
+      NSApp.keyWindow?.identifier?.rawValue == "polka-settings"
+        && model.settingsPane == "themes" && model.themeFilter == .popular
+        && model.settings.themeDiscoverySeen && !model.commandPending
+    }
+
+    model.settings.introduced = false
+    model.settings.themeDiscoverySeen = false
+    await application.show("apps")
+    if await wait({ accessible(browseID) != nil }) {
+      await screenshot("shelf-theme-first-run")
+      clickAccessible(browseID)
+      if !(await wait(openedPopularThemes)) {
+        failures.append("first-run Browse Themes did not open Popular and retire the announcement")
+      }
+    } else {
+      failures.append("Browse Themes is missing from the first-run Shelf welcome")
+    }
+
+    model.settings.introduced = false
+    model.settings.themeDiscoverySeen = false
+    await application.show("apps")
+    if await wait({ accessible("acknowledge-shelf-welcome") != nil }) {
+      clickAccessible("acknowledge-shelf-welcome")
+      if await wait({ model.settings.introduced && model.settings.themeDiscoverySeen }) {
+        application.hide()
+        await application.show("apps")
+        await settle()
+        if accessible(announcementID) != nil || accessible(browseID) != nil {
+          failures.append("Got It replaced the welcome with a second theme announcement")
+        }
+      } else {
+        failures.append("Got It did not acknowledge the Shelf welcome and theme discovery")
+      }
+    } else {
+      failures.append("Got It is missing from the first-run Shelf welcome")
+    }
+
+    model.settings.introduced = true
+    model.settings.themeDiscoverySeen = false
+    await application.show("apps")
+    if !(await wait({ accessible(announcementID) != nil && shelf.isKeyWindow })) {
+      failures.append("returning users did not see the theme announcement")
+      return
+    }
+    await screenshot("shelf-theme-announcement")
+    post(0, [], "я")
+    if !(await wait({ model.query == "я" && accessible(announcementID) == nil })) {
+      failures.append("typing into the Shelf search did not hide the theme announcement")
+    }
+    post(51, .command)
+    if await wait({ model.query.isEmpty && accessible(announcementID) != nil }) {
+      clickAccessible("dismiss-shelf-theme-announcement")
+      if !(await wait({ model.settings.themeDiscoverySeen && accessible(announcementID) == nil })) {
+        failures.append("Dismiss did not retire the theme announcement")
+      }
+    } else {
+      failures.append("clearing the Shelf query did not restore the undiscovered announcement")
+    }
+
+    model.settings.themeDiscoverySeen = false
+    model.themeFilter = .all
+    if !(await wait({ accessible(browseID) != nil })) {
+      failures.append("Browse Themes did not return for the shortcut fixture")
+      return
+    }
+    post(17, [.command, .shift], "Е")
+    if !(await wait(openedPopularThemes)) {
+      failures.append("physical Command Shift T did not open Popular themes")
+    }
+    await application.show("apps")
+    if model.offersShelfThemeDiscovery {
+      failures.append("the theme announcement returned after browsing Themes")
+    }
+  }
+
   func exerciseThemes(in settings: NSWindow) async {
     if !(await wait({ model.settingsPane == "themes" })) {
       failures.append("native settings sidebar ArrowDown did not select Themes")
@@ -344,8 +425,17 @@ import SwiftUI
           } else {
             failures.append("Quick Links did not open with Dracula active")
           }
+          if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1" {
+            await application.show("apps")
+            model.query = ""
+            for theme in NativeThemeCategory.popular.themes where theme.id != "dracula" {
+              try await platform.handle(NativeUICommand("theme.select", strings: ["id": theme.id]))
+              await screenshot("shelf-theme-\(theme.id)")
+            }
+            try await platform.handle(NativeUICommand("theme.select", strings: ["id": "dracula"]))
+          }
         } catch {
-          failures.append("could not create the themed Quick Links fixture: \(error)")
+          failures.append("could not prepare a Popular theme capture: \(error)")
         }
         application.openSettings("themes")
         await settle()
@@ -646,6 +736,8 @@ import SwiftUI
     return failures
   }
   if settingsOnly {
+    trace("theme discovery at first launch and after updating")
+    await exerciseThemeDiscovery()
     trace("Quick Links editor and shelf keyboard flow")
     if let failure = await nativeQuickLinksSmoke(
       application: application, shelf: shelf, model: model, platform: platform,
@@ -1668,6 +1760,19 @@ import SwiftUI
         )
       }
       await screenshot("settings-about", window: settings)
+      let aboutFrame = settings.frame
+      settings.setContentSize(NSSize(width: aboutFrame.width, height: 720))
+      if await wait({
+        guard let content = settings.contentView else { return false }
+        return accessible("update-theme-preview", in: content)?.accessibilityRole() == .image
+      }) {
+        if environment["POLKA_NATIVE_SMOKE_WINDOW_CAPTURE"] == "1" {
+          await screenshot("settings-theme-whats-new", window: settings, includeTitlebar: true)
+        }
+      } else {
+        failures.append("What's New is missing an accessible installed theme preview")
+      }
+      settings.setFrame(aboutFrame, display: true)
       // Use the real channel picker and keyboard events with a synthetic updater.
       // No network feed, installer, clipboard, or other app instance is touched.
       let originalUpdateService = platform.updates

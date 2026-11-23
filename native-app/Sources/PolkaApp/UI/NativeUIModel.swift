@@ -18,7 +18,7 @@ struct NativeUICommand {
       "builtinApps.setEnabled", "clipboardHistory.preferences", "mediaIndicator.setTracking",
       "system.login", "clipboardHistory.syncEnabled", "settings.set", "settings.language",
       "quickLinks.save", "quickLinks.delete", "updates.channel",
-      "theme.select", "theme.save", "theme.duplicate", "theme.delete",
+      "theme.select", "theme.save", "theme.duplicate", "theme.delete", "theme.discovery.dismiss",
     ].contains(name)
   }
   init(
@@ -138,6 +138,7 @@ struct NativeUISettings: Equatable {
   var updateNotification = ""
   var updateRemindAfter: Double = 0
   var introduced = false
+  var themeDiscoverySeen = false
 }
 struct NativeSnippetDraft: Equatable {
   var id: String = ""
@@ -282,6 +283,10 @@ struct NativeBrowseContext {
   var fileAnchor: String?
   var writable: Bool { storageStatus == "ready" }
   var canPaste: Bool { settings.pasteOnSelect && pasteAccess == "granted" && pasteReady }
+  var themeDiscoveryVisible: Bool {
+    visible && destination == "apps" && query.isEmpty && !settings.themeDiscoverySeen
+      && settings.themes.activeID == NativeThemeSettings.standard.id
+  }
   var preview: NativeUIClip? { (clips + snippets).first { $0.id == previewID } }
   private func filteredClips(_ source: [NativeUIClip]) -> [NativeUIClip] {
     let records = source.map { clip in

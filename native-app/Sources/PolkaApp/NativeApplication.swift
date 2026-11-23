@@ -119,7 +119,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
         await self?.show(destination, query: query)
       }
       platform.hide = { [weak self] cancel in self?.hide(cancelPaste: cancel, force: true) }
-      platform.openSettings = { [weak self] pane in self?.openSettings(pane) }
+      platform.openSettings = { [weak self] pane, filter in
+        self?.openSettings(pane, themeFilter: filter)
+      }
       platform.languageChanged = { [weak self] in self?.refreshLanguage() }
       let localeNotifications = NotificationCenter.default
       notifications.append(
@@ -634,13 +636,17 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       self.lifecycle.finishClose(revision)
     }
   }
-  func openSettings(_ pane: String?) {
+  func openSettings(_ pane: String?, themeFilter: NativeThemeFilter? = nil) {
     guard !model.busy || model.pendingCommand == "shelf.settings", NSApp.modalWindow == nil,
       !NSApp.windows.contains(where: { $0.attachedSheet != nil })
     else { return }
     activationTransition.cancel()
     hide(force: true)
     if let pane { model.settingsPane = pane }
+    if pane == "themes", let themeFilter, model.themeDraft == nil, model.themePendingDeletion == nil
+    {
+      model.themeFilter = themeFilter
+    }
     if settingsWindow == nil {
       let window = NSWindow(
         contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
@@ -664,6 +670,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
     NSApp.activate(ignoringOtherApps: true)
     settingsWindow?.makeKeyAndOrderFront(nil)
+    if model.settingsPane == "themes" {
+      do { try platform?.recordThemeDiscovery() } catch { model.error = error.localizedDescription }
+    }
   }
   func windowDidResignKey(_ notification: Notification) {
     guard (notification.object as? NSWindow) === shelf else { return }

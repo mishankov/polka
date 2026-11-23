@@ -59,7 +59,7 @@ struct NativeQuickLinksView: View {
           get: { model.selectedQuickLink?.id }, set: { model.selectedQuickLinkID = $0 })
       ) { link in
         HStack(spacing: 10) {
-          Image(systemName: "link").nativeShelfSecondary().accessibilityHidden(true)
+          Image(systemName: "link").nativeShelfDetail().accessibilityHidden(true)
           VStack(alignment: .leading, spacing: 4) {
             Text(link.displayName).font(.system(size: 13)).lineLimit(1)
               .truncationMode(link.name.isEmpty ? .middle : .tail)

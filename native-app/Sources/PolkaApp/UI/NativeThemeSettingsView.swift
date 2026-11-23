@@ -49,6 +49,8 @@ struct NativeThemeDraft {
       let key = role.key
       if let hex = NativeThemeColors.normalizedHex(colors[keyPath: key]) {
         preview[keyPath: key] = hex
+      } else if role == .detailAccent, colors.detailAccent == nil {
+        preview.detailAccent = nil
       }
     }
     return preview
@@ -56,7 +58,7 @@ struct NativeThemeDraft {
 }
 
 enum NativeThemeColorRole: String, CaseIterable, Identifiable {
-  case background, surface, text, accent, selection
+  case background, surface, text, accent, selection, detailAccent
 
   var id: Self { self }
   var label: String {
@@ -66,6 +68,7 @@ enum NativeThemeColorRole: String, CaseIterable, Identifiable {
     case .text: localized("Text")
     case .accent: localized("Accent")
     case .selection: localized("Selection")
+    case .detailAccent: localized("Detail Accent")
     }
   }
   var key: WritableKeyPath<NativeThemeColors, String> {
@@ -75,7 +78,15 @@ enum NativeThemeColorRole: String, CaseIterable, Identifiable {
     case .text: \.text
     case .accent: \.accent
     case .selection: \.selection
+    case .detailAccent: \.detailAccentInput
     }
+  }
+}
+
+extension NativeThemeColors {
+  fileprivate var detailAccentInput: String {
+    get { detailAccent ?? "" }
+    set { detailAccent = newValue.isEmpty ? nil : newValue }
   }
 }
 
@@ -390,14 +401,19 @@ private struct NativeThemeEditor: View {
   private func colorRow(_ role: NativeThemeColorRole) -> some View {
     let key = role.key
     let raw = draft.colors[keyPath: key]
-    let hexValid = NativeThemeColors.normalizedHex(raw) != nil
+    let optional = role == .detailAccent
+    let hexValid = (optional && raw.isEmpty) || NativeThemeColors.normalizedHex(raw) != nil
     return HStack(spacing: 6) {
       Text(role.label).font(.system(size: 12))
       Spacer(minLength: 4)
       ColorPicker(
         role.label,
         selection: Binding(
-          get: { Color(nsColor: NativeThemeColors.appKitColor(draft.preview[keyPath: key])) },
+          get: {
+            let preview = draft.preview
+            if optional, preview.detailAccent == nil { return preview.detailForeground() }
+            return Color(nsColor: NativeThemeColors.appKitColor(preview[keyPath: key]))
+          },
           set: { newColor in
             guard let color = NSColor(newColor).usingColorSpace(.sRGB) else { return }
             let hex = String(
@@ -415,7 +431,8 @@ private struct NativeThemeEditor: View {
         text: Binding(
           get: { model.themeDraft?.colors[keyPath: key] ?? "" },
           set: { model.themeDraft?.colors[keyPath: key] = String($0.prefix(24)) }
-        )
+        ),
+        prompt: optional ? Text(localized("Automatic")) : nil
       ).labelsHidden().textFieldStyle(.roundedBorder)
         .font(.system(size: 11, design: .monospaced))
         .frame(width: 76)
@@ -438,7 +455,7 @@ private struct NativeThemeEditor: View {
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
       if !draft.colors.isValid {
         Label(
-          localized("Enter a six-digit hex color for each field."),
+          localized("Enter six-digit hex colors. Detail Accent can be blank."),
           systemImage: "exclamationmark.circle"
         )
         .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -531,35 +548,44 @@ struct NativeThemeEditorActions: View {
   }
 }
 
-private struct NativeThemeShelfPreview: View {
+struct NativeThemeShelfPreview: View {
   let colors: NativeThemeColors
   let compact: Bool
 
   var body: some View {
-    VStack(alignment: .leading, spacing: compact ? 4 : 6) {
+    VStack(alignment: .leading, spacing: 0) {
       HStack(spacing: 4) {
         Image(systemName: "magnifyingglass")
         Text(localized("Find or calculate…")).lineLimit(1)
+          .foregroundStyle(colors.secondaryTextColor)
         Spacer(minLength: 0)
       }.font(.system(size: compact ? 8 : 10))
         .padding(.horizontal, 6).padding(.vertical, compact ? 3 : 4)
         .background(colors.surfaceColor, in: Capsule())
         .overlay { Capsule().strokeBorder(colors.focusColor, lineWidth: 1) }
-      row(
-        "clipboard", localized("Clipboard History"), localized("Copied text and images"),
-        shortcut: "⌘1", selected: true)
-      if !compact {
+        .padding(compact ? 5 : 8)
+        .background(colors.searchHeaderColor)
+      VStack(alignment: .leading, spacing: compact ? 3 : 5) {
+        Text(localized("Apps")).font(.system(size: compact ? 7 : 9, weight: .semibold))
+          .foregroundStyle(colors.detailForeground()).padding(.horizontal, 4)
         row(
-          "face.smiling", localized("Emoji"), localized("Smileys, gestures, and symbols"),
-          shortcut: "⌘2")
-        row(
-          "folder", localized("Files on the Shelf"), localized("Temporarily keep files"),
-          shortcut: "⌘3")
-      }
-    }.padding(compact ? 5 : 8)
-      .foregroundStyle(colors.textColor)
-      .background(colors.backgroundColor, in: RoundedRectangle(cornerRadius: compact ? 5 : 10))
-      .accessibilityHidden(true)
+          "clipboard", localized("Clipboard History"), localized("Copied text and images"),
+          shortcut: "⌘1", selected: true)
+        if !compact {
+          row(
+            "face.smiling", localized("Emoji"), localized("Smileys, gestures, and symbols"),
+            shortcut: "⌘2")
+          row(
+            "folder", localized("Files on the Shelf"), localized("Temporarily keep files"),
+            shortcut: "⌘3")
+        }
+      }.padding(.horizontal, compact ? 5 : 8).padding(.bottom, compact ? 5 : 8)
+        .padding(.top, compact ? 2 : 5)
+    }
+    .foregroundStyle(colors.textColor)
+    .background(colors.backgroundColor)
+    .clipShape(RoundedRectangle(cornerRadius: compact ? 5 : 10))
+    .accessibilityHidden(true)
   }
 
   private func row(
@@ -567,12 +593,16 @@ private struct NativeThemeShelfPreview: View {
   ) -> some View {
     HStack(spacing: compact ? 4 : 7) {
       Image(systemName: symbol).font(.system(size: compact ? 8 : 12))
+        .foregroundStyle(colors.detailForeground(selected: selected))
       VStack(alignment: .leading, spacing: 1) {
         Text(title).font(.system(size: compact ? 8 : 10, weight: .semibold)).lineLimit(1)
         Text(detail).font(.system(size: compact ? 7 : 9)).lineLimit(1)
-          .foregroundStyle(selected ? colors.selectionTextColor : colors.secondaryTextColor)
+          .foregroundStyle(colors.foreground(selected: selected, muted: true))
       }.frame(maxWidth: .infinity, alignment: .leading)
-      if !compact { Text(shortcut).font(.system(size: 9)) }
+      if !compact {
+        Text(shortcut).font(.system(size: 9))
+          .foregroundStyle(colors.detailForeground(selected: selected))
+      }
     }.padding(.horizontal, 4).padding(.vertical, compact ? 3 : 4)
       .foregroundStyle(selected ? colors.selectionTextColor : colors.textColor)
       .background(

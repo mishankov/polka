@@ -38,11 +38,12 @@ import UserNotifications
   private var launcherAccelerator = "CommandOrControl+Shift+Space"
   private var usage: [String: LauncherUsage] = [:]
   private static let quickLinksKey = "quickLinks"
+  private static let themeDiscoveryKey = "themeDiscoverySeen"
   private var calculationDate = Date()
   private var catalogRequests = 0
   var show: ((String?, String) async -> Void)?
   var hide: ((Bool) -> Void)?
-  var openSettings: ((String?) -> Void)?
+  var openSettings: ((String?, NativeThemeFilter?) -> Void)?
   var openQuickLink: (URL) -> Bool = { NSWorkspace.shared.open($0) }
   var currentPanel: (() -> NSWindow?)?
   var showIncomingFiles: (() async -> Void)?
@@ -209,11 +210,16 @@ import UserNotifications
       usage = (try? JSONDecoder().decode([String: LauncherUsage].self, from: data)) ?? [:]
     }
     model.settings.introduced = (try? settings.get(key: "shelfIntroduced")) as? Bool ?? false
+    model.settings.themeDiscoverySeen =
+      (try? settings.get(key: Self.themeDiscoveryKey)) as? Bool ?? false
     let savedPane = (try? settings.get(key: "settingsPane")) as? String ?? "general"
     model.settingsPane = savedPane == "quick-links" ? "builtin-apps" : savedPane
     model.settingsPaneChanged = { [weak self] pane in
       guard let self, !self.disposed else { return }
-      do { try self.settings.set(key: "settingsPane", value: pane) } catch {
+      do {
+        try self.settings.set(key: "settingsPane", value: pane)
+        if pane == "themes" { try self.recordThemeDiscovery() }
+      } catch {
         self.model.error = error.localizedDescription
       }
     }
@@ -1013,6 +1019,12 @@ import UserNotifications
       }
     }
   }
+  func recordThemeDiscovery() throws {
+    guard !disposed, !model.settings.themeDiscoverySeen else { return }
+    try settings.set(key: Self.themeDiscoveryKey, value: true)
+    model.settings.themeDiscoverySeen = true
+  }
+
   private func changeTheme(_ command: NativeUICommand) throws {
     let id = command.strings["id"] ?? ""
     var next = model.settings.themes
@@ -1038,9 +1050,11 @@ import UserNotifications
       let input = NativeThemeColors(
         background: command.strings["background"] ?? "", surface: command.strings["surface"] ?? "",
         text: command.strings["text"] ?? "", accent: command.strings["accent"] ?? "",
-        selection: command.strings["selection"] ?? "")
+        selection: command.strings["selection"] ?? "",
+        detailAccent: command.strings["detailAccent"].flatMap { $0.isEmpty ? nil : $0 })
       guard let colors = input.normalized else {
-        throw PolkaCoreError.invalid(localized("Enter a six-digit hex color for each field."))
+        throw PolkaCoreError.invalid(
+          localized("Enter six-digit hex colors. Detail Accent can be blank."))
       }
       let theme = NativeShelfTheme(
         id: id.isEmpty ? UUID().uuidString.lowercased() : id, name: try proposedName(),
@@ -1132,7 +1146,10 @@ import UserNotifications
           id: source.isSnippet ? source.id : "", name: source.name ?? "", content: source.content,
           expectedName: source.name ?? "", expectedContent: source.content)
       }
-    case "shelf.settings": openSettings?(command.strings["section"])
+    case "shelf.settings":
+      openSettings?(
+        command.strings["section"],
+        command.strings["filter"].flatMap(NativeThemeFilter.init(rawValue:)))
     case "quickLinks.save": try saveQuickLink(id: id, command: command)
     case "quickLinks.delete":
       try saveQuickLinks(model.quickLinks.filter { $0.id.uuidString != id })
@@ -1318,11 +1335,15 @@ import UserNotifications
       updateSystemLanguage()
     case "theme.select", "theme.save", "theme.duplicate", "theme.delete":
       try changeTheme(command)
+    case "theme.discovery.dismiss":
+      guard nativeCommandInteractionAllowed, !NSMenuTrackingState.shared.active else { return }
+      try recordThemeDiscovery()
     case "settings.set":
       let key = command.strings["key"] ?? ""
-      try settings.set(
-        key: key, value: command.bools["value"] ?? (command.strings["value"] == "true"))
-      if key == "shelfIntroduced" { model.settings.introduced = true }
+      let value = command.bools["value"] ?? (command.strings["value"] == "true")
+      if key == "shelfIntroduced", value { try recordThemeDiscovery() }
+      try settings.set(key: key, value: value)
+      if key == "shelfIntroduced" { model.settings.introduced = value }
     case "clipboardHistory.syncEnabled":
       try await sync.setEnabled(command.bools["enabled"] ?? false)
     case "clipboardHistory.syncInvite": try sync.invite()
