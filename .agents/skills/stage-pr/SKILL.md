@@ -1,17 +1,17 @@
 ---
-name: full-stop
-description: Trigger this if the user says 'full stop', even as a closing "Full stop." that reads like emphasis.
+name: stage-pr
+description: Trigger this when the user asks to "stage PR" or take a change end-to-end through review to a merge-ready pull request without merging (not for git staging with git add).
 ---
 
-# Full Stop
+# Stage PR
 
-Do the same work as `full-send`, but stop with the PR ready for the user to merge.
+Do the same work as `ship-pr`, but stop with the PR ready for the user to merge.
 Never merge it.
 
-Read [full-send](../full-send/SKILL.md) and follow its workflow, proof rules,
-review, and babysitting steps. An explicit "full stop" request authorizes that
-work without a separate "full send" request. That includes full-send's
-testing permission. A "full stop" request is the permission for the test
+Read [ship-pr](../ship-pr/SKILL.md) and follow its workflow, proof rules,
+review, and babysitting steps. An explicit "stage PR" request authorizes that
+work without a separate "ship PR" request. That includes ship-pr's
+testing permission. A "stage PR" request is the permission for the test
 methods Proof needs, even when a project file says to ask first, for
 example before computer use. Use those methods directly. Its merge
 permission does not apply. The overrides below take precedence.
@@ -28,7 +28,7 @@ cannot prevent automatic merging, report the blocker before proceeding.
 
 ## Stop at the gate
 
-Use full-send's merge gate as the readiness check. Replace its merge and
+Use ship-pr's merge gate as the readiness check. Replace its merge and
 final report steps with a handoff. Proof and review must cover the final diff;
 recheck behavior changes and meaningful conflict fixes before handoff.
 
@@ -40,7 +40,7 @@ without the user. If someone else merged it, report that instead.
 - **Waiting for required approval:** only human approval remains. Confirm
   that this is the actual blocker.
 - **Blocked:** explain what prevents readiness, what you tried, and what is
-  needed. Follow full-send's rules for asking the user.
+  needed. Follow ship-pr's rules for asking the user.
 
 In T3 Code, call `unwatch_pull_request` before the handoff or a question.
 Report the PR link, final head, verdict, proof, reviewer outcome, and remaining

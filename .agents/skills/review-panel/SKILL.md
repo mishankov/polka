@@ -1,9 +1,9 @@
 ---
-name: review-group
-description: Use when the user says "review group".
+name: review-panel
+description: Use when the user says "review panel".
 ---
 
-# Review group
+# Review panel
 
 Use the latest OpenAI GPT Astra and Google Gemini 4 Neon, both at high reasoning
 effort. Honor explicit reviewer and effort overrides. Resolve the full reviewer
@@ -37,7 +37,7 @@ work, put it in the final reply. Report the actual verdict. Record `no score`
 for a missing score. Scores are informational.
 
 ```markdown
-## Review group results
+## Review panel results
 
 Rounds: 2
 Verdict: approved
