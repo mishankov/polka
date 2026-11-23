@@ -92,29 +92,27 @@ enum NativeThemeCategory: String, CaseIterable {
     preset("sea-glass", "Sea Glass", "#D9EEED", "#F2FAF9", "#253C3C", "#447877", "#B9DEDB"),
     preset("dusk", "Dusk", "#413A56", "#524967", "#F4EBFF", "#D4B9F1", "#6A557D"),
   ]
+  // Adapt the source palettes to Polka's search surface and highlighted result.
   private static let popularThemes = [
     // https://github.com/dracula/visual-studio-code/blob/master/src/dracula.yml
-    preset("dracula", "Dracula", "#282A36", "#343746", "#F8F8F2", "#BD93F9", "#44475A"),
+    preset("dracula", "Dracula", "#282A36", "#393246", "#F8F8F2", "#BD93F9", "#8057AC"),
     // https://www.nordtheme.com/docs/colors-and-palettes/
-    preset("nord", "Nord", "#2E3440", "#3B4252", "#ECEFF4", "#88C0D0", "#434C5E"),
+    preset("nord", "Nord", "#2E3440", "#394653", "#ECEFF4", "#88C0D0", "#4A6B7A"),
     // https://github.com/ayu-theme/vscode-ayu/blob/master/ayu-mirage.json
-    // Composite the editor's translucent text and selection over its background.
-    preset("ayu-mirage", "Ayu Mirage", "#242936", "#282E3B", "#CCCAC2", "#FFCC66", "#2B4768"),
+    preset("ayu-mirage", "Ayu Mirage", "#242936", "#3C322B", "#E6E1CF", "#FFCC66", "#815627"),
     // https://github.com/catppuccin/palette/blob/main/palette.json
     preset(
-      "catppuccin-mocha", "Catppuccin Mocha", "#1E1E2E", "#313244", "#CDD6F4", "#CBA6F7", "#45475A"),
+      "catppuccin-mocha", "Catppuccin Mocha", "#1E1E2E", "#362F43", "#CDD6F4", "#F5C2E7", "#7D4669"),
     // https://github.com/tokyo-night/tokyo-night-vscode-theme/blob/master/themes/tokyo-night-color-theme.json
-    // Composite the editor's translucent selection over its background.
-    preset("tokyo-night", "Tokyo Night", "#1A1B26", "#202330", "#A9B1D6", "#7AA2F7", "#2B2F41"),
+    preset("tokyo-night", "Tokyo Night", "#1A1B26", "#222B46", "#C0CAF5", "#7AA2F7", "#3850A0"),
     // https://github.com/morhetz/gruvbox/blob/master/colors/gruvbox.vim
-    preset("gruvbox-dark", "Gruvbox Dark", "#282828", "#3C3836", "#EBDBB2", "#FABD2F", "#504945"),
+    preset("gruvbox-dark", "Gruvbox Dark", "#282828", "#40382B", "#EBDBB2", "#B8BB26", "#5E602D"),
     // https://github.com/rose-pine/palette/blob/main/palette.json
     preset(
-      "rose-pine-dawn", "Rosé Pine Dawn", "#FAF4ED", "#FFFAF3", "#464261", "#286983", "#F2E9E1"),
+      "rose-pine-dawn", "Rosé Pine Dawn", "#FAF4ED", "#FFF8F6", "#464261", "#A64B66", "#EBCBCC"),
     // https://github.com/altercation/solarized#the-values
-    // Use base02 for shelf text to maintain contrast on base2.
     preset(
-      "solarized-light", "Solarized Light", "#FDF6E3", "#EEE8D5", "#073642", "#268BD2", "#93A1A1"),
+      "solarized-light", "Solarized Light", "#FDF6E3", "#EEE8D5", "#073642", "#187A74", "#ADCFC6"),
   ]
 }
 

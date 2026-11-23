@@ -326,7 +326,14 @@ import SwiftUI
     if let content = settings.contentView, let card = accessible("theme-card-dracula", in: content)
     {
       card.accessibilityPerformPress()
-      if !(await wait({ model.settings.themes.activeID == "dracula" && !model.commandPending })) {
+      if await wait({ model.settings.themes.activeID == "dracula" && !model.commandPending }) {
+        settings.close()
+        await application.show("apps")
+        model.query = ""
+        await screenshot("shelf-theme-dracula")
+        application.openSettings("themes")
+        await settle()
+      } else {
         failures.append("accessible theme card did not apply Dracula")
       }
     } else {
