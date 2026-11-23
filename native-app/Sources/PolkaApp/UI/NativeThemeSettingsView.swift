@@ -3,12 +3,13 @@ import PolkaCore
 import SwiftUI
 
 enum NativeThemeFilter: String, CaseIterable, Identifiable {
-  case all, neutral, vibrant, pastel, custom
+  case all, popular, neutral, vibrant, pastel, custom
 
   var id: Self { self }
   var label: String {
     switch self {
     case .all: localized("All")
+    case .popular: localized("Popular")
     case .neutral: localized("Neutral")
     case .vibrant: localized("Vibrant")
     case .pastel: localized("Pastel")
@@ -35,7 +36,7 @@ struct NativeThemeDraft {
   }
 
   func hasDuplicateName(in themes: NativeThemeSettings) -> Bool {
-    themes.containsName(trimmedName, excluding: existing ? source.id : "")
+    !themes.canUseName(trimmedName, editingCustomTheme: existing ? source.id : "")
   }
 
   func canSave(in themes: NativeThemeSettings) -> Bool {
@@ -190,7 +191,7 @@ struct NativeThemeSettingsView: View {
   @ObservedObject var model: NativeUIModel
   @FocusState private var focusedCard: String?
 
-  private let overview: [NativeThemeFilter] = [.neutral, .vibrant, .pastel]
+  private let overview = NativeThemeFilter.allCases.filter { $0.category != nil }
   private let columns = Array(
     repeating: GridItem(.flexible(minimum: 100), spacing: 8, alignment: .top), count: 3)
 
@@ -220,7 +221,7 @@ struct NativeThemeSettingsView: View {
   private var gallery: some View {
     VStack(alignment: .leading, spacing: 16) {
       ViewThatFits(in: .horizontal) {
-        categoryPicker.pickerStyle(.segmented).labelsHidden().fixedSize(
+        categoryPicker.pickerStyle(.segmented).controlSize(.small).labelsHidden().fixedSize(
           horizontal: true, vertical: false
         )
         .accessibilityIdentifier("theme-category-segments")

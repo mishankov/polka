@@ -1023,7 +1023,7 @@ import UserNotifications
       guard !name.isEmpty, name.count <= NativeThemeSettings.maxNameLength else {
         throw PolkaCoreError.invalid(localized("Enter a theme name of up to 35 characters."))
       }
-      guard !next.containsName(name, excluding: id) else {
+      guard next.canUseName(name, editingCustomTheme: id) else {
         throw PolkaCoreError.invalid(localized("A theme with this name already exists."))
       }
       return name

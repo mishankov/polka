@@ -321,6 +321,19 @@ import SwiftUI
     if !(await wait({ model.settingsPane == "themes" })) {
       failures.append("native settings sidebar ArrowDown did not select Themes")
     }
+    model.themeFilter = .popular
+    await settle()
+    if let content = settings.contentView, let card = accessible("theme-card-dracula", in: content)
+    {
+      card.accessibilityPerformPress()
+      if !(await wait({ model.settings.themes.activeID == "dracula" && !model.commandPending })) {
+        failures.append("accessible theme card did not apply Dracula")
+      }
+    } else {
+      failures.append("Dracula theme card is missing from the Popular gallery")
+    }
+    await screenshot("settings-themes-popular", window: settings, includeTitlebar: true)
+    model.themeFilter = .vibrant
     await settle()
     if let content = settings.contentView,
       let card = accessible("theme-card-midnight", in: content)
@@ -332,6 +345,7 @@ import SwiftUI
     } else {
       failures.append("Midnight theme card is missing from the Themes gallery")
     }
+    model.themeFilter = .all
     await screenshot("settings-themes", window: settings, includeTitlebar: true)
     if let row = await nativeSmokeWaitForView(
       in: settings, ofType: NSScrollView.self,

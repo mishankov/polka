@@ -6,11 +6,13 @@ import XCTest
 final class NativeThemePersistenceTests: XCTestCase {
   func testCatalogHasUniqueThemesWithValidColors() {
     let categories = NativeThemeCategory.allCases
-    XCTAssertEqual(categories.map { $0.themes.count }, [8, 8, 8])
+    XCTAssertEqual(categories.map { $0.themes.count }, [8, 8, 8, 8])
     let themes = categories.flatMap(\.themes)
     XCTAssertEqual(Set(themes.map(\.id)).count, themes.count)
     XCTAssertTrue(themes.allSatisfy { $0.colors.isValid })
-    XCTAssertTrue(themes.allSatisfy { $0.colors.textContrastRatio >= 4.5 })
+    for theme in themes {
+      XCTAssertGreaterThanOrEqual(theme.colors.textContrastRatio, 4.5, theme.name)
+    }
     XCTAssertEqual(NativeThemeSettings().active, NativeThemeSettings.standard)
   }
 
@@ -102,7 +104,7 @@ final class NativeThemePersistenceTests: XCTestCase {
     try await platform.handle(saveTheme(name: "Ember"))
     let beforeFailure = platform.model.settings.themes
     for invalid in [
-      saveTheme(name: "ember"), saveTheme(name: " "),
+      saveTheme(name: "ember"), saveTheme(name: "Dracula"), saveTheme(name: " "),
       saveTheme(name: "Invalid", selection: "#000Z00"),
       saveTheme(id: "polka", name: "New Polka"),
       NativeUICommand("theme.select", strings: ["id": "missing"]),
@@ -124,6 +126,36 @@ final class NativeThemePersistenceTests: XCTestCase {
     let reopened = try NativePlatform(model: NativeUIModel(), root: root, fixture: true)
     addTeardownBlock { await reopened.shutdown() }
     XCTAssertEqual(reopened.model.settings.themes, beforeFailure)
+  }
+
+  @MainActor func testExistingCustomThemeCanKeepANameAddedToTheCatalog() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "polka-theme-\(UUID())")
+    defer {
+      AppLocalization.configure(.system)
+      try? FileManager.default.removeItem(at: root)
+    }
+    let legacy = NativeShelfTheme(
+      id: UUID().uuidString, name: "Dracula", colors: NativeThemeSettings.standard.colors)
+    let saved = NativeThemeSettings(activeID: legacy.id, custom: [legacy])
+    let store = try SettingsStore(root: root)
+    try store.set(
+      key: NativeThemeSettings.settingsKey,
+      value: JSONSerialization.jsonObject(with: JSONEncoder().encode(saved)))
+    store.close()
+
+    let model = NativeUIModel()
+    let platform = try NativePlatform(model: model, root: root, fixture: true)
+    addTeardownBlock { await platform.shutdown() }
+    XCTAssertEqual(model.settings.themes.active, legacy)
+    model.editTheme()
+    let draft = try XCTUnwrap(model.themeDraft)
+    XCTAssertTrue(draft.canSave(in: model.settings.themes))
+    try await platform.handle(saveTheme(id: legacy.id, name: legacy.name, selection: "#A2483E"))
+    XCTAssertEqual(model.settings.themes.active.id, legacy.id)
+    XCTAssertEqual(model.settings.themes.active.name, legacy.name)
+    XCTAssertEqual(model.settings.themes.active.colors.selection, "#A2483E")
+    XCTAssertEqual(model.settings.themes.theme(id: "dracula")?.name, legacy.name)
   }
 
   private func saveTheme(id: String = "", name: String, selection: String = "#B55042")

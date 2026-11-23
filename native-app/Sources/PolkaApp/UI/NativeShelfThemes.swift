@@ -39,13 +39,14 @@ struct NativeShelfTheme: Identifiable, Codable, Equatable, Sendable {
 }
 
 enum NativeThemeCategory: String, CaseIterable {
-  case neutral, vibrant, pastel
+  case neutral, vibrant, pastel, popular
 
   var themes: [NativeShelfTheme] {
     switch self {
     case .neutral: Self.neutralThemes
     case .vibrant: Self.vibrantThemes
     case .pastel: Self.pastelThemes
+    case .popular: Self.popularThemes
     }
   }
 
@@ -91,6 +92,30 @@ enum NativeThemeCategory: String, CaseIterable {
     preset("sea-glass", "Sea Glass", "#D9EEED", "#F2FAF9", "#253C3C", "#447877", "#B9DEDB"),
     preset("dusk", "Dusk", "#413A56", "#524967", "#F4EBFF", "#D4B9F1", "#6A557D"),
   ]
+  private static let popularThemes = [
+    // https://github.com/dracula/visual-studio-code/blob/master/src/dracula.yml
+    preset("dracula", "Dracula", "#282A36", "#343746", "#F8F8F2", "#BD93F9", "#44475A"),
+    // https://www.nordtheme.com/docs/colors-and-palettes/
+    preset("nord", "Nord", "#2E3440", "#3B4252", "#ECEFF4", "#88C0D0", "#434C5E"),
+    // https://github.com/ayu-theme/vscode-ayu/blob/master/ayu-mirage.json
+    // Composite the editor's translucent text and selection over its background.
+    preset("ayu-mirage", "Ayu Mirage", "#242936", "#282E3B", "#CCCAC2", "#FFCC66", "#2B4768"),
+    // https://github.com/catppuccin/palette/blob/main/palette.json
+    preset(
+      "catppuccin-mocha", "Catppuccin Mocha", "#1E1E2E", "#313244", "#CDD6F4", "#CBA6F7", "#45475A"),
+    // https://github.com/tokyo-night/tokyo-night-vscode-theme/blob/master/themes/tokyo-night-color-theme.json
+    // Composite the editor's translucent selection over its background.
+    preset("tokyo-night", "Tokyo Night", "#1A1B26", "#202330", "#A9B1D6", "#7AA2F7", "#2B2F41"),
+    // https://github.com/morhetz/gruvbox/blob/master/colors/gruvbox.vim
+    preset("gruvbox-dark", "Gruvbox Dark", "#282828", "#3C3836", "#EBDBB2", "#FABD2F", "#504945"),
+    // https://github.com/rose-pine/palette/blob/main/palette.json
+    preset(
+      "rose-pine-dawn", "Rosé Pine Dawn", "#FAF4ED", "#FFFAF3", "#464261", "#286983", "#F2E9E1"),
+    // https://github.com/altercation/solarized#the-values
+    // Use base02 for shelf text to maintain contrast on base2.
+    preset(
+      "solarized-light", "Solarized Light", "#FDF6E3", "#EEE8D5", "#073642", "#268BD2", "#93A1A1"),
+  ]
 }
 
 struct NativeThemeSettings: Codable, Equatable, Sendable {
@@ -111,6 +136,16 @@ struct NativeThemeSettings: Codable, Equatable, Sendable {
     (Self.builtIns + custom).contains {
       $0.id != id && $0.name.caseInsensitiveCompare(name) == .orderedSame
     }
+  }
+
+  func canUseName(_ name: String, editingCustomTheme id: String) -> Bool {
+    // New presets can share a name with an existing custom theme.
+    if let theme = custom.first(where: { $0.id == id }),
+      theme.name.caseInsensitiveCompare(name) == .orderedSame
+    {
+      return true
+    }
+    return !containsName(name, excluding: id)
   }
 
   func copyName(for source: NativeShelfTheme) -> String {
