@@ -14,11 +14,22 @@ inputs:
     description: Compilation configuration for the CLI; app compilation is independent.
     required: false
     default: release
+  save-tools-cache:
+    description: Save tools/.build on post-job cleanup; set false when another parallel job owns the cache write.
+    required: false
+    default: 'true'
+  save-native-cache:
+    description: Save native-app/.build on post-job cleanup; set false when the caller checkpoints or restores read-only.
+    required: false
+    default: 'true'
 
 outputs:
   native-cache-key:
     description: Exact native build cache key for an early checkpoint after compilation.
     value: ${{ steps.cache-key.outputs.native }}
+  native-cache-hit:
+    description: Whether native-app/.build hit the exact primary cache key during restore.
+    value: ${{ steps.native-cache.outputs.cache-hit || steps.native-cache-restore.outputs.cache-hit }}
 
 runs:
   using: composite
@@ -62,12 +73,23 @@ runs:
         fi
 
     - name: Cache Swift tooling intermediates
-      if: inputs.build-cache != ''
+      if: inputs.build-cache != '' && inputs.save-tools-cache != 'false'
       uses: actions/cache@v6
       with:
         path: tools/.build
         # All CI jobs use the same default engine for the CLI. Share debug
         # intermediates with the tooling test job instead of compiling it three times.
+        key: swift-tools-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.tools-configuration }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('tools/Sources/**', 'tools/Tests/**') }}
+        restore-keys: |
+          swift-tools-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.tools-configuration }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-
+          swift-tools-v2-${{ runner.os }}-${{ runner.arch }}-tooling-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-
+          swift-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.legacy_build_key }}-${{ hashFiles('tools/Package.swift') }}-
+
+    - name: Restore Swift tooling intermediates without post-job save
+      if: inputs.build-cache != '' && inputs.save-tools-cache == 'false'
+      uses: actions/cache/restore@v6
+      with:
+        path: tools/.build
         key: swift-tools-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.tools-configuration }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-${{ hashFiles('tools/Sources/**', 'tools/Tests/**') }}
         restore-keys: |
           swift-tools-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.tools-configuration }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('tools/Package.swift', 'scripts/prepare-swift-cache.swift') }}-
@@ -83,7 +105,7 @@ runs:
 
     - name: Cache Swift app intermediates
       id: native-cache
-      if: inputs.build-cache != '' && inputs.tools-only != 'true'
+      if: inputs.build-cache != '' && inputs.tools-only != 'true' && inputs.save-native-cache != 'false'
       uses: actions/cache@v6
       with:
         path: |
@@ -92,6 +114,21 @@ runs:
         # across source and manifest revisions with identical resolved dependencies,
         # but never cross compilers, SDK builds, paths or build profiles. Manifest
         # resource changes must not discard compiled third-party dependencies.
+        key: ${{ steps.cache-key.outputs.native }}
+        restore-keys: |
+          swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-
+          swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-
+          swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-
+          swift-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-
+          swift-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.legacy_build_key }}-${{ hashFiles('native-app/Package.swift', 'native-app/Package.resolved') }}-
+
+    - name: Restore Swift app intermediates without post-job save
+      id: native-cache-restore
+      if: inputs.build-cache != '' && inputs.tools-only != 'true' && inputs.save-native-cache == 'false'
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          native-app/.build
         key: ${{ steps.cache-key.outputs.native }}
         restore-keys: |
           swift-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ inputs.build-cache }}-${{ steps.toolchain.outputs.build_key }}-${{ hashFiles('native-app/Package.resolved', 'scripts/prepare-swift-cache.swift') }}-

@@ -28,8 +28,16 @@ final class DesktopVMTests: XCTestCase {
   func testGuestDisplayPreparationCompilesWithoutChangingHostDisplay() throws {
     let root = try Files.temporary("polka-vm-display-script")
     defer { try? FileManager.default.removeItem(at: root) }
+    XCTAssertEqual(DesktopVM.Display.default, DesktopVM.Display(width: 1024, height: 768))
+    XCTAssertEqual(try DesktopVM.Display.parse(nil), DesktopVM.Display(width: 1024, height: 768))
+    XCTAssertEqual(
+      try DesktopVM.Display.parse("1920x1080"), DesktopVM.Display(width: 1920, height: 1080))
+    for invalid in ["640x480", "1920", "1920x1080x2", "abcxdef", "99999x1080"] {
+      XCTAssertThrowsError(try DesktopVM.Display.parse(invalid), invalid)
+    }
     let source = root.appendingPathComponent("prepare.swift")
     try TestSupport.write(DesktopVM.displayScript, to: source)
+    XCTAssertTrue(DesktopVM.displayScript.contains("1024x768"))
     _ = try Command.capture("/usr/bin/xcrun", ["swiftc", "-typecheck", source.path])
     _ = try Command.capture("/bin/sh", ["-n", "-c", DesktopVM.prepareScript])
     XCTAssertLessThan(
@@ -158,7 +166,7 @@ final class DesktopVMTests: XCTestCase {
 
   /// Real process transport with a synthetic Tart executable; no VM or desktop.
   private func fixture(
-    _ root: URL, failure: Int = 0, running: Bool = false,
+    _ root: URL, failure: Int = 0, running: Bool = false, display: String = "1024x768",
     firstProbeHangs: Bool = false, allProbesHang: Bool = false
   ) throws -> ToolContext {
     let tart = root.appendingPathComponent("tart")
@@ -169,7 +177,8 @@ final class DesktopVMTests: XCTestCase {
       printf '%s\\n' "$*" >> \(DesktopVM.quote(log.path))
       case "$1" in
         list) printf '[{"Name":"polka-fixture","Source":"local"}]' ;;
-        get) printf '{"Running":\(running ? "true" : "false")}' ;;
+        get) printf '{"Running":\(running ? "true" : "false"),"Display":"\(display)"}' ;;
+        set) exit 0 ;;
         run)
           echo $$ > \(DesktopVM.quote(pid.path))
           for arg in "$@"; do
@@ -408,6 +417,16 @@ final class DesktopVMTests: XCTestCase {
       FileManager.default.fileExists(atPath: root.appendingPathComponent("vm.pid").path))
     try FileManager.default.removeItem(at: config.owner)
     XCTAssertThrowsError(try DesktopVM.requireOwned(config))
+  }
+
+  func testWithGuestReconfiguresStoppedVMDisplayWhenItDiffersFromTarget() async throws {
+    let root = try Files.temporary("polka-vm-display-sync")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let context = try fixture(root, display: "1920x1080")
+    let config = try DesktopVM.Configuration(context: context)
+    try await DesktopVM.withGuest(config, context: context) { _ in }
+    let calls = try String(contentsOf: root.appendingPathComponent("calls"), encoding: .utf8)
+    XCTAssertTrue(calls.contains("set polka-fixture --display 1024x768 --no-display-refit"))
   }
 }
 

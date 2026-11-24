@@ -30,12 +30,18 @@ jobs:
     name: Verify native macOS source
     runs-on: xcode-27
     timeout-minutes: 10
+    outputs:
+      tree: ${{ steps.tree.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
+      - name: Record checked-out source tree
+        id: tree
+        run: echo "sha=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/prepare-macos
         with:
           build-cache: source-native
           tools-configuration: debug
+          save-tools-cache: 'false'
       - name: Verify Swift services, UI models, coverage and regression fixtures
         run: ./polka verify --no-desktop --no-tools
       - name: Upload native coverage reports
@@ -51,8 +57,13 @@ jobs:
     name: Verify Swift tooling
     runs-on: xcode-27
     timeout-minutes: 10
+    outputs:
+      tree: ${{ steps.tree.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
+      - name: Record checked-out source tree
+        id: tree
+        run: echo "sha=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/prepare-macos
         with:
           build-cache: tooling
@@ -65,18 +76,27 @@ jobs:
     name: Package and test native macOS arm64
     runs-on: xcode-27
     timeout-minutes: 10
+    outputs:
+      tree: ${{ steps.tree.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
+      - name: Record checked-out source tree
+        id: tree
+        run: echo "sha=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/prepare-macos
         id: prepare
         with:
           build-cache: optimized-native
           tools-configuration: debug
+          save-tools-cache: 'false'
+          save-native-cache: 'false'
       - name: Build optimized app
         run: ./polka build --release
       # Retain expensive compilation even if a later integration check fails or
-      # the runner reaches its deadline. The post-job cache save then skips it.
+      # the runner reaches its deadline. prepare-macos uses restore-only so
+      # post-job cleanup never duplicates this save or trips the 10m timeout.
       - name: Checkpoint compiled native cache
+        if: steps.prepare.outputs.native-cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: native-app/.build
@@ -134,3 +154,15 @@ jobs:
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: jq -e 'all(.[]; .result == "success")' <<< "$RESULTS"
+      - name: Record verified source tree
+        shell: bash
+        env:
+          VERIFY_TREE: ${{ needs.verify.outputs.tree }}
+          TOOLING_TREE: ${{ needs.tooling.outputs.tree }}
+          PACKAGE_TREE: ${{ needs.package.outputs.tree }}
+        run: |
+          if [[ "$VERIFY_TREE" =~ ^[0-9a-f]{40}$ ]] \
+            && [[ "$VERIFY_TREE" == "$TOOLING_TREE" ]] \
+            && [[ "$VERIFY_TREE" == "$PACKAGE_TREE" ]]; then
+            echo "::notice title=verified-source-tree::$VERIFY_TREE"
+          fi

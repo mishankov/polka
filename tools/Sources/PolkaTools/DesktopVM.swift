@@ -10,9 +10,30 @@ public enum DesktopVM {
   static let guestOutput = "/Volumes/My Shared Files/polka-output"
   static let guestBootstrap = "/Volumes/My Shared Files/polka-bootstrap"
 
+  struct Display: Equatable {
+    static let `default` = Display(width: 1024, height: 768)
+    let width: Int
+    let height: Int
+    var spec: String { "\(width)x\(height)" }
+    static func parse(_ raw: String?) throws -> Display {
+      guard let raw, !raw.isEmpty else { return .default }
+      let parts = raw.split(separator: "x", omittingEmptySubsequences: false)
+      guard parts.count == 2,
+        ToolFiles.matches(raw, "^[0-9]{3,4}x[0-9]{3,4}$"),
+        let width = Int(parts[0]), let height = Int(parts[1]),
+        (800...7680).contains(width), (600...4320).contains(height)
+      else {
+        throw ToolError(
+          "POLKA_VM_DISPLAY must be WIDTHxHEIGHT (for example, 1024x768 or 1920x1080).")
+      }
+      return Display(width: width, height: height)
+    }
+  }
+
   struct Configuration {
     let name: String
     let image: String
+    let display: Display
     let state: URL
     let tart: URL
     init(context: ToolContext) throws {
@@ -23,6 +44,7 @@ public enum DesktopVM {
           "POLKA_VM_NAME must start with polka- and contain only letters, digits and hyphens.")
       }
       image = env["POLKA_VM_IMAGE"] ?? defaultImage
+      display = try Display.parse(env["POLKA_VM_DISPLAY"])
       let home = FileManager.default.homeDirectoryForCurrentUser
       let base = home.appendingPathComponent("Library/Application Support/polka-development")
       state = URL(
@@ -176,7 +198,7 @@ public enum DesktopVM {
     _ = try await checked(
       config,
       [
-        "set", config.name, "--cpu", "4", "--memory", "12288", "--display", "1920x1080",
+        "set", config.name, "--cpu", "4", "--memory", "12288", "--display", config.display.spec,
         "--no-display-refit",
       ], context: context)
     try await withGuest(config, context: context) { _ in
@@ -196,13 +218,16 @@ public enum DesktopVM {
     /usr/bin/xcodebuild -version
     """
 
-  static let displayScript = """
+  static var displayScript: String { displayScript(for: .default) }
+
+  static func displayScript(for display: Display) -> String {
+    """
     import CoreGraphics
     import Darwin
     let display = CGMainDisplayID()
     let modes = CGDisplayCopyAllDisplayModes(display, nil) as? [CGDisplayMode] ?? []
-    guard let mode = modes.first(where: { $0.width == 1920 && $0.height == 1080 }) else {
-      fputs("Guest does not support the required 1920x1080 display.\\n", stderr)
+    guard let mode = modes.first(where: { $0.width == \(display.width) && $0.height == \(display.height) }) else {
+      fputs("Guest does not support the required \(display.spec) display.\\n", stderr)
       exit(1)
     }
     var configuration: CGDisplayConfigRef?
@@ -215,9 +240,10 @@ public enum DesktopVM {
       exit(1)
     }
     let bounds = CGDisplayBounds(display)
-    guard bounds.width == 1920 && bounds.height == 1080 else { exit(1) }
-    print("Guest display configured: 1920x1080")
+    guard bounds.width == \(display.width) && bounds.height == \(display.height) else { exit(1) }
+    print("Guest display configured: \(display.spec)")
     """
+  }
 
   static var prepareScript: String {
     """
@@ -244,14 +270,16 @@ public enum DesktopVM {
   static func withGuest<T>(
     _ config: Configuration, source: URL? = nil, output: URL? = nil, context: ToolContext,
     readinessTimeout: TimeInterval = 180, probeTimeout: TimeInterval = 15,
-    prepareDisplay: (URL, ToolContext) throws -> Void = {
-      try compileDisplay(to: $0, context: $1)
-    },
+    prepareDisplay: ((URL, ToolContext) throws -> Void)? = nil,
     operation: (DesktopChild) async throws -> T
   ) async throws -> T {
     let bootstrap = try Files.temporary("polka-vm-bootstrap")
     defer { try? FileManager.default.removeItem(at: bootstrap) }
-    try prepareDisplay(bootstrap, context)
+    if let prepareDisplay {
+      try prepareDisplay(bootstrap, context)
+    } else {
+      try compileDisplay(to: bootstrap, display: config.display, context: context)
+    }
     let info = try await checked(
       config, ["get", config.name, "--format", "json"], context: context)
     guard let json = try JSONSerialization.jsonObject(with: Data(info.utf8)) as? [String: Any],
@@ -259,6 +287,12 @@ public enum DesktopVM {
     else {
       throw ToolError(
         "Test VM is already running outside this invocation; refusing to take it over.")
+    }
+    if let configured = json["Display"] as? String, configured != config.display.spec {
+      _ = try await checked(
+        config,
+        ["set", config.name, "--display", config.display.spec, "--no-display-refit"],
+        context: context)
     }
     var arguments = [
       "run", config.name, "--no-graphics", "--no-audio", "--no-clipboard", "--no-usb-accessories",
@@ -359,9 +393,11 @@ public enum DesktopVM {
     "POLKA_NATIVE_SMOKE_WINDOW_CAPTURE",
     "POLKA_NATIVE_SYSTEM_STATUS_MEASURE",
   ]
-  static func compileDisplay(to directory: URL, context: ToolContext) throws {
+  static func compileDisplay(
+    to directory: URL, display: Display = .default, context: ToolContext
+  ) throws {
     let source = directory.appendingPathComponent("prepare-display.swift")
-    try Data(displayScript.utf8).write(to: source)
+    try Data(displayScript(for: display).utf8).write(to: source)
     try Command.run(
       "/usr/bin/xcrun",
       ["swiftc", source.path, "-o", directory.appendingPathComponent("prepare-display").path],
