@@ -1075,6 +1075,12 @@ import ScreenCaptureKit
       key(21, .command, "4", liveWindow)
       if await wait({ live.tool == .line }) {
         await typeNumber("7", field: "screenshot-line-width", in: liveWindow)
+        // Draw beside the other marks so the drag and endpoint edit fit on smaller displays.
+        let selection = liveCanvas.imageRect
+        let from = liveCanvas.convert(
+          CGPoint(
+            x: (selection.minX + selection.width * 0.65).rounded(), y: selection.midY.rounded()),
+          to: nil)
         let end = CGPoint(x: from.x + 120, y: from.y + 30)
         let startPoint = liveCanvas.imagePoint(liveCanvas.convert(from, from: nil))
         let rawEnd = liveCanvas.imagePoint(liveCanvas.convert(end, from: nil))
