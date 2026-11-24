@@ -295,11 +295,17 @@ import ScreenCaptureKit
   }
   trace("window selection and capture")
   do {
+    // The Shelf sits above normal windows. Keep both test points below it and
+    // inside the same selection panel even on the hosted runner's smaller display.
+    let fixtureCenter = CGPoint(
+      x: displayFrames[1].midX, y: (desktop.minY + shelf.frame.minY) / 2)
     let background = NSWindow(
-      contentRect: CGRect(x: desktop.midX - 180, y: desktop.midY - 150, width: 360, height: 240),
+      contentRect: CGRect(
+        x: fixtureCenter.x - 180, y: fixtureCenter.y - 120, width: 360, height: 240),
       styleMask: .borderless, backing: .buffered, defer: false)
     let foreground = NSWindow(
-      contentRect: CGRect(x: desktop.midX - 40, y: desktop.midY - 110, width: 180, height: 150),
+      contentRect: CGRect(
+        x: fixtureCenter.x - 40, y: fixtureCenter.y - 75, width: 180, height: 150),
       styleMask: .borderless, backing: .buffered, defer: false)
     background.backgroundColor = NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1)
     foreground.backgroundColor = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
@@ -323,8 +329,7 @@ import ScreenCaptureKit
 
     key(49, [], " ", keyboardPanel)
     key(49, [], " ", keyboardPanel, repeatKey: true)
-    let coveredPoint = panel.convertPoint(
-      fromScreen: CGPoint(x: desktop.midX, y: desktop.midY - 20))
+    let coveredPoint = panel.convertPoint(fromScreen: fixtureCenter)
     mouse(.mouseMoved, coveredPoint, panel)
     if !(await wait { view.selection?.targetWindow?.id == CGWindowID(foreground.windowNumber) }) {
       let hit = NSWindow.windowNumber(
@@ -340,7 +345,7 @@ import ScreenCaptureKit
     }
     key(49, [], " ", keyboardPanel)
     let exposedPoint = panel.convertPoint(
-      fromScreen: CGPoint(x: desktop.midX - 120, y: desktop.midY - 20))
+      fromScreen: CGPoint(x: fixtureCenter.x - 120, y: fixtureCenter.y))
     mouse(.mouseMoved, exposedPoint, panel)
     if !(await wait { view.selection?.targetWindow?.id == CGWindowID(background.windowNumber) }) {
       failures.append("window highlight did not follow the pointer")
@@ -1027,10 +1032,14 @@ import ScreenCaptureKit
       let center = liveWindow.convertPoint(
         toScreen: liveCanvas.convert(
           CGPoint(x: liveCanvas.imageRect.midX, y: liveCanvas.imageRect.midY), to: nil))
-      if NSWindow.windowNumber(at: center, belowWindowWithWindowNumber: 0)
-        != liveWindow.windowNumber
-      {
-        failures.append("live screenshot area does not receive WindowServer mouse input")
+      if !(await wait({
+        NSWindow.windowNumber(at: center, belowWindowWithWindowNumber: 0)
+          == liveWindow.windowNumber
+      })) {
+        let hit = NSWindow.windowNumber(at: center, belowWindowWithWindowNumber: 0)
+        failures.append(
+          "live screenshot area does not receive WindowServer mouse input (hit \(hit), expected \(liveWindow.windowNumber))"
+        )
       }
       var from = liveCanvas.convert(
         CGPoint(x: liveCanvas.imageRect.midX - 40, y: liveCanvas.imageRect.midY), to: nil)
