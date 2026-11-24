@@ -418,7 +418,10 @@ struct NativeBrowseContext {
     // actually takes time. Cancellation prevents a completed write (or its
     // successor) from receiving stale feedback.
     let busyFeedback: Task<Void, Never>?
-    if command.defersBusyFeedback {
+    if ["screenshots.capture", "screenshots.copy"].contains(command.name) {
+      // The selector owns input. Keep the shelf ready to be photographed.
+      busyFeedback = nil
+    } else if command.defersBusyFeedback {
       busyFeedback = Task { @MainActor in
         do { try await Task.sleep(nanoseconds: 150_000_000) } catch { return }
         guard !Task.isCancelled else { return }

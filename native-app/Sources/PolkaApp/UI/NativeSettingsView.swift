@@ -212,6 +212,10 @@ struct NativeSettingsView: View {
         }
       }
       NativeSettingsGroup(localized("Screenshot Shortcuts")) {
+        note(
+          localized(
+            "During capture, Space switches between region and window selection. Return captures the highlighted window. Esc cancels."
+          ))
         shortcutRow(
           localized("Capture and Edit Region"), value: model.settings.screenshotShortcut,
           disabled: model.busy

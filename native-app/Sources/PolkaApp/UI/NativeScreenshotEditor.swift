@@ -71,7 +71,7 @@ private final class NativeScreenshotHostingView<Content: View>: NSHostingView<Co
     window.delegate = self
     window.contentView = NativeScreenshotHostingView(
       rootView: NativeScreenshotEditorView(document: shot, editor: self))
-    window.level = desktopFrame == nil ? .floating : .screenSaver
+    window.level = .screenSaver
     if desktopFrame != nil {
       // WindowServer ignores fully transparent pixels when routing mouse input.
       // Keep the desktop visible while retaining an input surface for drawing.
@@ -126,7 +126,7 @@ private final class NativeScreenshotHostingView<Content: View>: NSHostingView<Co
     let cmd = flags == .command
     let shiftCmd = flags == [.command, .shift]
     if !key.editing, window?.firstResponder === canvas, canvas?.areaKeyboard == true,
-      [36, 48, 123, 124, 125, 126].contains(key.code), flags.isEmpty || flags == .shift
+      [36, 48, 53, 123, 124, 125, 126].contains(key.code), flags.isEmpty || flags == .shift
     {
       if !key.repeatKey && !shot.busy { canvas?.areaKey(key.code, shift: flags == .shift) }
       return true
@@ -162,7 +162,7 @@ private final class NativeScreenshotHostingView<Content: View>: NSHostingView<Co
       return true
     }
     let known =
-      (cmd && [18, 19, 20, 8, 1, 6, 13, 15].contains(key.code))
+      (cmd && [18, 19, 20, 21, 8, 1, 6, 13, 15].contains(key.code))
       || (shiftCmd && [1, 6].contains(key.code))
     if key.editing, canvas?.textEditor != nil, window?.firstResponder === canvas?.textEditor,
       key.code == 6, cmd || shiftCmd
@@ -182,6 +182,7 @@ private final class NativeScreenshotHostingView<Content: View>: NSHostingView<Co
     case (18, _): select(.arrow)
     case (19, _): select(.text)
     case (20, _): select(.rectangle)
+    case (21, _): select(.line)
     case (8, _): copyScreenshot()
     case (1, true): shelf()
     case (1, false): save()
@@ -336,11 +337,37 @@ private final class NativeScreenshotHostingView<Content: View>: NSHostingView<Co
 }
 
 enum NativeScreenshotToolbarLayout {
+  private static let gap: CGFloat = 10
+  private static let margin: CGFloat = 8
+
+  static func frames(
+    selection: CGRect, screen: CGSize, tools: CGSize, actions: CGSize, topInset: CGFloat
+  ) -> (tools: CGRect, actions: CGRect) {
+    var toolsFrame = frame(
+      selection: selection, screen: screen, toolbar: tools, above: true, topInset: topInset)
+    var actionsFrame = frame(
+      selection: selection, screen: screen, toolbar: actions, above: false, topInset: topInset)
+    if toolsFrame.intersects(actionsFrame) {
+      let top = max(0, topInset) + margin
+      let bottom = screen.height - margin
+      let height = tools.height + gap + actions.height
+      let below = selection.maxY + gap
+      let above = selection.minY - gap - height
+      if below + height <= bottom {
+        toolsFrame.origin.y = below
+      } else if above >= top {
+        toolsFrame.origin.y = above
+      } else {
+        toolsFrame.origin.y = max(top, min(toolsFrame.minY, bottom - height))
+      }
+      actionsFrame.origin.y = toolsFrame.maxY + gap
+    }
+    return (toolsFrame, actionsFrame)
+  }
+
   static func frame(
     selection: CGRect, screen: CGSize, toolbar: CGSize, above: Bool, topInset: CGFloat = 0
   ) -> CGRect {
-    let gap: CGFloat = 10
-    let margin: CGFloat = 8
     let x = max(
       margin, min(screen.width - toolbar.width - margin, selection.midX - toolbar.width / 2))
     let top = max(0, topInset) + margin
@@ -374,11 +401,8 @@ private struct NativeScreenshotEditorView: View {
         max(
           screen?.safeAreaInsets.top ?? 0,
           (screen?.frame.maxY ?? 0) - (screen?.visibleFrame.maxY ?? 0)))
-      let toolsFrame = NativeScreenshotToolbarLayout.frame(
-        selection: selected, screen: geometry.size, toolbar: toolsSize, above: true,
-        topInset: topInset)
-      let actionsFrame = NativeScreenshotToolbarLayout.frame(
-        selection: selected, screen: geometry.size, toolbar: actionsSize, above: false,
+      let (toolsFrame, actionsFrame) = NativeScreenshotToolbarLayout.frames(
+        selection: selected, screen: geometry.size, tools: toolsSize, actions: actionsSize,
         topInset: topInset)
       ZStack(alignment: .topLeading) {
         NativeScreenshotCanvasBridge(document: document, editor: editor)
@@ -387,6 +411,7 @@ private struct NativeScreenshotEditorView: View {
             tool(localized("Arrow"), .arrow, "⌘1")
             tool(localized("Text"), .text, "⌘2")
             tool(localized("Rectangle"), .rectangle, "⌘3")
+            tool(localized("Line"), .line, "⌘4")
             Divider().frame(height: 22)
             NativeIconButton(
               label: localized("Undo"), symbol: "arrow.uturn.backward", shortcut: "⌘Z",
@@ -411,23 +436,25 @@ private struct NativeScreenshotEditorView: View {
           }.padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 4)
           Group {
             HStack(spacing: 10) {
-              if document.editingKind == .arrow {
-                colorPicker("Color", color: $document.style.arrowColor)
+              switch document.editingKind {
+              case .arrow, .line:
+                let line = document.editingKind == .line
+                colorPicker("Color", color: styleBinding(line ? \.lineColor : \.arrowColor))
                 numberControl(
-                  "Width", value: $document.style.arrowWidth, range: 1...32,
-                  identifier: "screenshot-arrow-width")
-              } else if document.editingKind == .rectangle {
-                colorPicker("Color", color: $document.style.rectangleColor)
+                  "Width", value: styleBinding(line ? \.lineWidth : \.arrowWidth), range: 1...32,
+                  identifier: line ? "screenshot-line-width" : "screenshot-arrow-width")
+              case .rectangle:
+                colorPicker("Color", color: styleBinding(\.rectangleColor))
                 numberControl(
-                  "Width", value: $document.style.rectangleWidth, range: 1...32,
+                  "Width", value: styleBinding(\.rectangleWidth), range: 1...32,
                   identifier: "screenshot-rectangle-width")
-                Toggle(localized("Filled"), isOn: $document.style.rectangleFilled)
+                Toggle(localized("Filled"), isOn: styleBinding(\.rectangleFilled))
                   .toggleStyle(.checkbox).accessibilityIdentifier("screenshot-rectangle-filled")
-              } else {
-                colorPicker("Color", color: $document.style.textColor)
-                colorPicker("Background", color: $document.style.textBackground, opacity: true)
+              case .text:
+                colorPicker("Color", color: styleBinding(\.textColor))
+                colorPicker("Background", color: styleBinding(\.textBackground), opacity: true)
                 numberControl(
-                  "Size", value: $document.style.textSize, range: 8...160,
+                  "Size", value: styleBinding(\.textSize), range: 8...160,
                   identifier: "screenshot-text-size")
               }
             }.font(.system(size: 12)).frame(height: 26).disabled(document.busy)
@@ -494,6 +521,11 @@ private struct NativeScreenshotEditorView: View {
       }
     }.environment(\.colorScheme, .dark)
   }
+  private func styleBinding<Value: Equatable>(_ key: WritableKeyPath<NativeScreenshotStyle, Value>)
+    -> Binding<Value>
+  {
+    Binding(get: { document.style[keyPath: key] }, set: { document.changeStyle($0, for: key) })
+  }
   private func numberControl(
     _ title: String, value: Binding<CGFloat>, range: ClosedRange<CGFloat>, identifier: String
   ) -> some View {
@@ -523,10 +555,20 @@ private struct NativeScreenshotEditorView: View {
   private func tool(_ title: String, _ kind: NativeScreenshotMark.Kind, _ shortcut: String)
     -> some View
   {
-    NativeIconButton(
-      label: title,
-      symbol: kind == .arrow ? "arrow.up.right" : kind == .text ? "textformat" : "rectangle",
-      shortcut: shortcut, disabled: document.busy, prominent: document.tool == kind
+    let snapHint = localized(
+      "Hold Shift while drawing or dragging an endpoint to snap to 15° increments")
+    let (symbol, interactionHint) =
+      switch kind {
+      case .arrow: ("arrow.up.right", snapHint)
+      case .text: ("textformat", "")
+      case .rectangle:
+        ("rectangle", localized("Hold Shift while drawing or dragging a corner to make a square"))
+      case .line: ("line.diagonal", snapHint)
+      }
+    return NativeIconButton(
+      label: title, symbol: symbol,
+      shortcut: shortcut, disabled: document.busy, prominent: document.tool == kind,
+      interactionHint: interactionHint
     ) { editor?.select(kind) }
     .accessibilityIdentifier("screenshot-tool-" + kind.rawValue)
   }
@@ -560,8 +602,10 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
   private(set) var textEditor: NSTextView?
   private var start: CGPoint?
   private var end: CGPoint?
+  private var snapsDrawing = false
   private var dragOriginal: NativeScreenshotMark?
   private var dragOrigin: CGPoint?
+  private var dragDelta: CGPoint?
   private var activeHandle = 2
   private var resizeDraft: NativeScreenshotArea?
   private var resizeOriginal: CGRect?
@@ -676,6 +720,12 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
           document.size.height, (point.y - imageRect.minY) * document.size.height / imageRect.height
         )))
   }
+  var drawingEnd: CGPoint? {
+    guard let start, let end, let document else { return nil }
+    guard snapsDrawing else { return end }
+    return NativeScreenshotDocument.snappedEnd(
+      from: start, to: end, kind: document.tool, in: CGRect(origin: .zero, size: document.size))
+  }
   override func draw(_ dirtyRect: NSRect) {
     guard let document, let context = NSGraphicsContext.current?.cgContext,
       !imageRect.isEmpty
@@ -736,7 +786,7 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
         context.strokeEllipse(in: handle)
       }
     }
-    if let start, let end, document.tool != .text {
+    if let start, let end = drawingEnd, document.tool != .text {
       context.saveGState()
       context.translateBy(x: imageRect.minX, y: imageRect.minY)
       context.scaleBy(
@@ -797,6 +847,7 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
     } else {
       start = location
       end = location
+      snapsDrawing = event.modifierFlags.contains(.shift)
     }
     needsDisplay = true
   }
@@ -804,6 +855,7 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
     activeHandle = handle
     dragOriginal = mark
     dragOrigin = point
+    dragDelta = nil
     needsDisplay = true
   }
   func objectHandles(_ mark: NativeScreenshotMark) -> [(Int, CGPoint)] {
@@ -815,7 +867,9 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
     }
     return points
   }
-  func moveObject(_ mark: NativeScreenshotMark, by delta: CGPoint, handle: Int)
+  func moveObject(
+    _ mark: NativeScreenshotMark, by delta: CGPoint, handle: Int, snapping: Bool = false
+  )
     -> NativeScreenshotMark
   {
     guard let document else { return mark }
@@ -823,6 +877,12 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
     func bounded(_ point: CGPoint) -> CGPoint {
       CGPoint(
         x: max(0, min(document.size.width, point.x)), y: max(0, min(document.size.height, point.y)))
+    }
+    func dragged(_ point: CGPoint, opposite: CGPoint) -> CGPoint {
+      let target = bounded(CGPoint(x: point.x + delta.x, y: point.y + delta.y))
+      guard snapping else { return target }
+      return NativeScreenshotDocument.snappedEnd(
+        from: opposite, to: target, kind: mark.kind, in: CGRect(origin: .zero, size: document.size))
     }
     if mark.kind == .text {
       let bounds = NativeScreenshotDocument.textBounds(mark)
@@ -842,15 +902,19 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
       result.start = CGPoint(x: mark.start.x + dx, y: mark.start.y + dy)
       result.end = CGPoint(x: mark.end.x + dx, y: mark.end.y + dy)
     } else if mark.kind == .rectangle && handle == 3 {
-      result.start.x = bounded(CGPoint(x: mark.start.x + delta.x, y: 0)).x
-      result.end.y = bounded(CGPoint(x: 0, y: mark.end.y + delta.y)).y
+      let corner = dragged(
+        CGPoint(x: mark.start.x, y: mark.end.y), opposite: CGPoint(x: mark.end.x, y: mark.start.y))
+      result.start.x = corner.x
+      result.end.y = corner.y
     } else if mark.kind == .rectangle && handle == 4 {
-      result.end.x = bounded(CGPoint(x: mark.end.x + delta.x, y: 0)).x
-      result.start.y = bounded(CGPoint(x: 0, y: mark.start.y + delta.y)).y
+      let corner = dragged(
+        CGPoint(x: mark.end.x, y: mark.start.y), opposite: CGPoint(x: mark.start.x, y: mark.end.y))
+      result.end.x = corner.x
+      result.start.y = corner.y
     } else if handle == 0 {
-      result.start = bounded(CGPoint(x: mark.start.x + delta.x, y: mark.start.y + delta.y))
+      result.start = dragged(mark.start, opposite: mark.end)
     } else {
-      result.end = bounded(CGPoint(x: mark.end.x + delta.x, y: mark.end.y + delta.y))
+      result.end = dragged(mark.end, opposite: mark.start)
     }
     return result
   }
@@ -869,12 +933,31 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
     }
     let point = imagePoint(convert(event.locationInWindow, from: nil))
     if let original = dragOriginal, let origin = dragOrigin, let point {
+      let delta = CGPoint(x: point.x - origin.x, y: point.y - origin.y)
+      // A Shift-click can select a handle without changing the shape.
+      if dragDelta != nil || delta != .zero { dragDelta = delta }
       document.objectDraft = moveObject(
-        original, by: CGPoint(x: point.x - origin.x, y: point.y - origin.y), handle: activeHandle)
+        original, by: delta, handle: activeHandle,
+        snapping: dragDelta != nil && event.modifierFlags.contains(.shift))
     } else if start != nil {
       end = point
+      snapsDrawing = event.modifierFlags.contains(.shift)
     }
     needsDisplay = true
+  }
+  override func flagsChanged(with event: NSEvent) {
+    if let document, !document.busy, nativeCommandInteractionAllowed {
+      let shift = event.modifierFlags.contains(.shift)
+      if let original = dragOriginal, let delta = dragDelta, activeHandle != 2 {
+        document.objectDraft = moveObject(
+          original, by: delta, handle: activeHandle, snapping: shift)
+        needsDisplay = true
+      } else if start != nil, snapsDrawing != shift {
+        snapsDrawing = shift
+        needsDisplay = true
+      }
+    }
+    super.flagsChanged(with: event)
   }
   override func mouseUp(with event: NSEvent) {
     mouseDragged(with: event)
@@ -891,7 +974,9 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
     if let document, dragOriginal != nil, let updated = document.pendingObject {
       document.finishObject()
       document.selectObject(updated)
-    } else if let document, let start, let end, hypot(end.x - start.x, end.y - start.y) >= 2 {
+    } else if let document, let start, let end = drawingEnd,
+      hypot(end.x - start.x, end.y - start.y) >= 2
+    {
       let mark = document.mark(start: start, end: end)
       document.add(mark)
       document.selectObject(mark)
@@ -899,8 +984,10 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
     }
     dragOriginal = nil
     dragOrigin = nil
+    dragDelta = nil
     start = nil
     end = nil
+    snapsDrawing = false
     needsDisplay = true
   }
   func editObjectKey(_ code: UInt16, shift: Bool) {
@@ -909,6 +996,7 @@ private struct NativeScreenshotCanvasBridge: NSViewRepresentable {
       document.finishObject()
       dragOriginal = nil
       dragOrigin = nil
+      dragDelta = nil
     } else if code == 48 {
       let handles = selected.kind == .rectangle ? [0, 1, 3, 4, 2] : [0, 1, 2]
       let index = handles.firstIndex(of: activeHandle) ?? 0

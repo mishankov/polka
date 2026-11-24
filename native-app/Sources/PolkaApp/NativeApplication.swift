@@ -451,9 +451,9 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   @objc private func aboutAction() { openSettings("about") }
   @objc private func quitAction() { requestQuit() }
   @objc private func closeWindowAction(_ sender: Any?) {
-    guard !model.busy, NSApp.modalWindow == nil, NSApp.keyWindow?.attachedSheet == nil else {
-      return
-    }
+    guard !model.busy, !model.screenshotCapturing, NSApp.modalWindow == nil,
+      NSApp.keyWindow?.attachedSheet == nil
+    else { return }
     if NSApp.keyWindow === shelf {
       model.closeShelf()
     } else {
@@ -461,7 +461,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
   }
   @objc private func hideApplicationAction(_ sender: Any?) {
-    guard !model.busy, NSApp.modalWindow == nil,
+    guard !model.busy, !model.screenshotCapturing, NSApp.modalWindow == nil,
       !NSApp.windows.contains(where: { $0.attachedSheet != nil })
     else { return }
     // Finish ordering out while the app is still active. Delaying it until
@@ -472,21 +472,22 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     NSApp.hide(sender)
   }
   func validateMenuItem(_ item: NSMenuItem) -> Bool {
+    let busy = model.busy || model.screenshotCapturing
     let destinations: [Selector: String] = [
       #selector(historyAction): "clipboard", #selector(snippetsAction): "snippets",
       #selector(quickLinksAction): "quick-links",
       #selector(filesAction): "files", #selector(screenshotsAction): "screenshots",
     ]
     if let destination = item.action.flatMap({ destinations[$0] }) {
-      return model.settings.builtinApps.allows(destination: destination) && !model.busy
+      return model.settings.builtinApps.allows(destination: destination) && !busy
         && NSApp.modalWindow == nil && !NSApp.windows.contains { $0.attachedSheet != nil }
     }
     if item.action == #selector(closeWindowAction(_:)) {
-      return !model.busy && NSApp.modalWindow == nil && NSApp.keyWindow != nil
+      return !busy && NSApp.modalWindow == nil && NSApp.keyWindow != nil
         && NSApp.keyWindow?.attachedSheet == nil
     }
     if item.action == #selector(hideApplicationAction(_:)) {
-      return !model.busy && NSApp.modalWindow == nil
+      return !busy && NSApp.modalWindow == nil
         && !NSApp.windows.contains(where: { $0.attachedSheet != nil })
     }
     return true
@@ -541,6 +542,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       "screenshots.capture", "screenshots.copy",
     ]
     guard
+      !model.screenshotCapturing,
       !model.busy || model.pendingCommand.map(navigationCommands.contains) == true
         || (requested == "files" && model.incomingFileDropPending)
     else { return }
@@ -553,7 +555,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       await show(destination, query: query)
       return
     }
-    guard !terminating, !model.screenshotCapturing, suspensions.isEmpty, NSApp.modalWindow == nil,
+    guard !terminating, suspensions.isEmpty, NSApp.modalWindow == nil,
       shelf.attachedSheet == nil
     else { return }
     if destination == "screenshots" {
@@ -649,7 +651,8 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
   }
   func openSettings(_ pane: String?, themeFilter: NativeThemeFilter? = nil) {
-    guard !model.busy || model.pendingCommand == "shelf.settings", NSApp.modalWindow == nil,
+    guard !model.screenshotCapturing, !model.busy || model.pendingCommand == "shelf.settings",
+      NSApp.modalWindow == nil,
       !NSApp.windows.contains(where: { $0.attachedSheet != nil })
     else { return }
     activationTransition.cancel()
@@ -687,7 +690,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
   }
   func windowDidResignKey(_ notification: Notification) {
-    guard (notification.object as? NSWindow) === shelf else { return }
+    guard (notification.object as? NSWindow) === shelf, !model.screenshotCapturing else { return }
     let revision = lifecycle.revision
     traceLifecycle("schedule-key-loss")
     DispatchQueue.main.async { [weak self] in
@@ -732,8 +735,10 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
   }
   private func dismissForFocusLoss(reason: String = "focus-loss") {
     guard shelf != nil, lifecycle.requested, !incomingDrag, !model.busy,
+      !model.screenshotCapturing,
       shelf.attachedSheet == nil, NSApp.modalWindow == nil, !NSMenuTrackingState.shared.active
     else { return }
+    if reason == "key-loss", platform.screenshots.editingLiveDesktop { return }
     let anotherKeyWindow = NSApp.keyWindow != nil && NSApp.keyWindow !== shelf
     if activationTransition.ignoresTransientLoss(
       revision: lifecycle.revision, anotherKeyWindow: anotherKeyWindow,
@@ -770,7 +775,7 @@ final class NativeApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
       now: Date().timeIntervalSince1970 * 1000, inTarget: target.contains(mouse),
       inCorridor: shelf.frame.contains(mouse), visible: lifecycle.requested)
     if action == true { Task { await show(nil, byHover: true) } }
-    if action == false, openedByHover { hide() }
+    if action == false, openedByHover, !platform.screenshots.editingLiveDesktop { hide() }
   }
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
     if shutdownFinished { return .terminateNow }

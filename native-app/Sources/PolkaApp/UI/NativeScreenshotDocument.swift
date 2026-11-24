@@ -5,6 +5,8 @@ import PolkaCore
 struct NativeScreenshotStyle: Equatable {
   var arrowColor = NSColor.systemRed
   var arrowWidth: CGFloat = 3
+  var lineColor = NSColor.systemRed
+  var lineWidth: CGFloat = 3
   var rectangleColor = NSColor.systemRed
   var rectangleWidth: CGFloat = 3
   var rectangleFilled = false
@@ -14,7 +16,7 @@ struct NativeScreenshotStyle: Equatable {
 }
 
 struct NativeScreenshotMark: Equatable {
-  enum Kind: String { case arrow, text, rectangle }
+  enum Kind: String { case arrow, line, text, rectangle }
   var id = UUID().uuidString
   var kind: Kind
   var start: CGPoint
@@ -51,6 +53,7 @@ struct NativeScreenshotMark: Equatable {
   @Published private(set) var editingTextID: String?
   private var draftID = UUID().uuidString
   private var styleBeforeEditing: NativeScreenshotStyle?
+  private let stylePreferences: NativeScreenshotStylePreferences?
 
   @Published var objectDraft: NativeScreenshotMark?
   var editingKind: NativeScreenshotMark.Kind {
@@ -58,19 +61,21 @@ struct NativeScreenshotMark: Equatable {
   }
   var pendingObject: NativeScreenshotMark? {
     guard var mark = objectDraft else { return nil }
-    if mark.kind == .text {
+    switch mark.kind {
+    case .text:
       let top = Self.textBounds(mark).maxY
       mark.style.textColor = style.textColor
       mark.style.textBackground = style.textBackground
       mark.style.textSize = style.textSize
       mark.start.y = top - Self.attributedText(mark.text, style: mark.style).size().height
       mark.end = CGPoint(x: mark.start.x, y: top)
-    }
-    if mark.kind == .arrow {
+    case .arrow:
       mark.style.arrowColor = style.arrowColor
       mark.style.arrowWidth = style.arrowWidth
-    }
-    if mark.kind == .rectangle {
+    case .line:
+      mark.style.lineColor = style.lineColor
+      mark.style.lineWidth = style.lineWidth
+    case .rectangle:
       mark.style.rectangleColor = style.rectangleColor
       mark.style.rectangleWidth = style.rectangleWidth
       mark.style.rectangleFilled = style.rectangleFilled
@@ -81,19 +86,21 @@ struct NativeScreenshotMark: Equatable {
     guard !busy else { return }
     finishObject()
     objectDraft = mark
-    if mark.kind == .rectangle {
+    switch mark.kind {
+    case .rectangle:
       style.rectangleColor = mark.style.rectangleColor
       style.rectangleWidth = mark.style.rectangleWidth
       style.rectangleFilled = mark.style.rectangleFilled
-    }
-    if mark.kind == .text {
+    case .text:
       style.textColor = mark.style.textColor
       style.textBackground = mark.style.textBackground
       style.textSize = mark.style.textSize
-    }
-    if mark.kind == .arrow {
+    case .arrow:
       style.arrowColor = mark.style.arrowColor
       style.arrowWidth = mark.style.arrowWidth
+    case .line:
+      style.lineColor = mark.style.lineColor
+      style.lineWidth = mark.style.lineWidth
     }
   }
   func finishObject() {
@@ -135,6 +142,9 @@ struct NativeScreenshotMark: Equatable {
         guard bounds.insetBy(dx: -hit, dy: -hit).contains(point) else { return false }
         return mark.style.rectangleFilled || bounds.width <= hit * 2 || bounds.height <= hit * 2
           || !bounds.insetBy(dx: hit, dy: hit).contains(point)
+      case .line:
+        return Self.distance(point, to: mark.start, mark.end) <= tolerance + mark.style.lineWidth
+          / 2
       case .arrow:
         let hit = tolerance + mark.style.arrowWidth / 2
         if Self.distance(point, to: mark.start, mark.end) <= hit { return true }
@@ -155,14 +165,29 @@ struct NativeScreenshotMark: Equatable {
   var title: String {
     localized("Screenshot {0}", createdAt.formatted(date: .omitted, time: .standard))
   }
-  init(source: CGImage, area: CGRect? = nil) {
+  init(
+    source: CGImage, area: CGRect? = nil, stylePreferences: NativeScreenshotStylePreferences? = nil
+  ) {
     self.fullSource = source
     self.source = source
     self.area = CGRect(x: 0, y: 0, width: source.width, height: source.height)
+    self.stylePreferences = stylePreferences
     if let area { setArea(area) }
-    let width = max(3, min(CGFloat(source.width), CGFloat(source.height)) / 200)
-    style.arrowWidth = min(32, width)
-    style.textSize = min(160, max(18, width * 6))
+    if let stylePreferences { style = stylePreferences.applying(to: style) }
+  }
+  func changeStyle<Value: Equatable>(
+    _ value: Value, for key: WritableKeyPath<NativeScreenshotStyle, Value>
+  ) {
+    guard !busy, style[keyPath: key] != value else { return }
+    let previous = style
+    style[keyPath: key] = value
+    let failure = localized("Could not save screenshot style preferences.")
+    do {
+      try stylePreferences?.saveChanges(from: previous, to: style)
+      if message == failure { message = "" }
+    } catch {
+      message = failure
+    }
   }
   var fullBounds: CGRect { CGRect(x: 0, y: 0, width: fullSource.width, height: fullSource.height) }
   func adjustArea(_ next: CGRect) {
@@ -350,10 +375,66 @@ struct NativeScreenshotMark: Equatable {
       x: min(start.x, end.x), y: min(start.y, end.y),
       width: abs(end.x - start.x), height: abs(end.y - start.y))
   }
+  static func snappedEnd(
+    from start: CGPoint, to point: CGPoint, kind: NativeScreenshotMark.Kind, in bounds: CGRect
+  ) -> CGPoint {
+    guard kind != .text else { return point }
+    let dx = point.x - start.x
+    let dy = point.y - start.y
+    let width = abs(dx)
+    let height = abs(dy)
+    let left = start.x - bounds.minX
+    let right = bounds.maxX - start.x
+    let below = start.y - bounds.minY
+    let above = bounds.maxY - start.y
+    // A square drawn along one axis grows toward the side with room on the other axis.
+    let xSign: CGFloat = dx < 0 || (dx == 0 && left > right) ? -1 : 1
+    let ySign: CGFloat = dy < 0 || (dy == 0 && below > above) ? -1 : 1
+    let roomX = xSign < 0 ? left : right
+    let roomY = ySign < 0 ? below : above
+    func visibleDistances(_ component: CGFloat, from near: CGFloat, to far: CGFloat)
+      -> ClosedRange<CGFloat>?
+    {
+      if component == 0 { return near <= 0 && far >= 0 ? 0 ... .infinity : nil }
+      return (near / component)...(far / component)
+    }
+    func endpoint(x: CGFloat, y: CGFloat, distance: CGFloat) -> CGPoint? {
+      // The fixed endpoint can be outside the image after cropping.
+      guard
+        let horizontal = visibleDistances(x, from: roomX - bounds.width, to: roomX),
+        let vertical = visibleDistances(y, from: roomY - bounds.height, to: roomY)
+      else { return nil }
+      let first = max(0, horizontal.lowerBound, vertical.lowerBound)
+      let last = min(horizontal.upperBound, vertical.upperBound)
+      guard first <= last else { return nil }
+      let length = max(first, min(distance, last))
+      return CGPoint(
+        x: max(bounds.minX, min(bounds.maxX, start.x + xSign * length * x)),
+        y: max(bounds.minY, min(bounds.maxY, start.y + ySign * length * y)))
+    }
+    if kind == .rectangle {
+      return endpoint(x: 1, y: 1, distance: max(width, height)) ?? point
+    }
+
+    let increment = CGFloat.pi / 12
+    let heading = atan2(height, width) / increment
+    func snap(to step: Int) -> CGPoint? {
+      if step == 0 { return endpoint(x: 1, y: 0, distance: width) }
+      if step == 6 { return endpoint(x: 0, y: 1, distance: height) }
+      let angle = CGFloat(step) * increment
+      let x = cos(angle)
+      // Equal components keep a diagonal that meets a crop corner from missing it by rounding.
+      let y = step == 3 ? x : sin(angle)
+      return endpoint(x: x, y: y, distance: width * x + height * y)
+    }
+    if let nearest = snap(to: Int(heading.rounded())) { return nearest }
+    // A ray from outside the image can miss it entirely. Try the closest visible angle.
+    let candidates = (0...6).sorted { abs(CGFloat($0) - heading) < abs(CGFloat($1) - heading) }
+    return candidates.lazy.compactMap(snap(to:)).first ?? point
+  }
   static func draw(_ mark: NativeScreenshotMark, in context: CGContext, size: CGSize) {
     context.saveGState()
     defer { context.restoreGState() }
-    let width = max(1, min(32, mark.style.arrowWidth))
     switch mark.kind {
     case .rectangle:
       let bounds = rect(mark.start, mark.end)
@@ -362,22 +443,28 @@ struct NativeScreenshotMark: Equatable {
       context.setLineWidth(max(1, min(32, mark.style.rectangleWidth)))
       if mark.style.rectangleFilled { context.fill(bounds) }
       context.stroke(bounds)
-    case .arrow:
-      let angle = atan2(mark.end.y - mark.start.y, mark.end.x - mark.start.x)
-      let head = max(14, width * 4)
-      context.setStrokeColor(mark.style.arrowColor.cgColor)
+    case .arrow, .line:
+      let arrow = mark.kind == .arrow
+      let width = max(1, min(32, arrow ? mark.style.arrowWidth : mark.style.lineWidth))
+      context.setStrokeColor((arrow ? mark.style.arrowColor : mark.style.lineColor).cgColor)
       context.setLineWidth(width)
       context.setLineCap(.round)
       context.setLineJoin(.round)
       context.move(to: mark.start)
       context.addLine(to: mark.end)
-      context.move(
-        to: CGPoint(
-          x: mark.end.x - head * cos(angle - .pi / 6), y: mark.end.y - head * sin(angle - .pi / 6)))
-      context.addLine(to: mark.end)
-      context.addLine(
-        to: CGPoint(
-          x: mark.end.x - head * cos(angle + .pi / 6), y: mark.end.y - head * sin(angle + .pi / 6)))
+      if arrow {
+        let angle = atan2(mark.end.y - mark.start.y, mark.end.x - mark.start.x)
+        let head = max(14, width * 4)
+        context.move(
+          to: CGPoint(
+            x: mark.end.x - head * cos(angle - .pi / 6), y: mark.end.y - head * sin(angle - .pi / 6)
+          ))
+        context.addLine(to: mark.end)
+        context.addLine(
+          to: CGPoint(
+            x: mark.end.x - head * cos(angle + .pi / 6), y: mark.end.y - head * sin(angle + .pi / 6)
+          ))
+      }
       context.strokePath()
     case .text:
       NSGraphicsContext.saveGraphicsState()

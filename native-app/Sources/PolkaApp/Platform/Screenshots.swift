@@ -9,10 +9,18 @@ import PolkaCore
   var copyImage: ((Data) throws -> Void)?
   var exportFile: ((Data, String) throws -> Void)?
   private(set) var editors: [String: NativeScreenshotEditor] = [:]
+  var editingLiveDesktop: Bool {
+    editors.values.contains { editor in
+      editor.desktopFrame != nil
+        && (editor.shot.busy || editor.group.contains { $0.window?.isKeyWindow == true })
+    }
+  }
   private var stopped = false
-  init(model: NativeUIModel, fixture: Bool) {
+  private let stylePreferences: NativeScreenshotStylePreferences?
+  init(model: NativeUIModel, fixture: Bool, settings: SettingsStore? = nil) {
     self.model = model
     self.fixture = fixture
+    stylePreferences = settings.map { NativeScreenshotStylePreferences(settings: $0) }
   }
   func capture(copyImmediately: Bool = false) async throws {
     guard !model.screenshotCapturing, !stopped,
@@ -72,7 +80,8 @@ import PolkaCore
       throw PolkaCoreError.invalid(
         localized("Close a screenshot window before capturing another."))
     }
-    let document = NativeScreenshotDocument(source: image, area: area)
+    let document = NativeScreenshotDocument(
+      source: image, area: area, stylePreferences: stylePreferences)
     let editor = NativeScreenshotEditor(
       shot: document, screenFrame: screenFrame, desktopFrame: desktopFrame)
     editor.copyImage = copyImage

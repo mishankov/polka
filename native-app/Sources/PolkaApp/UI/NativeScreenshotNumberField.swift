@@ -40,6 +40,7 @@ struct NativeScreenshotNumberField: NSViewRepresentable {
     @objc func commit(_ sender: NSTextField) {
       guard !parent.disabled else { return }
       if let editor = sender.currentEditor() as? NSTextView, editor.hasMarkedText() { return }
+      guard sender.stringValue != String(Int(parent.value.rounded())) else { return }
       parent.value = NativeScreenshotNumberField.committedValue(
         sender.stringValue, previous: parent.value, range: parent.range)
       sender.stringValue = String(Int(parent.value.rounded()))

@@ -65,9 +65,11 @@ struct NativeIconButton: View {
   var shortcut = ""
   var disabled = false
   var prominent = false
+  var interactionHint = ""
   var action: () -> Void
   var body: some View {
-    Button {
+    let keyboardHint = shortcut.isEmpty ? "" : localized("Keyboard shortcut: ") + shortcut
+    return Button {
       if !disabled, nativeCommandInteractionAllowed, !NSMenuTrackingState.shared.active { action() }
     } label: {
       Image(systemName: symbol)
@@ -77,9 +79,9 @@ struct NativeIconButton: View {
     .modifier(NativeCommandStyle(prominent: prominent)).buttonBorderShape(.circle).disabled(
       disabled
     )
-    .help(label + (shortcut.isEmpty ? "" : " · " + shortcut))
+    .help([label, shortcut, interactionHint].filter { !$0.isEmpty }.joined(separator: " · "))
     .accessibilityLabel(label).accessibilityHint(
-      shortcut.isEmpty ? "" : localized("Keyboard shortcut: ") + shortcut
+      [keyboardHint, interactionHint].filter { !$0.isEmpty }.joined(separator: " · ")
     )
     .accessibilityCustomContent(Text(localized("Keyboard shortcut")), Text(shortcut))
   }

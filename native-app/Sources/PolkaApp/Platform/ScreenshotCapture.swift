@@ -9,11 +9,16 @@ struct NativeScreenshotCaptureResult {
   var desktopFrame: CGRect? = nil
 }
 
+enum NativeScreenshotTarget {
+  case region(CGRect)
+  case window(CGWindowID, omitShadow: Bool, screenFrame: CGRect?)
+}
+
 /// No clipboard or temporary image file is used by capture.
 @MainActor final class NativeScreenshotCapture {
   private var panels: [NSPanel] = []
   private(set) var cursorHidden = false
-  private var continuation: CheckedContinuation<CGRect?, Never>?
+  private var continuation: CheckedContinuation<NativeScreenshotTarget?, Never>?
   func capture() async throws -> NativeScreenshotCaptureResult? {
     guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
       throw PolkaCoreError.invalid(
@@ -21,11 +26,21 @@ struct NativeScreenshotCaptureResult {
           "Allow Polka in System Settings → Privacy & Security → Screen & System Audio Recording, then try again."
         ))
     }
-    guard let rect = await selectRegion() else { return nil }
+    guard let target = await selectTarget() else { return nil }
     try Task.checkCancellation()
-    // Give WindowServer time to remove selection overlays before capture.
-    try await Task.sleep(nanoseconds: 120_000_000)
-    return try await captureDesktop(rect, includeAllDisplays: true)
+    switch target {
+    case .region(let rect):
+      // Give WindowServer time to remove selection overlays before capture.
+      try await Task.sleep(nanoseconds: 120_000_000)
+      return try await captureDesktop(rect, includeAllDisplays: true)
+    case .window(let id, let omitShadow, let screenFrame):
+      let content = try await SCShareableContent.excludingDesktopWindows(
+        true, onScreenWindowsOnly: true)
+      let image = try await Self.captureWindow(id, omitShadow: omitShadow, in: content)
+      return NativeScreenshotCaptureResult(
+        image: image, area: CGRect(x: 0, y: 0, width: image.width, height: image.height),
+        screenFrame: screenFrame)
+    }
   }
   func captureDesktop(_ rect: CGRect, includeAllDisplays: Bool = false) async throws
     -> NativeScreenshotCaptureResult?
@@ -65,16 +80,21 @@ struct NativeScreenshotCaptureResult {
       area: layout.pixelArea(imageSize: CGSize(width: image.width, height: image.height)),
       screenFrame: layout.editorFrame, desktopFrame: layout.desktopFrame)
   }
-  func selectRegion(screenFrames: [CGRect]? = nil) async -> CGRect? {
+  func selectTarget(screenFrames: [CGRect]? = nil) async -> NativeScreenshotTarget? {
     guard continuation == nil else { return nil }
     let frames = screenFrames ?? NSScreen.screens.map(\.frame)
     let desktop = frames.reduce(CGRect.null) { $0.union($1) }
     guard !desktop.isNull else { return nil }
-    let selection = NativeScreenshotRegionSelection(bounds: desktop)
+    let selection = NativeScreenshotSelection(bounds: desktop)
     selection.changed = { [weak self] in
       for panel in self?.panels ?? [] { panel.contentView?.needsDisplay = true }
     }
     let top = NSScreen.screens.first?.frame.maxY ?? desktop.maxY
+    selection.windowAtPoint = { [weak self] point, previous in
+      guard let panel = self?.panels.first(where: { $0.frame.contains(point) }) else { return nil }
+      return NativeScreenshotWindowTarget.below(
+        panel.windowNumber, at: point, desktopTop: top, previous: previous)
+    }
     return await withCheckedContinuation { continuation in
       self.continuation = continuation
       NSApp.activate(ignoringOtherApps: true)
@@ -94,8 +114,12 @@ struct NativeScreenshotCaptureResult {
         let view = NativeScreenshotSelectionView(
           frame: CGRect(origin: .zero, size: frame.size))
         view.selection = selection
-        view.finished = { [weak self] rect in
-          self?.finish(rect.map { Self.captureRect($0, desktopTop: top) })
+        view.finished = { [weak self] target in
+          if case .region(let rect) = target {
+            self?.finish(.region(Self.captureRect(rect, desktopTop: top)))
+          } else {
+            self?.finish(target)
+          }
         }
         panel.contentView = view
         panels.append(panel)
@@ -119,7 +143,7 @@ struct NativeScreenshotCaptureResult {
       x: appKitRect.minX, y: desktopTop - appKitRect.maxY,
       width: appKitRect.width, height: appKitRect.height)
   }
-  func finish(_ rect: CGRect?) {
+  func finish(_ target: NativeScreenshotTarget?) {
     for panel in panels { panel.orderOut(nil) }
     panels.removeAll()
     if cursorHidden {
@@ -129,7 +153,7 @@ struct NativeScreenshotCaptureResult {
     NSCursor.arrow.set()
     let pending = continuation
     continuation = nil
-    pending?.resume(returning: rect)
+    pending?.resume(returning: target)
   }
 }
 
@@ -139,11 +163,25 @@ private final class NativeScreenshotSelectionPanel: NSPanel {
 }
 
 @MainActor final class NativeScreenshotSelectionView: NSView {
-  var finished: ((CGRect?) -> Void)?
-  var selection: NativeScreenshotRegionSelection?
+  var finished: ((NativeScreenshotTarget?) -> Void)?
+  var selection: NativeScreenshotSelection?
   override var acceptsFirstResponder: Bool { true }
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
   private var cursorTracking: NSTrackingArea?
+  private var hint: String {
+    if selection?.selectsWindow == true {
+      return localized("Click or press Return to capture · Space for region · Esc to cancel")
+    }
+    return localized("Drag to capture a region · Space for window · Esc to cancel")
+  }
+  override init(frame: NSRect) {
+    super.init(frame: frame)
+    setAccessibilityElement(true)
+    setAccessibilityRole(.group)
+    setAccessibilityLabel(localized("Screenshots"))
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+  override func accessibilityHelp() -> String? { hint }
   override func updateTrackingAreas() {
     super.updateTrackingAreas()
     if let cursorTracking { removeTrackingArea(cursorTracking) }
@@ -162,33 +200,27 @@ private final class NativeScreenshotSelectionPanel: NSPanel {
   override func draw(_ dirtyRect: NSRect) {
     NSColor.black.withAlphaComponent(0.25).setFill()
     bounds.fill()
-    if let global = selection?.rect, let window {
+    let windowMode = selection?.selectsWindow == true
+    if let global = windowMode ? selection?.targetWindow?.frame : selection?.rect, let window {
       let rect = convert(window.convertFromScreen(global), from: nil)
       NSColor.clear.setFill()
       rect.fill(using: .copy)
+      if windowMode {
+        NSColor.systemBlue.withAlphaComponent(0.25).setFill()
+        rect.fill(using: .sourceOver)
+      }
       NSColor.white.setStroke()
       let path = NSBezierPath(rect: rect)
       path.lineWidth = 1
       path.stroke()
     }
-    let hint = localized("Drag to capture a region · Esc to cancel")
-    (hint as NSString).draw(
-      at: CGPoint(x: 24, y: bounds.height - 56),
-      withAttributes: [
-        .font: NSFont.systemFont(ofSize: 16, weight: .semibold),
-        .foregroundColor: NSColor.white, .backgroundColor: NSColor.black,
-      ])
-    // Use the system crosshair artwork, but draw it in our overlay while the
-    // hardware pointer is hidden. AppKit/other-window cursor resets cannot flash
-    // an arrow between input events. Never included in the captured image.
-    if let pointer = selection?.pointer, let window {
+    // Drawing the pointer while the hardware cursor is hidden avoids AppKit
+    // cursor resets and keeps the pointer out of the captured image.
+    if let pointer = selection?.pointer, let window,
+      let context = NSGraphicsContext.current?.cgContext
+    {
       let point = convert(window.convertPoint(fromScreen: pointer), from: nil)
-      let cursor = NSCursor.crosshair
-      cursor.image.draw(
-        in: CGRect(
-          x: point.x - cursor.hotSpot.x,
-          y: point.y - (cursor.image.size.height - cursor.hotSpot.y),
-          width: cursor.image.size.width, height: cursor.image.size.height))
+      NativeScreenshotPointer.draw(at: point, windowMode: windowMode, in: context)
     }
   }
   override func mouseDown(with event: NSEvent) {
@@ -206,17 +238,90 @@ private final class NativeScreenshotSelectionPanel: NSPanel {
   }
   override func mouseUp(with event: NSEvent) {
     mouseDragged(with: event)
+    if selection?.selectsWindow == true {
+      captureWindow(omitShadow: event.modifierFlags.contains(.option))
+      return
+    }
     guard let rect = selection?.rect else { return }
     if rect.width >= 2 && rect.height >= 2 {
-      finished?(rect)
+      finished?(.region(rect))
     } else {
       selection?.clear()
     }
   }
   override func keyDown(with event: NSEvent) {
-    if event.keyCode == 53 && !event.isARepeat { finished?(nil) }
+    guard !event.isARepeat else { return }
+    let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+    switch event.keyCode {
+    case 53: finished?(nil)
+    case 49 where modifiers.isEmpty: selection?.toggleMode()
+    case 36, 76:
+      if modifiers.isEmpty || modifiers == .option {
+        captureWindow(omitShadow: modifiers.contains(.option))
+      }
+    default: break
+    }
   }
   override func cancelOperation(_ sender: Any?) { finished?(nil) }
+  private func captureWindow(omitShadow: Bool) {
+    guard let selection, let point = selection.pointer, let target = selection.confirmWindow()
+    else { return }
+    let screenFrame = NSScreen.screens.first { $0.frame.contains(point) }?.frame
+    finished?(.window(target.id, omitShadow: omitShadow, screenFrame: screenFrame))
+  }
+}
+
+private enum NativeScreenshotPointer {
+  // The open center and the camera lens both mark the exact pointer location.
+  static let crosshair: CGPath = {
+    let path = CGMutablePath()
+    path.move(to: CGPoint(x: -19, y: 0))
+    path.addLine(to: CGPoint(x: -7, y: 0))
+    path.move(to: CGPoint(x: 7, y: 0))
+    path.addLine(to: CGPoint(x: 19, y: 0))
+    path.move(to: CGPoint(x: 0, y: -19))
+    path.addLine(to: CGPoint(x: 0, y: -7))
+    path.move(to: CGPoint(x: 0, y: 7))
+    path.addLine(to: CGPoint(x: 0, y: 19))
+    return path
+  }()
+
+  static let camera: CGPath = {
+    let path = CGMutablePath()
+    path.move(to: CGPoint(x: -15, y: -13))
+    path.addQuadCurve(to: CGPoint(x: -19, y: -9), control: CGPoint(x: -19, y: -13))
+    path.addLine(to: CGPoint(x: -19, y: 7))
+    path.addQuadCurve(to: CGPoint(x: -15, y: 11), control: CGPoint(x: -19, y: 11))
+    path.addLine(to: CGPoint(x: -10, y: 11))
+    path.addLine(to: CGPoint(x: -6, y: 16))
+    path.addLine(to: CGPoint(x: 6, y: 16))
+    path.addLine(to: CGPoint(x: 10, y: 11))
+    path.addLine(to: CGPoint(x: 15, y: 11))
+    path.addQuadCurve(to: CGPoint(x: 19, y: 7), control: CGPoint(x: 19, y: 11))
+    path.addLine(to: CGPoint(x: 19, y: -9))
+    path.addQuadCurve(to: CGPoint(x: 15, y: -13), control: CGPoint(x: 19, y: -13))
+    path.closeSubpath()
+    path.addEllipse(in: CGRect(x: -6, y: -6, width: 12, height: 12))
+    return path
+  }()
+
+  static func draw(at point: CGPoint, windowMode: Bool, in context: CGContext) {
+    let shape = windowMode ? camera : crosshair
+    context.saveGState()
+    defer { context.restoreGState() }
+    context.translateBy(x: point.x, y: point.y)
+    context.scaleBy(x: 0.73, y: 0.73)
+    context.setLineCap(.round)
+    context.setLineJoin(.round)
+    context.setStrokeColor(CGColor(gray: 0, alpha: 1))
+    context.setLineWidth(6)
+    context.addPath(shape)
+    context.strokePath()
+    context.setStrokeColor(CGColor(gray: 1, alpha: 1))
+    context.setLineWidth(3)
+    context.addPath(shape)
+    context.strokePath()
+  }
 }
 
 struct NativeScreenshotDisplay {
@@ -307,16 +412,32 @@ struct NativeScreenshotCaptureLayout {
   }
 }
 
-/// One global drag is shared by all display panels.
-@MainActor final class NativeScreenshotRegionSelection {
+/// All display panels share one drag or window target.
+@MainActor final class NativeScreenshotSelection {
   let bounds: CGRect
   var changed: (() -> Void)?
+  var windowAtPoint: ((CGPoint, NativeScreenshotWindowTarget?) -> NativeScreenshotWindowTarget?)?
+  private(set) var selectsWindow = false
+  private(set) var targetWindow: NativeScreenshotWindowTarget?
   private var start: CGPoint?
   private var end: CGPoint?
   private(set) var pointer: CGPoint?
   func movePointer(_ point: CGPoint) {
     pointer = point
+    if selectsWindow { targetWindow = windowAtPoint?(point, targetWindow) }
     changed?()
+  }
+  func toggleMode() {
+    guard start == nil else { return }
+    selectsWindow.toggle()
+    targetWindow = selectsWindow ? pointer.flatMap { windowAtPoint?($0, nil) } : nil
+    changed?()
+  }
+  func confirmWindow() -> NativeScreenshotWindowTarget? {
+    guard selectsWindow, let pointer, let highlighted = targetWindow else { return nil }
+    targetWindow = windowAtPoint?(pointer, nil)
+    changed?()
+    return targetWindow?.id == highlighted.id ? targetWindow : nil
   }
   var rect: CGRect? {
     guard let start, let end else { return nil }
@@ -324,6 +445,7 @@ struct NativeScreenshotCaptureLayout {
   }
   init(bounds: CGRect) { self.bounds = bounds }
   func begin(_ point: CGPoint) {
+    guard !selectsWindow else { return }
     start = bounded(point)
     end = start
     changed?()
