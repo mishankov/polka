@@ -10,7 +10,7 @@ import UserNotifications
   let settings: SettingsStore
   let capture: NativeClipboardCapture
   let files = FileShelf()
-  lazy var screenshots = NativeScreenshots(model: model, fixture: fixture)
+  lazy var screenshots = NativeScreenshots(model: model, fixture: fixture, settings: settings)
   private var screenshotExports: URL?
   private var screenshotRegistered = false
   private var screenshotCopyRegistered = false
@@ -670,6 +670,17 @@ import UserNotifications
     else { return }
     model.captureScreenshot(copyImmediately: copyImmediately)
   }
+  private func captureScreenshot(copyImmediately: Bool = false, fromShelf: Bool = false) async {
+    guard !model.screenshotCapturing, nativeCommandInteractionAllowed else { return }
+    if fromShelf || !model.visible { cancelPaste() }
+    if fromShelf { hide?(false) }
+    do {
+      try await screenshots.capture(copyImmediately: copyImmediately)
+    } catch {
+      await show?("apps", "")
+      model.error = error.localizedDescription
+    }
+  }
   private func registerLauncherShortcut(_ accelerator: String) throws {
     if screenshotCopyRegistered {
       try validateFixtureShortcut(accelerator, other: screenshotCopyAccelerator)
@@ -1116,14 +1127,7 @@ import UserNotifications
         throw error
       }
     case "screenshots.capture", "screenshots.copy":
-      cancelPaste()
-      hide?(false)
-      do {
-        try await screenshots.capture(copyImmediately: command.name == "screenshots.copy")
-      } catch {
-        await show?("apps", "")
-        model.error = error.localizedDescription
-      }
+      await captureScreenshot(copyImmediately: command.name == "screenshots.copy")
     case "builtinApps.setEnabled":
       try await setBuiltinApp(id, enabled: command.bools["enabled"] ?? true)
     case "launcher.show":
@@ -1165,6 +1169,10 @@ import UserNotifications
       }
       hide?(true)
     case "launcher.openMac":
+      if id == "builtin:screenshots" {
+        await captureScreenshot(fromShelf: true)
+        return
+      }
       if id.hasPrefix("builtin:") {
         await show?(String(id.dropFirst(8)), "")
         return

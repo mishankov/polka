@@ -558,6 +558,12 @@
 
 "Arrow" = "Стрелка";
 
+"Line" = "Линия";
+
+"Hold Shift while drawing or dragging an endpoint to snap to 15° increments" = "Удерживайте Shift при рисовании или перемещении конца для привязки к углам, кратным 15°";
+
+"Hold Shift while drawing or dragging a corner to make a square" = "Удерживайте Shift при рисовании или перемещении угла, чтобы получить квадрат";
+
 "Capture Region" = "Снять область";
 
 "Capture a region, add arrows or text, and hide private information before sharing." = "Снимите область экрана, добавьте стрелки или текст и скройте личные данные перед отправкой.";
@@ -567,6 +573,7 @@
 "Click the image to place text" = "Нажмите на изображение, чтобы разместить текст";
 
 "Could not render the screenshot" = "Не удалось обработать снимок экрана";
+"Could not save screenshot style preferences." = "Не удалось сохранить оформление аннотаций на снимках экрана.";
 
 "Delete" = "Удалить";
 
@@ -574,7 +581,9 @@
 
 "Drag over information to hide" = "Выделите область, которую нужно скрыть";
 
-"Drag to capture a region · Esc to cancel" = "Выделите область для снимка · Esc — отмена";
+"Drag to capture a region · Space for window · Esc to cancel" = "Выделите область для снимка · Пробел — окно · Esc — отмена";
+"Click or press Return to capture · Space for region · Esc to cancel" = "Щелчок или Return — снимок · Пробел — область · Esc — отмена";
+"The selected window is no longer available for capture." = "Выбранное окно больше недоступно для съёмки.";
 
 "Drag to draw an arrow" = "Потяните, чтобы нарисовать стрелку";
 
@@ -684,6 +693,7 @@
 
 "Show All Types" = "Показать все типы";
 "Screenshot Shortcuts" = "Сочетания для снимков экрана";
+"During capture, Space switches between region and window selection. Return captures the highlighted window. Esc cancels." = "Во время съёмки Пробел переключает выбор области и окна. Return снимает выделенное окно. Esc отменяет съёмку.";
 "Capture and Edit Region" = "Снять область и редактировать";
 "Copy Region to Clipboard" = "Скопировать область в буфер";
 "Select a region to copy it immediately, without opening the editor." = "Выделите область — она сразу скопируется в буфер без открытия редактора.";

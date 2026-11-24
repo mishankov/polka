@@ -5,14 +5,14 @@ import XCTest
 @testable import PolkaApp
 
 final class NativeScreenshotTests: XCTestCase {
-  @MainActor private func image() throws -> CGImage {
+  @MainActor private func image(width: Int = 100, height: Int = 80) throws -> CGImage {
     let context = try XCTUnwrap(
       CGContext(
-        data: nil, width: 100, height: 80,
-        bitsPerComponent: 8, bytesPerRow: 400, space: CGColorSpaceCreateDeviceRGB(),
+        data: nil, width: width, height: height,
+        bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
     context.setFillColor(NSColor.white.cgColor)
-    context.fill(CGRect(x: 0, y: 0, width: 100, height: 80))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
     return try XCTUnwrap(context.makeImage())
   }
   @MainActor func testLiveOverlayUsesDesktopCoordinatesAndFreshExportPixels() async throws {
@@ -166,6 +166,24 @@ final class NativeScreenshotTests: XCTestCase {
     XCTAssertGreaterThan(mixedBottom.minY, nearTop.maxY)
     XCTAssertGreaterThanOrEqual(mixedTop.minX, 8)
   }
+  func testCompactToolbarsStackWithoutOverlappingForShortEdgeSelections() {
+    let screen = CGSize(width: 1000, height: 700)
+    let tools = CGSize(width: 510, height: 76)
+    let actions = CGSize(width: 470, height: 40)
+    let nearTop = CGRect(x: 200, y: 40, width: 400, height: 20)
+    let below = NativeScreenshotToolbarLayout.frames(
+      selection: nearTop, screen: screen, tools: tools, actions: actions, topInset: 24)
+    XCTAssertGreaterThan(below.tools.minY, nearTop.maxY)
+    XCTAssertGreaterThan(below.actions.minY, below.tools.maxY)
+    XCTAssertLessThan(below.actions.maxY, screen.height)
+
+    let nearBottom = CGRect(x: 200, y: 665, width: 400, height: 20)
+    let above = NativeScreenshotToolbarLayout.frames(
+      selection: nearBottom, screen: screen, tools: tools, actions: actions, topInset: 24)
+    XCTAssertGreaterThan(above.tools.minY, 24)
+    XCTAssertGreaterThan(above.actions.minY, above.tools.maxY)
+    XCTAssertLessThan(above.actions.maxY, nearBottom.minY)
+  }
   @MainActor func testAreaCanShrinkExpandAndUndoWithoutLosingAnnotations() throws {
     let shot = NativeScreenshotDocument(
       source: try image(), area: CGRect(x: 20, y: 10, width: 50, height: 40))
@@ -293,6 +311,262 @@ final class NativeScreenshotTests: XCTestCase {
     for invalid in ["", "abc", "NaN", "inf"] {
       XCTAssertEqual(
         NativeScreenshotNumberField.committedValue(invalid, previous: 18, range: 8...160), 18)
+    }
+  }
+  @MainActor func testScreenshotStyleDefaultsAreFixedAcrossImageSizes() throws {
+    for source in [try image(), try image(width: 1920, height: 1080)] {
+      let style = NativeScreenshotDocument(source: source).style
+      XCTAssertEqual(style.arrowWidth, 3)
+      XCTAssertEqual(style.rectangleWidth, 3)
+      XCTAssertEqual(style.lineWidth, 3)
+      XCTAssertEqual(style.textSize, 18)
+    }
+  }
+  @MainActor func testScreenshotStylePreferencesMergeToolbarChangesAndSurviveReopening() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = try image()
+    let settings = try SettingsStore(root: root)
+    let preferences = NativeScreenshotStylePreferences(settings: settings)
+    let first = NativeScreenshotDocument(source: source, stylePreferences: preferences)
+    let second = NativeScreenshotDocument(source: source, stylePreferences: preferences)
+    let ink = NSColor(srgbRed: 0.25, green: 0.5, blue: 0.75, alpha: 1)
+    let background = NSColor(srgbRed: 0.1, green: 0.2, blue: 0.3, alpha: 0.4)
+    first.changeStyle(ink, for: \.arrowColor)
+    first.changeStyle(9, for: \.arrowWidth)
+    second.changeStyle(ink, for: \.rectangleColor)
+    second.changeStyle(7, for: \.rectangleWidth)
+    second.changeStyle(true, for: \.rectangleFilled)
+    second.changeStyle(ink, for: \.lineColor)
+    second.changeStyle(5, for: \.lineWidth)
+    second.changeStyle(ink, for: \.textColor)
+    second.changeStyle(background, for: \.textBackground)
+    second.changeStyle(27, for: \.textSize)
+
+    let oldArrow = NativeScreenshotMark(
+      kind: .arrow, start: CGPoint(x: 5, y: 5), end: CGPoint(x: 35, y: 35))
+    first.add(oldArrow)
+    first.selectObject(oldArrow)
+    XCTAssertEqual(first.style.arrowWidth, oldArrow.style.arrowWidth)
+    first.finishObject()
+    XCTAssertEqual(first.marks.first, oldArrow)
+
+    settings.close()
+    let reopened = try SettingsStore(root: root)
+    let saved = NativeScreenshotStylePreferences(settings: reopened)
+    let next = NativeScreenshotDocument(source: source, stylePreferences: saved)
+    XCTAssertEqual(next.style.arrowWidth, 9)
+    XCTAssertEqual(next.style.rectangleWidth, 7)
+    XCTAssertEqual(next.style.lineWidth, 5)
+    XCTAssertTrue(next.style.rectangleFilled)
+    XCTAssertEqual(next.style.textSize, 27)
+    XCTAssertEqual(next.style.arrowColor, ink)
+    XCTAssertEqual(next.style.rectangleColor, ink)
+    XCTAssertEqual(next.style.lineColor, ink)
+    XCTAssertEqual(next.style.textColor, ink)
+    XCTAssertEqual(next.style.textBackground.alphaComponent, 0.4, accuracy: 0.001)
+    XCTAssertEqual(next.style.textBackground.blueComponent, 0.3, accuracy: 0.001)
+  }
+  @MainActor func testLineAnnotationRendersAndSelectsOnlyItsStroke() throws {
+    let shot = NativeScreenshotDocument(source: try image())
+    shot.tool = .line
+    shot.changeStyle(.black, for: \.lineColor)
+    shot.changeStyle(4, for: \.lineWidth)
+    let line = shot.mark(start: CGPoint(x: 10, y: 40), end: CGPoint(x: 80, y: 40))
+    shot.add(line)
+    XCTAssertEqual(shot.object(at: CGPoint(x: 45, y: 40), tolerance: 1)?.id, line.id)
+    XCTAssertNil(shot.object(at: CGPoint(x: 70, y: 46), tolerance: 1))
+    let pixels = NSBitmapImageRep(cgImage: try shot.rendered())
+    let onLine = try XCTUnwrap(pixels.colorAt(x: 45, y: 40)?.usingColorSpace(.sRGB))
+    let besideEnd = try XCTUnwrap(pixels.colorAt(x: 70, y: 46)?.usingColorSpace(.sRGB))
+    XCTAssertLessThan(onLine.redComponent, 0.1)
+    XCTAssertGreaterThan(besideEnd.redComponent, 0.9)
+  }
+  @MainActor func testScreenshotDrawingSnapsLinesAndArrowsToNearest15Degrees() {
+    let bounds = CGRect(x: 0, y: 0, width: 100, height: 100)
+    let start = CGPoint(x: 50, y: 50)
+    for kind in [NativeScreenshotMark.Kind.line, .arrow] {
+      XCTAssertEqual(
+        NativeScreenshotDocument.snappedEnd(
+          from: start, to: CGPoint(x: 10, y: 54), kind: kind, in: bounds),
+        CGPoint(x: 10, y: 50))
+      XCTAssertEqual(
+        NativeScreenshotDocument.snappedEnd(
+          from: start, to: CGPoint(x: 54, y: 10), kind: kind, in: bounds),
+        CGPoint(x: 50, y: 10))
+
+      let radius: CGFloat = 30
+      for degrees in stride(from: 0, to: 360, by: 15) {
+        let angle = CGFloat(degrees) * .pi / 180
+        for offset: CGFloat in [-7, 7] {
+          let deviation = offset * .pi / 180
+          let pointer = CGPoint(
+            x: start.x + radius * cos(angle + deviation),
+            y: start.y + radius * sin(angle + deviation))
+          let snapped = NativeScreenshotDocument.snappedEnd(
+            from: start, to: pointer, kind: kind, in: bounds)
+          let projectedRadius = radius * cos(deviation)
+          XCTAssertEqual(snapped.x, start.x + projectedRadius * cos(angle), accuracy: 0.000001)
+          XCTAssertEqual(snapped.y, start.y + projectedRadius * sin(angle), accuracy: 0.000001)
+        }
+      }
+
+      let rightEdge = NativeScreenshotDocument.snappedEnd(
+        from: CGPoint(x: 90, y: 55), to: CGPoint(x: 100, y: 75), kind: kind, in: bounds)
+      XCTAssertEqual(rightEdge.x, 100, accuracy: 0.000001)
+      XCTAssertEqual(rightEdge.y, 55 + 10 * sqrt(3), accuracy: 0.000001)
+
+      let topEdge = NativeScreenshotDocument.snappedEnd(
+        from: CGPoint(x: 50, y: 95), to: CGPoint(x: 70, y: 100), kind: kind, in: bounds)
+      XCTAssertEqual(topEdge.x, 50 + 5 * (2 + sqrt(3)), accuracy: 0.000001)
+      XCTAssertEqual(topEdge.y, 100, accuracy: 0.000001)
+
+      XCTAssertEqual(
+        NativeScreenshotDocument.snappedEnd(
+          from: start, to: start, kind: kind, in: bounds),
+        start)
+    }
+  }
+  @MainActor func testScreenshotDrawingSnapsRectanglesToSquaresWithinCapture() {
+    let bounds = CGRect(x: 10, y: 10, width: 100, height: 80)
+    let start = CGPoint(x: 40, y: 50)
+    XCTAssertEqual(
+      NativeScreenshotDocument.snappedEnd(
+        from: start, to: CGPoint(x: 62, y: 38), kind: .rectangle, in: bounds),
+      CGPoint(x: 62, y: 28))
+    XCTAssertEqual(
+      NativeScreenshotDocument.snappedEnd(
+        from: start, to: CGPoint(x: 20, y: 85), kind: .rectangle, in: bounds),
+      CGPoint(x: 10, y: 80))
+    XCTAssertEqual(
+      NativeScreenshotDocument.snappedEnd(
+        from: CGPoint(x: 40, y: 90), to: CGPoint(x: 70, y: 90), kind: .rectangle, in: bounds),
+      CGPoint(x: 70, y: 60))
+    XCTAssertEqual(
+      NativeScreenshotDocument.snappedEnd(from: start, to: start, kind: .rectangle, in: bounds),
+      start)
+  }
+  @MainActor func testScreenshotEditingSnapsExistingShapeHandles() throws {
+    func shift(_ modifiers: NSEvent.ModifierFlags) throws -> NSEvent {
+      return try XCTUnwrap(
+        NSEvent.keyEvent(
+          with: .flagsChanged, location: .zero, modifierFlags: modifiers, timestamp: 0,
+          windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "",
+          isARepeat: false, keyCode: 56))
+    }
+    for kind in [NativeScreenshotMark.Kind.line, .arrow, .rectangle] {
+      let shot = NativeScreenshotDocument(source: try image())
+      let canvas = NativeScreenshotCanvas(frame: CGRect(x: 0, y: 0, width: 232, height: 192))
+      canvas.document = shot
+      func mouse(
+        _ type: NSEvent.EventType, at point: CGPoint, modifiers: NSEvent.ModifierFlags = []
+      ) throws -> NSEvent {
+        let image = canvas.imageRect
+        return try XCTUnwrap(
+          NSEvent.mouseEvent(
+            with: type,
+            location: CGPoint(x: image.minX + point.x * 2, y: image.minY + point.y * 2),
+            modifierFlags: modifiers, timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
+            clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1))
+      }
+      let mark = NativeScreenshotMark(
+        kind: kind, start: CGPoint(x: 20, y: 20), end: CGPoint(x: 60, y: 40))
+      shot.add(mark)
+      shot.selectObject(mark)
+      let dragged = CGPoint(x: 72, y: 32)
+      let angle = CGFloat.pi / 12
+      let direction = CGPoint(x: cos(angle), y: sin(angle))
+      let projectedLength =
+        (dragged.x - mark.start.x) * direction.x
+        + (dragged.y - mark.start.y) * direction.y
+      let snapped =
+        kind == .rectangle
+        ? CGPoint(x: 72, y: 72)
+        : CGPoint(
+          x: mark.start.x + projectedLength * direction.x,
+          y: mark.start.y + projectedLength * direction.y)
+      canvas.mouseDown(with: try mouse(.leftMouseDown, at: mark.end, modifiers: .shift))
+      canvas.mouseUp(with: try mouse(.leftMouseUp, at: mark.end, modifiers: .shift))
+      XCTAssertEqual(shot.marks, [mark])
+      canvas.mouseDown(with: try mouse(.leftMouseDown, at: mark.end))
+      canvas.mouseDragged(with: try mouse(.leftMouseDragged, at: dragged))
+      XCTAssertEqual(shot.pendingObject?.end, dragged)
+      canvas.flagsChanged(with: try shift(.shift))
+      let pendingEnd = try XCTUnwrap(shot.pendingObject?.end)
+      XCTAssertEqual(pendingEnd.x, snapped.x, accuracy: 0.000001)
+      XCTAssertEqual(pendingEnd.y, snapped.y, accuracy: 0.000001)
+      canvas.flagsChanged(with: try shift([]))
+      XCTAssertEqual(shot.pendingObject?.end, dragged)
+      canvas.mouseUp(with: try mouse(.leftMouseUp, at: dragged, modifiers: .shift))
+
+      XCTAssertEqual(shot.marks.count, 1)
+      XCTAssertEqual(shot.marks.first?.id, mark.id)
+      XCTAssertEqual(shot.marks.first?.start, mark.start)
+      let savedEnd = try XCTUnwrap(shot.marks.first?.end)
+      XCTAssertEqual(savedEnd.x, snapped.x, accuracy: 0.000001)
+      XCTAssertEqual(savedEnd.y, snapped.y, accuracy: 0.000001)
+      shot.undo()
+      XCTAssertEqual(shot.marks, [mark])
+    }
+  }
+  @MainActor func testScreenshotEditingSnapsAllRectangleCornersAroundTheOppositeCorner() throws {
+    let shot = NativeScreenshotDocument(source: try image())
+    let canvas = NativeScreenshotCanvas()
+    canvas.document = shot
+    let rectangle = NativeScreenshotMark(
+      kind: .rectangle, start: CGPoint(x: 20, y: 20), end: CGPoint(x: 60, y: 40))
+    let corners = Dictionary(uniqueKeysWithValues: canvas.objectHandles(rectangle))
+    for (handle, opposite) in [(0, 1), (1, 0), (3, 4), (4, 3)] {
+      let edited = canvas.moveObject(
+        rectangle, by: CGPoint(x: 5, y: 8), handle: handle, snapping: true)
+      let bounds = NativeScreenshotDocument.rect(edited.start, edited.end)
+      let updated = Dictionary(uniqueKeysWithValues: canvas.objectHandles(edited))
+      XCTAssertEqual(bounds.width, bounds.height)
+      XCTAssertEqual(updated[opposite], corners[opposite])
+    }
+  }
+  @MainActor func testScreenshotEditingSnapsWithAnchorOutsideCrop() throws {
+    let shot = NativeScreenshotDocument(source: try image(width: 160, height: 100))
+    let canvas = NativeScreenshotCanvas()
+    canvas.document = shot
+    for kind in [NativeScreenshotMark.Kind.line, .arrow] {
+      shot.add(
+        NativeScreenshotMark(
+          kind: kind, start: CGPoint(x: 20, y: 40), end: CGPoint(x: 100, y: 46)))
+    }
+    shot.adjustArea(CGRect(x: 60, y: 0, width: 100, height: 100))
+    for mark in shot.marks {
+      let snapped = canvas.moveObject(mark, by: CGPoint(x: -39, y: 0), handle: 1, snapping: true)
+      XCTAssertEqual(snapped.id, mark.id)
+      XCTAssertEqual(snapped.start, CGPoint(x: -40, y: 40))
+      XCTAssertEqual(snapped.end.x, 0, accuracy: 0.000001)
+      XCTAssertEqual(snapped.end.y, 40 + 40 * tan(CGFloat.pi / 12), accuracy: 0.000001)
+    }
+  }
+  @MainActor func testScreenshotEditingUsesNearestAngleThatIntersectsCrop() throws {
+    let shot = NativeScreenshotDocument(source: try image(width: 160, height: 110))
+    let canvas = NativeScreenshotCanvas()
+    canvas.document = shot
+    for kind in [NativeScreenshotMark.Kind.line, .arrow] {
+      shot.add(
+        NativeScreenshotMark(
+          kind: kind, start: CGPoint(x: 20, y: 8), end: CGPoint(x: 100, y: 18)))
+    }
+    shot.adjustArea(CGRect(x: 60, y: 10, width: 100, height: 100))
+    for mark in shot.marks {
+      let snapped = canvas.moveObject(mark, by: CGPoint(x: 10, y: 0), handle: 1, snapping: true)
+      let dx = snapped.end.x - snapped.start.x
+      let dy = snapped.end.y - snapped.start.y
+      XCTAssertEqual(snapped.start, CGPoint(x: -40, y: -2))
+      XCTAssertTrue(CGRect(origin: .zero, size: shot.size).contains(snapped.end))
+      XCTAssertEqual(atan2(dy, dx), CGFloat.pi / 12, accuracy: 0.000001)
+
+      var diagonal = mark
+      diagonal.start = CGPoint(x: 500, y: -500)
+      diagonal.end = CGPoint(x: 9, y: 10)
+      let corner = canvas.moveObject(diagonal, by: CGPoint(x: 1, y: 0), handle: 1, snapping: true)
+      XCTAssertEqual(corner.end.x, 0, accuracy: 0.000001)
+      XCTAssertEqual(corner.end.y, 0, accuracy: 0.000001)
     }
   }
   @MainActor func testTextObjectMovementAndSelectedStylingRemainUndoable() throws {
@@ -676,7 +950,7 @@ final class NativeScreenshotTests: XCTestCase {
         displays: displays, desktopTop: 1080))
   }
   @MainActor func testSharedSelectionCrossesDisplayEdgesInBothDirections() {
-    let selection = NativeScreenshotRegionSelection(
+    let selection = NativeScreenshotSelection(
       bounds: CGRect(x: -800, y: -600, width: 1800, height: 1600))
     var updates = 0
     selection.changed = { updates += 1 }
