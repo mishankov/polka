@@ -2,6 +2,12 @@ name: nightly
 
 on:
   workflow_dispatch:
+    inputs:
+      force_full_verification:
+        description: Re-run source, tooling, and updater jobs even when build CI already passed for this tree
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -13,34 +19,36 @@ concurrency:
 jobs:
   prepare:
     name: Prepare release
-    runs-on: xcode-27
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
+      actions: read
+      pull-requests: read
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       commit: ${{ steps.release.outputs.commit }}
+      verified_by_ci: ${{ steps.release.outputs.verified_by_ci }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: master
-      - uses: ./.github/actions/prepare-macos
-        with:
-          build-cache: optimized
-          tools-only: 'true'
 
-      - name: Pin master commit and unique nightly version
+      - name: Pin master commit, unique nightly version, and CI status
         id: release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          FORCE_FULL_VERIFICATION: ${{ inputs.force_full_verification }}
         run: |
           NIGHTLY_BASE_VERSION=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')
           export NIGHTLY_BASE_VERSION
-          ./polka nightly-prepare
+          bash scripts/nightly-prepare.sh
 
   verify:
     name: Verify native macOS release source
     needs: prepare
+    if: needs.prepare.outputs.verified_by_ci != 'true'
     runs-on: xcode-27
     timeout-minutes: 30
     permissions:
@@ -52,6 +60,9 @@ jobs:
       - uses: ./.github/actions/prepare-macos
         with:
           build-cache: source-native
+          tools-configuration: debug
+          save-tools-cache: 'false'
+          save-native-cache: 'false'
       - name: Verify Swift services, UI models, coverage and regression fixtures
         timeout-minutes: 25
         run: ./polka verify --no-desktop --no-tools
@@ -67,6 +78,7 @@ jobs:
   tooling:
     name: Verify Swift release tooling
     needs: prepare
+    if: needs.prepare.outputs.verified_by_ci != 'true'
     runs-on: xcode-27
     timeout-minutes: 15
     permissions:
@@ -78,13 +90,16 @@ jobs:
       - uses: ./.github/actions/prepare-macos
         with:
           build-cache: tooling
+          tools-configuration: debug
           tools-only: 'true'
+          save-tools-cache: 'false'
       - name: Verify automation, signing, release gates and cancellation
-        run: swift test --package-path tools
+        run: swift test --package-path tools --jobs "$POLKA_SWIFT_BUILD_JOBS"
 
   updates:
     name: Test native macOS release update and relaunch
     needs: prepare
+    if: needs.prepare.outputs.verified_by_ci != 'true'
     runs-on: xcode-27
     timeout-minutes: 30
     permissions:
@@ -95,9 +110,12 @@ jobs:
           ref: ${{ needs.prepare.outputs.commit }}
       - uses: ./.github/actions/prepare-macos
         with:
-          build-cache: optimized
+          build-cache: optimized-native
+          tools-configuration: debug
+          save-tools-cache: 'false'
+          save-native-cache: 'false'
       - name: Build optimized native fixture app
-        run: ./polka build
+        run: ./polka build --release
       - name: Verify native update and relaunch
         timeout-minutes: 15
         run: ./polka desktop updates --prebuilt --release
@@ -130,7 +148,10 @@ jobs:
           ref: ${{ needs.prepare.outputs.commit }}
       - uses: ./.github/actions/prepare-macos
         with:
-          build-cache: optimized
+          build-cache: optimized-native
+          tools-configuration: debug
+          save-tools-cache: 'false'
+          save-native-cache: 'false'
       - name: Build and authenticate update archive, verify packaged app
         env:
           POLKA_SIGNING_P12: ${{ secrets.POLKA_SIGNING_P12 }}
@@ -163,6 +184,13 @@ jobs:
   publish:
     name: Publish immutable nightly and advance nightly feed
     needs: [prepare, verify, tooling, updates, build]
+    if: >-
+      ${{ !failure() && !cancelled()
+        && needs.prepare.result == 'success'
+        && needs.build.result == 'success'
+        && (needs.verify.result == 'success' || (needs.prepare.outputs.verified_by_ci == 'true' && needs.verify.result == 'skipped'))
+        && (needs.tooling.result == 'success' || (needs.prepare.outputs.verified_by_ci == 'true' && needs.tooling.result == 'skipped'))
+        && (needs.updates.result == 'success' || (needs.prepare.outputs.verified_by_ci == 'true' && needs.updates.result == 'skipped')) }}
     # Stable and nightly publishers share the same mutable channel pointer.
     concurrency:
       group: polka-update-feed
@@ -178,6 +206,7 @@ jobs:
           build-cache: tooling
           tools-configuration: debug
           tools-only: 'true'
+          save-tools-cache: 'false'
       - uses: actions/download-artifact@v8
         with:
           name: nightly-asset-macos-arm64
