@@ -16,8 +16,8 @@ severity, and approval rules. Before round 1, fix known issues and address
 outstanding in-scope PR comments. When the user is exploring a replacement,
 skip fixes to code being replaced.
 
-- For code review, ask each delegate for a verdict, findings, and a score out
-  of 10 per round.
+- In every code review round, have each delegate independently apply both
+  checks from the shared brief and return a verdict, findings, and a score out of 10.
 - Verify findings as they arrive. Track findings by reviewer and ID, and
   resolve duplicates together. Wait for all required reviewers before applying
   fixes or deciding the round's outcome.
@@ -25,8 +25,10 @@ skip fixes to code being replaced.
   counting it toward approval or recording a score. Cancel an outstanding
   non-blocking review before editing the checkout it reads or ending the task.
 
-For feedback without a code diff, give the delegates the same request and
-context, then summarize their findings, disagreements, and next steps.
+For feedback without a code diff, give each delegate the original request
+and the proposal. Have each independently check the proposal against the
+request and applicable documented repository rules. Summarize their
+findings, disagreements, and next steps.
 
 ## Report results
 

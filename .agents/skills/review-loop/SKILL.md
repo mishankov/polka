@@ -69,15 +69,20 @@ verify it stopped, and restart it with the ledger.
 Include the UI check below for user-facing UI changes. Fill in absolute paths
 to the applicable references in the installed Impeccable skill.
 
-Round 1 brief (T3 children get no history):
+Shared brief for every round (T3 children get no history):
 
 ```
 Review only. Do not edit, commit, push, comment on PRs, or start subagents.
 Repo: <abs path> Base: <sha> Intent: <intent> Out of scope: <scope> Checks: <results>
+Request: <original request or accessible issue/spec, with later user decisions>
 See: git diff <base> [-- <paths>]; git status --short (read untracked).
-Read surrounding code. Find bugs, broken callers, mismatch with intent.
-Skip style unless it affects the intended UI or hides a bug. Hold to the
-smallest change. Flag code, tests, or guards the intent does not need. Other
+Read surrounding code and check for broken callers. In this round's scope:
+- Compare behavior with the request. Identify missing, incorrect, or extra
+  behavior and cite the requirement or scope decision behind each finding.
+- Check the repository instructions and documented rules that apply to the
+  changed paths. Cite the file and specific rule for each violation.
+Skip style preferences unless they affect the intended UI or hide a bug. Hold
+to the smallest change. Flag code, tests, or guards the intent does not need. Other
 paths, rare cases, small perf, extra compat: nits.
 
 UI check (if applicable): <screen or flow, user task, design conventions, runtime evidence>.
@@ -117,9 +122,9 @@ review grew the diff, cut first. Do not agree just to end the loop.
 Start one only if budget remains and a blocker or should is open, behavior code
 changed, or approval does not cover the current behavior diff. For each reviewer,
 use a fresh `delegate_task` in T3, or follow up the saved native ID. Send the
-round 1 brief, the ledger (`fixed:` / `disagree:` / `declined:` + evidence), the
-same base diff, and the change since last round. Ask reviewers to check open IDs
-and changed code only.
+shared brief, the ledger (`fixed:` / `disagree:` / `declined:` + evidence), the
+same base diff, and the change since last round. Apply both the request and
+repository-rule checks to the changes since the last round and open findings only.
 Mark each old id `resolved` or `still open: <reason>`.
 
 ## 5. Stop and ship
