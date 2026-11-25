@@ -77,6 +77,51 @@ public enum PackageTool {
     verified = true
   }
 
+  /// Temporarily hide SwiftPM's compile-time `.bundle` directories so relocated
+  /// desktop smoke on the build host catches any accidental `Bundle.module`
+  /// fallback to `.build/`. Restores any stale hidden directory first.
+  static func withoutBuildResourceBundles<T>(products: URL?, _ body: () throws -> T) throws -> T {
+    guard let products else { return try body() }
+    let manager = ToolFiles.manager
+    let entries = (try? manager.contentsOfDirectory(atPath: products.path)) ?? []
+    for stale in entries where stale.hasPrefix(".polka-hidden-bundles-") {
+      let directory = products.appendingPathComponent(stale)
+      for name in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] {
+        let from = directory.appendingPathComponent(name)
+        let to = products.appendingPathComponent(name)
+        if !manager.fileExists(atPath: to.path) { try? manager.moveItem(at: from, to: to) }
+      }
+      if (try? manager.contentsOfDirectory(atPath: directory.path).isEmpty) == true {
+        try? manager.removeItem(at: directory)
+      }
+    }
+    let bundles =
+      (try? manager.contentsOfDirectory(atPath: products.path))?
+      .filter { $0.hasSuffix(".bundle") } ?? []
+    guard !bundles.isEmpty else { return try body() }
+    let hidden = products.appendingPathComponent(".polka-hidden-bundles-\(UUID().uuidString)")
+    try ToolFiles.directory(hidden, mode: 0o700)
+    var moved: [String] = []
+    defer {
+      for name in moved.reversed() {
+        let from = hidden.appendingPathComponent(name)
+        let to = products.appendingPathComponent(name)
+        if manager.fileExists(atPath: from.path) && !manager.fileExists(atPath: to.path) {
+          try? manager.moveItem(at: from, to: to)
+        }
+      }
+      if (try? manager.contentsOfDirectory(atPath: hidden.path).isEmpty) == true {
+        try? manager.removeItem(at: hidden)
+      }
+    }
+    for name in bundles {
+      try manager.moveItem(
+        at: products.appendingPathComponent(name), to: hidden.appendingPathComponent(name))
+      moved.append(name)
+    }
+    return try body()
+  }
+
   public static func package(
     options: PackageOptions = PackageOptions(), context: ToolContext = ToolContext()
   ) throws -> PackageResult {
@@ -132,7 +177,13 @@ public enum PackageTool {
         try BuildTool.assertRelativeBundleLinks(app)
         _ = try SigningTool.codesign(
           ["--verify", "--deep", "--strict", app.path], environment: publicContext.environment)
-        if options.desktop { try Desktop.smokeSync(app: app, context: publicContext) }
+        if options.desktop {
+          let smokeProducts =
+            (try? DesktopVM.usesVM(publicContext.environment)) == false ? built.products : nil
+          try withoutBuildResourceBundles(products: smokeProducts) {
+            try Desktop.smokeSync(app: app, context: publicContext)
+          }
+        }
         try ToolFiles.remove(relocated)
       }
       // Both operations only read the signed bundle/ZIP. The DMG can be built

@@ -14,6 +14,12 @@ curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/inst
 
 The script downloads the latest stable release, checks the download's SHA-256 checksum and signature integrity, installs **`/Applications/Polka.app`**, removes the quarantine flag only from that app, and opens Polka. If it needs permission to write to Applications, it asks for your macOS password. Terminal does not display characters while you enter a password.
 
+To install the latest build from the **Nightly** channel instead, pass `--nightly`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/install.sh | /bin/bash -s -- --nightly
+```
+
 Homebrew and Xcode are not required. The script runs from the `master` branch; you can [read it before running it](../scripts/install.sh).
 
 To inspect the script locally or choose another installation folder, download it first:
@@ -24,7 +30,7 @@ less install-polka.sh
 /bin/bash install-polka.sh --install-dir "$HOME/Applications" --no-launch
 ```
 
-The destination folder must already exist. `--install-dir` selects the folder, and `--no-launch` leaves Polka closed after installation. Omit these options to install into `/Applications` and open the app.
+The destination folder must already exist. `--nightly` selects the latest nightly channel build, `--install-dir` selects the folder, and `--no-launch` leaves Polka closed after installation. Omit these options to install the latest stable release into `/Applications` and open the app.
 
 ## 2. Download and open from Terminal
 

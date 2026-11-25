@@ -43,8 +43,15 @@ import PolkaTools
             terminator: "")
         } else {
           let destination = URL(fileURLWithPath: args[args.firstIndex(of: "--output")! + 1])
-          let source = root.appendingPathComponent(
-            args.last!.hasSuffix("/checksums.txt") ? "checksums.txt" : "archive.zip")
+          let sourceName: String
+          if args.last!.hasSuffix("/appcast.xml") {
+            sourceName = "appcast.xml"
+          } else if args.last!.hasSuffix("/checksums.txt") {
+            sourceName = "checksums.txt"
+          } else {
+            sourceName = "archive.zip"
+          }
+          let source = root.appendingPathComponent(sourceName)
           try? fm.removeItem(at: destination)
           try fm.copyItem(at: source, to: destination)
         }
