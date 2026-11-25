@@ -96,10 +96,15 @@ public struct ReleaseNotes: Codable, Equatable {
   public func markdown(tag: String, repository: String = "mishankov/polka") throws -> String {
     let version = try ReleaseVersion.parse(tag)
     _ = try ReleaseVersion.repository(repository)
+    let isNightly = version.contains("-nightly.")
     let downloadURL =
       "https://github.com/\(repository)/releases/download/\(ReleaseVersion.encodedTag(tag))/polka-\(version)-arm64.dmg"
     let installCommand =
-      "curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/install.sh | /bin/bash"
+      isNightly
+      ? "curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/install.sh | /bin/bash -s -- --nightly"
+      : "curl -fsSL https://raw.githubusercontent.com/mishankov/polka/master/scripts/install.sh | /bin/bash"
+    let scriptTargetEn = isNightly ? "latest nightly build" : "latest stable release"
+    let scriptTargetRu = isNightly ? "последнюю ночную сборку" : "последний стабильный выпуск"
     func markdown(_ text: String) -> String {
       text.replacingOccurrences(of: #"(?m)^•\s+"#, with: "- ", options: .regularExpression)
     }
@@ -133,7 +138,7 @@ public struct ReleaseNotes: Codable, Equatable {
       \(installCommand)
       ```
 
-      The script installs the **latest stable release**, verifies the download, removes quarantine only from Polka, and opens it. If Polka is running, first choose **«Выйти из Полки»** (Quit Polka) in its menu. The installer asks for your Mac login password when needed.
+      The script installs the **\(scriptTargetEn)**, verifies the download, removes quarantine only from Polka, and opens it. If Polka is running, first choose **«Выйти из Полки»** (Quit Polka) in its menu. The installer asks for your Mac login password when needed.
 
       #### 2. Download and use Terminal
 
@@ -183,7 +188,7 @@ public struct ReleaseNotes: Codable, Equatable {
       \(installCommand)
       ```
 
-      Скрипт устанавливает **последний стабильный выпуск**, проверяет загрузку, снимает quarantine только с Polka и открывает приложение. Если Полка работает, сначала выберите «Выйти из Полки» в её меню. При необходимости установщик запросит пароль macOS.
+      Скрипт устанавливает **\(scriptTargetRu)**, проверяет загрузку, снимает quarantine только с Polka и открывает приложение. Если Полка работает, сначала выберите «Выйти из Полки» в её меню. При необходимости установщик запросит пароль macOS.
 
       #### 2. Скачать и выполнить команду
 

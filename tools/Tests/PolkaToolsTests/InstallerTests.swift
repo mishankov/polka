@@ -292,4 +292,68 @@ final class InstallerTests: XCTestCase {
     XCTAssertTrue(try fixture.calls().isEmpty)
     XCTAssertEqual(try TestSupport.children(fixture.applications), [])
   }
+  func testNightlyOptionResolvesAppcastAndInstallsNightlyRelease() throws {
+    let nightlyVersion = "0.5.1-nightly.20261124184241.45462427948.1"
+    let nightlyTag = "v\(nightlyVersion)"
+    let archive = "polka-\(nightlyVersion)-arm64.zip"
+    let fixture = try Fixture(["BUNDLE_VERSION": nightlyVersion])
+    defer { try? fixture.clean() }
+    let bytes = try Data(contentsOf: fixture.root.appendingPathComponent("archive.zip"))
+    let checksum = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+    try TestSupport.write(
+      checksum + "  " + archive + "\n", to: fixture.root.appendingPathComponent("checksums.txt"))
+    let appcast = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+        <channel>
+          <item>
+            <enclosure url="https://github.com/mishankov/polka/releases/download/\(nightlyTag)/\(archive)" length="\(bytes.count)" type="application/octet-stream" sparkle:edSignature="sig=="/>
+          </item>
+        </channel>
+      </rss>
+      """
+    try TestSupport.write(appcast, to: fixture.root.appendingPathComponent("appcast.xml"))
+    let result = try fixture.run(["--nightly"])
+    XCTAssertEqual(result.status, 0, result.error)
+    XCTAssertEqual(
+      try String(contentsOf: fixture.target.appendingPathComponent("version"), encoding: .utf8),
+      "new")
+    let urls = try fixture.calls().filter { $0["command"] as? String == "curl" }.compactMap {
+      ($0["args"] as? [String])?.last
+    }
+    XCTAssertEqual(
+      urls,
+      [
+        "https://github.com/mishankov/polka/releases/download/nightly/appcast.xml",
+        "https://github.com/mishankov/polka/releases/download/\(nightlyTag)/\(archive)",
+        "https://github.com/mishankov/polka/releases/download/\(nightlyTag)/checksums.txt",
+      ])
+  }
+  func testNightlyOptionAcceptsNewerStableReleaseInAppcastAndRejectsBadFeeds() throws {
+    let fixture = try Fixture()
+    defer { try? fixture.clean() }
+    let validStable = """
+      <rss><channel><item><enclosure url="https://github.com/mishankov/polka/releases/download/v0.5.0/polka-0.5.0-arm64.zip" length="19"/></item></channel></rss>
+      """
+    try TestSupport.write(validStable, to: fixture.root.appendingPathComponent("appcast.xml"))
+    let stableResult = try fixture.run(["--nightly", "--no-launch"])
+    XCTAssertEqual(stableResult.status, 0, stableResult.error)
+    for badFeed in [
+      "<rss><channel><item></item></channel></rss>",
+      "<rss><channel><item><enclosure url=\"https://example.com/releases/download/v0.5.0/polka-0.5.0-arm64.zip\"/></item></channel></rss>",
+      "<rss><channel><item><enclosure url=\"https://github.com/mishankov/polka/releases/download/v0.5.0/polka-0.4.0-arm64.zip\"/></item></channel></rss>",
+      "<rss><channel><item><enclosure url=\"https://github.com/mishankov/polka/releases/download/v0.5.0/polka-0.5.0-arm64.zip\"/><enclosure url=\"https://github.com/mishankov/polka/releases/download/v0.5.0/polka-0.5.0-arm64.zip\"/></item></channel></rss>",
+      "<rss><channel><item><enclosure url=\"https://github.com/mishankov/polka/releases/download/v0.5.0-beta.1/polka-0.5.0-beta.1-arm64.zip\"/></item></channel></rss>",
+    ] {
+      let bad = try Fixture()
+      defer { try? bad.clean() }
+      try bad.existing()
+      try TestSupport.write(badFeed, to: bad.root.appendingPathComponent("appcast.xml"))
+      let result = try bad.run(["--nightly"])
+      XCTAssertNotEqual(result.status, 0, badFeed)
+      XCTAssertEqual(
+        try String(contentsOf: bad.target.appendingPathComponent("version"), encoding: .utf8), "old"
+      )
+    }
+  }
 }

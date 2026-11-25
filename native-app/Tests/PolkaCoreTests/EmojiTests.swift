@@ -27,6 +27,45 @@ final class EmojiTests: XCTestCase {
       XCTAssertEqual(try Data(contentsOf: resolved), Data("bundled catalog".utf8))
     }
   }
+  func testLocalizationResolvesBothSwiftPMResourceLayoutsWithoutFallback() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    var fallbackCalls = 0
+    _ = PolkaResourceBundle.resolve(named: "PolkaNative_PolkaCore", in: root) {
+      fallbackCalls += 1
+      return Bundle.main
+    }
+    XCTAssertEqual(fallbackCalls, 1)
+    for layout in ["", "Contents/Resources"] {
+      let directory = root.appendingPathComponent(layout.isEmpty ? "flat" : "structured")
+      let bundle = directory.appendingPathComponent("PolkaNative_PolkaCore.bundle")
+      let resources = layout.isEmpty ? bundle : bundle.appendingPathComponent(layout)
+      try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+      if !layout.isEmpty {
+        let plist = try PropertyListSerialization.data(
+          fromPropertyList: [
+            "CFBundleIdentifier": "app.polka.fixture", "CFBundlePackageType": "BNDL",
+          ],
+          format: .xml, options: 0)
+        try plist.write(to: bundle.appendingPathComponent("Contents/Info.plist"))
+      }
+      for (language, text) in [
+        ("en", "\"Polka\" = \"Polka EN\";\n"), ("ru", "\"Polka\" = \"Полка RU\";\n"),
+      ] {
+        let lproj = resources.appendingPathComponent("\(language).lproj")
+        try FileManager.default.createDirectory(at: lproj, withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: lproj.appendingPathComponent("Localizable.strings"))
+      }
+      let loaded = AppLocalization.loadBundles(in: directory) {
+        XCTFail("Packaged localization must not fall back to Bundle.module for layout \(layout)")
+        return Bundle.main
+      }
+      XCTAssertEqual(
+        loaded[.english]?.localizedString(forKey: "Polka", value: nil, table: nil), "Polka EN")
+      XCTAssertEqual(
+        loaded[.russian]?.localizedString(forKey: "Polka", value: nil, table: nil), "Полка RU")
+    }
+  }
   func testCompleteLocalizedCatalogAndSequences() {
     let catalog = EmojiCatalog.shared
     XCTAssertEqual(catalog.emojis.count, 3781)

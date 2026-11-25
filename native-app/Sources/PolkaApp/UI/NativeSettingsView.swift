@@ -858,9 +858,15 @@ final class NativeSettingsSidebarRow: NSTableRowView {
 struct NativeReleaseNotesView: View {
   var settings: NativeUISettings
   @State private var language: String?
-  private static let themePreview = Bundle.module
-    .url(forResource: "theme-release-preview", withExtension: "png")
-    .flatMap { NSImage(contentsOf: $0) }
+  static func themePreviewURL(
+    in resourcesURL: URL? = Bundle.main.resourceURL,
+    fallback: () -> Bundle = { .module }
+  ) -> URL? {
+    PolkaResourceBundle.resolve(
+      named: "PolkaNative_PolkaApp", in: resourcesURL, fallback: fallback
+    ).url(forResource: "theme-release-preview", withExtension: "png")
+  }
+  private static let themePreview = themePreviewURL().flatMap { NSImage(contentsOf: $0) }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {

@@ -202,4 +202,40 @@ final class BuildSigningTests: XCTestCase {
     XCTAssertEqual(
       before, try Command.capture("/usr/bin/security", ["list-keychains", "-d", "user"]))
   }
+  func testWithoutBuildResourceBundlesHidesAndRestoresOnSuccessAndError() throws {
+    let root = try temporary()
+    defer { try? ToolFiles.remove(root) }
+    let core = root.appendingPathComponent("PolkaNative_PolkaCore.bundle")
+    let app = root.appendingPathComponent("PolkaNative_PolkaApp.bundle")
+    let executable = root.appendingPathComponent("PolkaNative")
+    try ToolFiles.directory(core)
+    try ToolFiles.directory(app)
+    try ToolFiles.write("core", to: core.appendingPathComponent("emoji-data.json"))
+    try ToolFiles.write("app", to: app.appendingPathComponent("theme-release-preview.png"))
+    try ToolFiles.write("exe", to: executable)
+    try PackageTool.withoutBuildResourceBundles(products: root) {
+      XCTAssertFalse(FileManager.default.fileExists(atPath: core.path))
+      XCTAssertFalse(FileManager.default.fileExists(atPath: app.path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: executable.path))
+    }
+    XCTAssertTrue(
+      FileManager.default.fileExists(atPath: core.appendingPathComponent("emoji-data.json").path))
+    XCTAssertTrue(
+      FileManager.default.fileExists(
+        atPath: app.appendingPathComponent("theme-release-preview.png").path))
+    struct SimulatedFailure: Error {}
+    XCTAssertThrowsError(
+      try PackageTool.withoutBuildResourceBundles(products: root) {
+        XCTAssertFalse(FileManager.default.fileExists(atPath: core.path))
+        throw SimulatedFailure()
+      })
+    XCTAssertTrue(
+      FileManager.default.fileExists(atPath: core.appendingPathComponent("emoji-data.json").path))
+    XCTAssertTrue(
+      FileManager.default.fileExists(
+        atPath: app.appendingPathComponent("theme-release-preview.png").path))
+    XCTAssertEqual(
+      try FileManager.default.contentsOfDirectory(atPath: root.path).sorted(),
+      ["PolkaNative", "PolkaNative_PolkaApp.bundle", "PolkaNative_PolkaCore.bundle"])
+  }
 }

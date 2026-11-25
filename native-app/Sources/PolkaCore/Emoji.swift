@@ -55,10 +55,8 @@ public struct EmojiCatalog: Sendable {
     "😢": "грустно грусть sad crying", "😭": "грустно грусть sad crying",
   ]
   static func packagedResourceURL(in resources: URL?) -> URL? {
-    guard let resources,
-      let bundle = Bundle(url: resources.appendingPathComponent("PolkaNative_PolkaCore.bundle"))
-    else { return nil }
-    return bundle.url(forResource: "emoji-data", withExtension: "json")
+    PolkaResourceBundle.packagedBundle(named: "PolkaNative_PolkaCore", in: resources)?
+      .url(forResource: "emoji-data", withExtension: "json")
   }
   public static let shared: EmojiCatalog = {
     guard

@@ -30,9 +30,9 @@
       "sha256": "786abeba8be9d757f6cc4f747b0a2de5e6527b0cd80a6fb76f796bc90b41f236"
     },
     "impeccable": {
-      "commit": "b49177d32788f2dc585c42831d845dacf1ebed2c",
-      "sha256": "100803e6091f6f0033dc4e6f7cfbcdca8aa86473bd031159bcc3d4ec8dda42ec",
-      "release": "skill-v4.10.0",
+      "commit": "88cfafae649164e6dc48b88d3c0c1bf6662eaade",
+      "sha256": "6c35c15ec376b573349990b08915caec42d1cc2e98bdb1cdc8f87e9b6d050efa",
+      "release": "skill-v4.11.0",
       "source": {
         "repository": "https://github.com/pbakaus/impeccable.git",
         "path": ".agents/skills/impeccable",

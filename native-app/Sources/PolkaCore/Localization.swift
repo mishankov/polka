@@ -34,11 +34,20 @@ public enum AppLocalization {
   private static let lock = NSLock()
   private static var selected = AppLanguagePreference.system.resolve()
   private static let argumentPattern = try? NSRegularExpression(pattern: "\\{([0-9]+)\\}")
-  private static let bundles: [AppLanguage: Bundle] = Dictionary(
-    uniqueKeysWithValues: AppLanguage.allCases.compactMap { language in
-      Bundle.module.url(forResource: language.rawValue, withExtension: "lproj")
-        .flatMap(Bundle.init(url:)).map { (language, $0) }
-    })
+  private static let bundles: [AppLanguage: Bundle] = loadBundles()
+
+  static func loadBundles(
+    in resourcesURL: URL? = Bundle.main.resourceURL,
+    fallback: () -> Bundle = { .module }
+  ) -> [AppLanguage: Bundle] {
+    let resourceBundle = PolkaResourceBundle.resolve(
+      named: "PolkaNative_PolkaCore", in: resourcesURL, fallback: fallback)
+    return Dictionary(
+      uniqueKeysWithValues: AppLanguage.allCases.compactMap { language in
+        resourceBundle.url(forResource: language.rawValue, withExtension: "lproj")
+          .flatMap(Bundle.init(url:)).map { (language, $0) }
+      })
+  }
 
   public static var language: AppLanguage {
     lock.lock()

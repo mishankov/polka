@@ -117,9 +117,19 @@ final class ReleaseTests: XCTestCase {
       XCTAssertTrue(body.contains("- Изменение.\n\nДля разработчиков\n- Инструмент."))
       XCTAssertTrue(body.contains("latest stable release"))
       XCTAssertTrue(body.contains("последний стабильный выпуск"))
+      XCTAssertFalse(body.contains("--nightly"))
       XCTAssertTrue(body.contains("⌘ ⇧ Space"))
       XCTAssertTrue(body.contains("⌘ ⇧ Пробел"))
     }
+    let nightlyTag = "v1.4.1-nightly.20261124184241.45462427948.1"
+    let nightlyBody = try notes.markdown(tag: nightlyTag, repository: "owner/app")
+    XCTAssertTrue(nightlyBody.contains("scripts/install.sh | /bin/bash -s -- --nightly"))
+    XCTAssertTrue(nightlyBody.contains("latest nightly build"))
+    XCTAssertTrue(nightlyBody.contains("последнюю ночную сборку"))
+    XCTAssertTrue(
+      nightlyBody.contains(
+        "releases/download/\(nightlyTag)/polka-1.4.1-nightly.20261124184241.45462427948.1-arm64.dmg"
+      ))
     XCTAssertThrowsError(try notes.markdown(tag: "latest"))
     XCTAssertThrowsError(try notes.markdown(tag: "v1.4.0", repository: "bad/path/more"))
   }

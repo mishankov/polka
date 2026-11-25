@@ -36,7 +36,7 @@ cleanup() {
 }
 
 ensure_stopped() {
-  if pgrep -x Polka >/dev/null; then
+  if pgrep -x PolkaNative >/dev/null || pgrep -x Polka >/dev/null; then
     fail 'Quit Polka from its menu bar menu, then run the installer again.'
   fi
 }
@@ -44,14 +44,16 @@ ensure_stopped() {
 main() {
   install_dir='/Applications'
   launch=true
+  nightly=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --nightly) nightly=true; shift ;;
       --install-dir)
         [[ $# -ge 2 ]] || fail '--install-dir needs an absolute directory.'
         install_dir=$2; shift 2 ;;
       --no-launch) launch=false; shift ;;
       --help|-h)
-        printf 'Usage: install.sh [--install-dir /Applications] [--no-launch]\n'
+        printf 'Usage: install.sh [--nightly] [--install-dir /Applications] [--no-launch]\n'
         return ;;
       *) fail "Unknown option: $1" ;;
     esac
@@ -72,13 +74,46 @@ main() {
   trap 'exit 143' TERM HUP
   temporary=$(mktemp -d "${TMPDIR:-/tmp}/polka-install.XXXXXX")
   repository='https://github.com/mishankov/polka'
-  printf 'Finding the latest Polka release…\n'
-  release_url=$(download --output /dev/null --write-out '%{url_effective}' "$repository/releases/latest")
-  [[ "$release_url" == "$repository/releases/tag/"* ]] || fail 'Could not resolve the latest release.'
-  tag=${release_url##*/}
-  [[ "$tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "Unsupported release tag: $tag"
-  version=${tag#v}
-  archive="polka-$version-arm64.zip"
+  if [[ "$nightly" == true ]]; then
+    printf 'Finding the latest Polka nightly release…\n'
+    download --output "$temporary/appcast.xml" "$repository/releases/download/nightly/appcast.xml"
+    enclosure_url=$(awk '
+      {
+        line = $0
+        while (match(line, /<enclosure[[:space:]][^>]*>/)) {
+          entry = substr(line, RSTART, RLENGTH)
+          line = substr(line, RSTART + RLENGTH)
+          count++
+          if (match(entry, /[[:space:]]url="[^"]+"/)) {
+            url = substr(entry, RSTART + 6, RLENGTH - 7)
+            urls++
+          }
+        }
+      }
+      END {
+        if (count != 1 || urls != 1) exit 1
+        print url
+      }
+    ' "$temporary/appcast.xml") || fail 'Could not resolve the latest nightly release.'
+    prefix="$repository/releases/download/"
+    [[ "$enclosure_url" == "$prefix"* ]] || fail 'Could not resolve the latest nightly release.'
+    rest=${enclosure_url#"$prefix"}
+    tag=${rest%%/*}
+    asset=${rest#*/}
+    [[ "$tag/$asset" == "$rest" && "$asset" != */* ]] || fail 'Could not resolve the latest nightly release.'
+    [[ "$tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-nightly\.[0-9]{14}\.[1-9][0-9]*\.[1-9][0-9]*)?$ ]] || fail "Unsupported release tag: $tag"
+    version=${tag#v}
+    archive="polka-$version-arm64.zip"
+    [[ "$asset" == "$archive" ]] || fail 'Could not resolve the latest nightly release.'
+  else
+    printf 'Finding the latest Polka release…\n'
+    release_url=$(download --output /dev/null --write-out '%{url_effective}' "$repository/releases/latest")
+    [[ "$release_url" == "$repository/releases/tag/"* ]] || fail 'Could not resolve the latest release.'
+    tag=${release_url##*/}
+    [[ "$tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "Unsupported release tag: $tag"
+    version=${tag#v}
+    archive="polka-$version-arm64.zip"
+  fi
   # Pin both downloads to the resolved tag, even if a new release appears meanwhile.
   asset_url="$repository/releases/download/$tag"
   printf 'Downloading Polka %s…\n' "$version"

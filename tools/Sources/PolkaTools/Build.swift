@@ -57,6 +57,12 @@ public struct NativeBuildMetadata {
 public struct BuildResult {
   public var bundle: URL
   public var metadata: NativeBuildMetadata
+  public var products: URL?
+  public init(bundle: URL, metadata: NativeBuildMetadata, products: URL? = nil) {
+    self.bundle = bundle
+    self.metadata = metadata
+    self.products = products
+  }
 }
 public enum BuildTool {
   public struct Helper {
@@ -524,6 +530,6 @@ public enum BuildTool {
     }
     _ = try SigningTool.codesign(
       ["--verify", "--deep", "--strict", bundle.path], environment: context.environment)
-    return BuildResult(bundle: bundle, metadata: metadata)
+    return BuildResult(bundle: bundle, metadata: metadata, products: products)
   }
 }
