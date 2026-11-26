@@ -311,4 +311,20 @@ final class ClipboardCaptureTests: XCTestCase {
         changeCount: 1, items: [NativeClipboardItem(types: ["text/plain"], text: "Stopped")]))
     XCTAssertTrue(history.snapshot().clips.isEmpty)
   }
+  @MainActor func testCaptureDeduplicatesEquivalentTextAndWritesLatestOriginalText() throws {
+    let history = try history()
+    let capture = NativeClipboardCapture(history: history, fixture: true)
+    try capture.capture(
+      snapshot: NativeClipboardSnapshot(
+        changeCount: 1, items: [NativeClipboardItem(types: ["text/plain"], text: "✅")]))
+    try capture.capture(
+      snapshot: NativeClipboardSnapshot(
+        changeCount: 2, items: [NativeClipboardItem(types: ["text/plain"], text: "✅\u{FE0F} ")]))
+    let clips = history.snapshot().clips
+    XCTAssertEqual(clips.count, 1)
+    XCTAssertEqual(clips[0].content, "✅\u{FE0F} ")
+    capture.write(text: clips[0].content)
+    XCTAssertEqual(capture.syntheticText, "✅\u{FE0F} ")
+    capture.stop()
+  }
 }

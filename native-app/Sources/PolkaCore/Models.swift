@@ -156,6 +156,51 @@ public func clipId(_ kind: ClipboardClip.Kind, _ content: String) -> String {
   SHA256.hash(data: Data((kind.rawValue + "\0" + content).utf8)).map { String(format: "%02x", $0) }
     .joined()
 }
+/// Narrow text comparison key for clipboard history deduplication.
+/// Unifies canonical Unicode forms (NFC), CRLF/CR line endings, redundant U+FE0F
+/// after default-emoji-presentation scalars, and trailing spaces on single-line text,
+/// while preserving indentation, trailing newlines/tabs, interior spacing,
+/// whitespace-only text, explicit emoji/text presentation selectors, and full content.
+public func clipboardTextComparisonKey(_ content: String) -> String {
+  let nfc = content.precomposedStringWithCanonicalMapping
+  var scalars = String.UnicodeScalarView()
+  scalars.reserveCapacity(nfc.unicodeScalars.count)
+  var previous: Unicode.Scalar?
+  var skipNextLF = false
+  for scalar in nfc.unicodeScalars {
+    if skipNextLF {
+      skipNextLF = false
+      if scalar == "\n" { continue }
+    }
+    if scalar == "\r" {
+      scalars.append("\n")
+      previous = "\n"
+      skipNextLF = true
+      continue
+    }
+    if scalar.value == 0xFE0F, let prev = previous, prev.properties.isEmojiPresentation {
+      continue
+    }
+    scalars.append(scalar)
+    previous = scalar
+  }
+  var result = String(scalars)
+  if !result.contains(where: \.isNewline), result.contains(where: { !$0.isWhitespace }) {
+    var end = result.endIndex
+    while end > result.startIndex {
+      let prev = result.index(before: end)
+      if result[prev] == " " || result[prev] == "\u{00A0}" {
+        end = prev
+      } else {
+        break
+      }
+    }
+    if end < result.endIndex {
+      result = String(result[..<end])
+    }
+  }
+  return result
+}
 public func validDeviceID(_ value: String) -> Bool {
   value.range(
     of:
@@ -266,10 +311,16 @@ public struct SyncEntry: Codable, Equatable {
   public var deleted: Stamp?
   public var pin: SyncPin?
   public var seen: Stamp?
+  /// Local-only equivalence group hash for text clips; never sent over sync wire.
+  public var group: String?
+  /// Local-only marker that `deleted` came from equivalence replacement rather than explicit removal.
+  public var superseded: Bool?
   public init(
     snippet: Bool? = nil, files: Bool? = nil, added: Stamp? = nil, deleted: Stamp? = nil,
     pin: SyncPin? = nil,
-    seen: Stamp? = nil
+    seen: Stamp? = nil,
+    group: String? = nil,
+    superseded: Bool? = nil
   ) {
     self.snippet = snippet
     self.files = files
@@ -277,8 +328,12 @@ public struct SyncEntry: Codable, Equatable {
     self.deleted = deleted
     self.pin = pin
     self.seen = seen
+    self.group = group
+    self.superseded = superseded
   }
-  private enum CodingKeys: String, CodingKey { case snippet, files, added, deleted, pin, seen }
+  private enum CodingKeys: String, CodingKey {
+    case snippet, files, added, deleted, pin, seen, group, superseded
+  }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     snippet = try c.decodeOptional(Bool.self, forKey: .snippet)
@@ -287,9 +342,13 @@ public struct SyncEntry: Codable, Equatable {
     deleted = try c.decodeOptional(Stamp.self, forKey: .deleted)
     pin = try c.decodeOptional(SyncPin.self, forKey: .pin)
     seen = try c.decodeOptional(Stamp.self, forKey: .seen)
+    group = try c.decodeOptional(String.self, forKey: .group)
+    superseded = try c.decodeOptional(Bool.self, forKey: .superseded)
   }
   public func validate() throws {
-    guard snippet != false, files != false, !(snippet == true && files == true) else {
+    guard snippet != false, files != false, !(snippet == true && files == true),
+      superseded != false, group.map(validClipID) ?? true
+    else {
       throw PolkaCoreError.invalid(localized("Invalid sync type"))
     }
     try added?.validate()
@@ -338,6 +397,8 @@ public struct SyncManifest: Codable, Equatable {
     self.entries = entries.mapValues { value in
       var value = value
       value.seen = nil
+      value.group = nil
+      value.superseded = nil
       return value
     }
     self.available = available

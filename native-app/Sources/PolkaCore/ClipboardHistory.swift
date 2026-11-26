@@ -73,6 +73,7 @@ public final class ClipboardHistory {
   private let now: () -> Double
   private let lock = NSRecursiveLock()
   private var incarnations: [String: Int] = [:]
+  private var textGroupIDs: [String: String] = [:]
   public let storage: ClipboardStorage
   public private(set) var preferencesAvailable = false
   public init(
@@ -105,12 +106,29 @@ public final class ClipboardHistory {
           return saved
         }
       }
+      let hadSync = state.sync != nil
       if state.sync == nil {
         state.sync = SavedSync(device: UUID().uuidString.lowercased(), counter: 0, entries: [:])
-        for clip in state.records where clip.kind != .files {
+        let ordered = state.records.filter { $0.kind != .files }.sorted {
+          $0.createdAt != $1.createdAt ? $0.createdAt < $1.createdAt : $0.id < $1.id
+        }
+        for clip in ordered {
           let s = stamp(&state)
+          let group =
+            clip.kind == .text && !clip.isSnippet
+            ? textGroupID(id: clip.id, content: clip.content) : nil
           state.sync!.entries[clip.id] = SyncEntry(
-            snippet: clip.snippet, added: s, pin: SyncPin(stamp: s, value: clip.pinned), seen: s)
+            snippet: clip.snippet, added: s, pin: SyncPin(stamp: s, value: clip.pinned), seen: s,
+            group: group)
+        }
+      }
+      textGroupIDs = [:]
+      for clip in state.clips where clip.kind == .text && !clip.isSnippet {
+        if let persisted = state.sync?.entries[clip.id]?.group {
+          textGroupIDs[clip.id] = persisted
+        } else {
+          let group = textGroupID(id: clip.id, content: clip.content)
+          state.sync?.entries[clip.id]?.group = group
         }
       }
       preferencesAvailable = true
@@ -133,12 +151,193 @@ public final class ClipboardHistory {
             if entry.seen == nil { entry.seen = s }
             if entry.pin == nil { entry.pin = SyncPin(stamp: s, value: clip.pinned) }
             entry.snippet = true
+            entry.group = nil
             next.sync!.entries[clip.id] = entry
           }
         }
       }
+      try deduplicateExistingClips(useSyncOrder: hadSync)
       try prune()
       try promoteFileReferences()
+    }
+  }
+  private func textGroupID(id: String, content: String) -> String {
+    if let cached = textGroupIDs[id] { return cached }
+    let group = clipId(.text, clipboardTextComparisonKey(content))
+    textGroupIDs[id] = group
+    return group
+  }
+  private func comparisonGroup(_ clip: ClipboardClip) -> String {
+    clip.kind == .text ? textGroupID(id: clip.id, content: clip.content) : clip.id
+  }
+  private func isClipOrderedBefore(
+    _ a: ClipboardClip, _ b: ClipboardClip, in history: SavedHistory, useSyncOrder: Bool
+  ) -> Bool {
+    if useSyncOrder {
+      let order = compareStamp(
+        history.sync?.entries[a.id]?.added, history.sync?.entries[b.id]?.added)
+      if order != 0 { return order < 0 }
+    }
+    if a.createdAt != b.createdAt { return a.createdAt < b.createdAt }
+    return a.id < b.id
+  }
+  private func isIncomingPreferred(
+    clipID: String, stamp: Stamp, createdAt: Double, over local: ClipboardClip,
+    in history: SavedHistory
+  ) -> Bool {
+    let order = compareStamp(stamp, history.sync?.entries[local.id]?.added)
+    if order != 0 { return order > 0 }
+    if createdAt != local.createdAt { return createdAt > local.createdAt }
+    return clipID > local.id
+  }
+  private func reconcileGroupEntries(_ next: inout SavedHistory, groups: Set<String>) {
+    guard !groups.isEmpty else { return }
+    var membersByGroup: [String: [String]] = [:]
+    for (id, entry) in next.sync!.entries {
+      guard let group = entry.group, groups.contains(group),
+        entry.snippet != true, entry.files != true
+      else { continue }
+      membersByGroup[group, default: []].append(id)
+    }
+    let clear = next.sync!.clear
+    for (_, memberIDs) in membersByGroup where memberIDs.count > 1 {
+      var maxDeleted: Stamp?
+      for id in memberIDs {
+        maxDeleted = newest(maxDeleted, next.sync!.entries[id]?.deleted)
+      }
+      let allAdded = memberIDs.compactMap { next.sync!.entries[$0]?.added }
+      if let maxDeleted {
+        let isExplicitMaxDelete = !allAdded.contains(where: { compareStamp($0, maxDeleted) == 0 })
+        for id in memberIDs {
+          guard var entry = next.sync!.entries[id], let added = entry.added,
+            compareStamp(maxDeleted, added) > 0
+          else { continue }
+          entry.deleted = newest(entry.deleted, maxDeleted)
+          if isExplicitMaxDelete { entry.superseded = nil }
+          next.sync!.entries[id] = entry
+        }
+      }
+      let liveIDs = memberIDs.filter { id in
+        guard let entry = next.sync!.entries[id] else { return false }
+        return liveEntry(entry, clear)
+      }
+      guard
+        let survivorID = liveIDs.max(by: { a, b in
+          let order = compareStamp(next.sync!.entries[a]?.added, next.sync!.entries[b]?.added)
+          return order != 0 ? order < 0 : a < b
+        }),
+        var survivor = next.sync!.entries[survivorID],
+        let survivorAdded = survivor.added
+      else { continue }
+      for id in liveIDs where id != survivorID {
+        guard var older = next.sync!.entries[id] else { continue }
+        let deleteStamp =
+          compareStamp(survivorAdded, older.added) > 0 ? survivorAdded : self.stamp(&next)
+        older.deleted = newest(older.deleted, deleteStamp)
+        older.superseded = true
+        next.sync!.entries[id] = older
+      }
+      let explicitDeletes: [Stamp] = memberIDs.compactMap { id -> Stamp? in
+        guard let deleted = next.sync!.entries[id]?.deleted else { return nil }
+        return allAdded.contains(where: { compareStamp($0, deleted) == 0 }) ? nil : deleted
+      }
+      var latestExplicitPin: SyncPin?
+      for id in memberIDs {
+        guard let member = next.sync!.entries[id], let pin = member.pin else { continue }
+        let isExplicit = pin.value || compareStamp(pin.stamp, member.added) != 0
+        guard isExplicit else { continue }
+        if id != survivorID {
+          if let clear, let memberAdded = member.added, compareStamp(memberAdded, clear) <= 0,
+            compareStamp(clear, survivorAdded) < 0
+          {
+            continue
+          }
+          let invalidatedByExplicitDelete = explicitDeletes.contains { deleted in
+            compareStamp(pin.stamp, deleted) <= 0 && compareStamp(deleted, survivorAdded) < 0
+          }
+          guard !invalidatedByExplicitDelete else { continue }
+        }
+        if latestExplicitPin == nil || compareStamp(pin.stamp, latestExplicitPin?.stamp) > 0 {
+          latestExplicitPin = pin
+        }
+      }
+      if let latestExplicitPin {
+        let currentValue = survivor.pin?.value ?? false
+        if latestExplicitPin.value != currentValue {
+          if compareStamp(latestExplicitPin.stamp, survivor.pin?.stamp) > 0 {
+            survivor.pin = latestExplicitPin
+            if latestExplicitPin.value, !next.records.contains(where: { $0.id == survivorID }) {
+              survivor.seen = nil
+            }
+            next.sync!.entries[survivorID] = survivor
+          } else if latestExplicitPin.value,
+            survivor.pin == nil || compareStamp(survivor.pin?.stamp, survivorAdded) == 0
+          {
+            survivor.pin = SyncPin(stamp: self.stamp(&next), value: true)
+            if !next.records.contains(where: { $0.id == survivorID }) { survivor.seen = nil }
+            next.sync!.entries[survivorID] = survivor
+          }
+        }
+      }
+    }
+  }
+  private func deduplicateExistingClips(useSyncOrder: Bool) throws {
+    var seen = Set<String>()
+    let hasDuplicates = state.clips.contains { clip in
+      !clip.isSnippet && !seen.insert(comparisonGroup(clip)).inserted
+    }
+    guard hasDuplicates else { return }
+    try update { next in
+      var groups: [String: [ClipboardClip]] = [:]
+      var order: [String] = []
+      for clip in next.clips where !clip.isSnippet {
+        let key = self.comparisonGroup(clip)
+        if groups[key] == nil { order.append(key) }
+        groups[key, default: []].append(clip)
+      }
+      var kept: [ClipboardClip] = []
+      for key in order {
+        let group = groups[key]!
+        guard group.count > 1 else {
+          kept.append(group[0])
+          continue
+        }
+        var winner = group.max {
+          self.isClipOrderedBefore($0, $1, in: next, useSyncOrder: useSyncOrder)
+        }!
+        let wasPinned = winner.pinned
+        winner.pinned = group.contains(where: \.pinned)
+        winner.ocr = winner.ocr ?? group.first(where: { $0.ocr != nil })?.ocr
+        winner.createdAt = group.map(\.createdAt).max() ?? winner.createdAt
+        let winnerGroup =
+          winner.kind == .text ? self.textGroupID(id: winner.id, content: winner.content) : nil
+        let winnerAdded = next.sync!.entries[winner.id]?.added
+        if winner.kind != .files || winner.fileSource != nil {
+          var winnerEntry = next.sync!.entries[winner.id] ?? SyncEntry()
+          if let winnerGroup { winnerEntry.group = winnerGroup }
+          winnerEntry.superseded = nil
+          if winner.pinned, !wasPinned {
+            winnerEntry.pin = SyncPin(stamp: self.stamp(&next), value: true)
+          }
+          next.sync!.entries[winner.id] = winnerEntry
+        }
+        for old in group where old.id != winner.id && (old.kind != .files || old.fileSource != nil)
+        {
+          var oldEntry = next.sync!.entries[old.id] ?? SyncEntry()
+          if let winnerGroup { oldEntry.group = winnerGroup }
+          let deleteStamp: Stamp
+          if let winnerAdded, compareStamp(winnerAdded, oldEntry.added) > 0 {
+            deleteStamp = winnerAdded
+          } else {
+            deleteStamp = self.stamp(&next)
+          }
+          oldEntry.deleted = newest(oldEntry.deleted, deleteStamp)
+          oldEntry.superseded = true
+          next.sync!.entries[old.id] = oldEntry
+        }
+        kept.append(winner)
+      }
+      next.clips = kept
     }
   }
   /// Upgrade local references created before file metadata sync existed.
@@ -230,6 +429,7 @@ public final class ClipboardHistory {
       }
       for clip in state.clips where !next.clips.contains(where: { $0.id == clip.id }) {
         incarnations[clip.id, default: 0] += 1
+        textGroupIDs.removeValue(forKey: clip.id)
       }
       state = next
       changed()
@@ -250,21 +450,70 @@ public final class ClipboardHistory {
     try update { next in
       guard !next.preferences.paused else { return }
       let id = clipId(kind, kind == .files ? self.deviceId + "\0" + content : content)
-      let existing = next.clips.first { $0.id == id }
-      next.clips.removeAll { $0.id == id }
+      let group = kind == .text ? self.textGroupID(id: id, content: content) : nil
+      let matching: [ClipboardClip]
+      if let group {
+        matching = next.clips.filter {
+          $0.kind == .text && !$0.isSnippet
+            && self.textGroupID(id: $0.id, content: $0.content) == group
+        }
+      } else {
+        matching = next.clips.filter { !$0.isSnippet && $0.id == id }
+      }
+      let pinned = matching.contains(where: \.pinned)
+      let ocr =
+        matching.first(where: { $0.id == id })?.ocr ?? matching.first(where: { $0.ocr != nil })?.ocr
+      let matchingIDs = Set(matching.map(\.id))
+      if !matchingIDs.isEmpty {
+        next.clips.removeAll { !$0.isSnippet && matchingIDs.contains($0.id) }
+      }
       if kind != .files || fileSource != nil {
         let s = self.stamp(&next)
+        for old in matching where old.id != id && (old.kind != .files || old.fileSource != nil) {
+          var oldEntry = next.sync!.entries[old.id] ?? SyncEntry()
+          if let group { oldEntry.group = group }
+          oldEntry.deleted = newest(oldEntry.deleted, s)
+          oldEntry.superseded = true
+          next.sync!.entries[old.id] = oldEntry
+        }
+        if let group, !matching.isEmpty {
+          for otherID in Array(next.sync!.entries.keys) where otherID != id {
+            guard var other = next.sync!.entries[otherID], other.group == group,
+              other.superseded == true, other.snippet != true, other.files != true
+            else { continue }
+            other.deleted = newest(other.deleted, s)
+            next.sync!.entries[otherID] = other
+          }
+        }
         var entry = next.sync!.entries[id] ?? SyncEntry()
+        let previousAdded = entry.added
         entry.files = kind == .files ? true : nil
+        entry.group = group
+        entry.superseded = nil
         entry.added = s
         entry.seen = s
-        entry.pin = SyncPin(stamp: s, value: existing?.pinned ?? false)
+        if pinned {
+          let inheritedPin = matching.compactMap { next.sync!.entries[$0.id]?.pin }
+            .filter(\.value)
+            .max { compareStamp($0.stamp, $1.stamp) < 0 }
+          if let inheritedPin,
+            entry.pin == nil || compareStamp(inheritedPin.stamp, entry.pin?.stamp) >= 0
+          {
+            entry.pin = inheritedPin
+          } else {
+            entry.pin = SyncPin(stamp: s, value: true)
+          }
+        } else if entry.pin?.value == true {
+          entry.pin = SyncPin(stamp: s, value: false)
+        } else if let existingPin = entry.pin, compareStamp(existingPin.stamp, previousAdded) == 0 {
+          entry.pin = SyncPin(stamp: s, value: false)
+        }
         next.sync!.entries[id] = entry
       }
       next.clips.insert(
         ClipboardClip(
           id: id, kind: kind, content: content, preview: preview, createdAt: self.now(),
-          pinned: existing?.pinned ?? false, ocr: existing?.ocr, fileSource: fileSource), at: 0)
+          pinned: pinned, ocr: ocr, fileSource: fileSource), at: 0)
     }
   }
   private func snippetText(_ content: String, _ name: String) throws -> String {
@@ -375,16 +624,37 @@ public final class ClipboardHistory {
   }
   public func remove(_ id: String) throws {
     try update { next in
-      let localFile =
-        next.clips.first(where: { $0.id == id }).map { $0.kind == .files && $0.fileSource == nil }
-        ?? false
+      let removedClip = next.clips.first(where: { $0.id == id })
+      let localFile = removedClip.map { $0.kind == .files && $0.fileSource == nil } ?? false
+      let group =
+        removedClip.flatMap {
+          $0.kind == .text && !$0.isSnippet
+            ? self.textGroupID(id: $0.id, content: $0.content) : nil
+        } ?? next.sync!.entries[id]?.group
       next.clips.removeAll { $0.id == id }
       next.snippets.removeAll { $0.id == id }
       guard !localFile else { return }
       let s = self.stamp(&next)
       var entry = next.sync!.entries[id] ?? SyncEntry()
+      if let group, entry.snippet != true, entry.files != true { entry.group = group }
       entry.deleted = s
+      entry.superseded = nil
       next.sync!.entries[id] = entry
+      if let group {
+        var tombstonedIDs = Set<String>()
+        for otherID in Array(next.sync!.entries.keys) where otherID != id {
+          guard var other = next.sync!.entries[otherID], other.group == group,
+            other.snippet != true, other.files != true
+          else { continue }
+          other.deleted = newest(other.deleted, s)
+          other.superseded = nil
+          next.sync!.entries[otherID] = other
+          tombstonedIDs.insert(otherID)
+        }
+        if !tombstonedIDs.isEmpty {
+          next.clips.removeAll { !$0.isSnippet && tombstonedIDs.contains($0.id) }
+        }
+      }
     }
   }
   public func clear() throws {
@@ -414,6 +684,8 @@ public final class ClipboardHistory {
         entry -> SyncEntry in
         var entry = entry
         entry.seen = nil
+        entry.group = nil
+        entry.superseded = nil
         return entry
       }
       return SyncManifest(
@@ -449,13 +721,20 @@ public final class ClipboardHistory {
           }
           sync.clear = newest(sync.clear, remote.clear)
           if let clear = remote.clear { sync.counter = max(sync.counter, clear.counter) }
+          var touchedGroups = Set<String>()
           for (id, incoming) in remote.entries {
             if let record = next.records.first(where: { $0.id == id }),
               (record.kind == .files) != (incoming.files == true)
             {
               throw PolkaCoreError.invalid(localized("Invalid sync type"))
             }
-            var local = sync.entries[id] ?? SyncEntry()
+            let existingLocal = sync.entries[id]
+            var local = existingLocal ?? SyncEntry()
+            let entryChanged =
+              existingLocal == nil
+              || compareStamp(incoming.added, local.added) > 0
+              || compareStamp(incoming.deleted, local.deleted) > 0
+              || compareStamp(incoming.pin?.stamp, local.pin?.stamp) > 0
             for stamp in [incoming.added, incoming.deleted, incoming.pin?.stamp].compactMap({ $0 })
             { sync.counter = max(sync.counter, stamp.counter) }
             if incoming.pin?.value == true, compareStamp(incoming.pin?.stamp, local.pin?.stamp) > 0,
@@ -476,8 +755,13 @@ public final class ClipboardHistory {
             local.deleted = newest(local.deleted, incoming.deleted)
             if compareStamp(incoming.pin?.stamp, local.pin?.stamp) > 0 { local.pin = incoming.pin }
             sync.entries[id] = local
+            if entryChanged, let group = local.group, local.snippet != true, local.files != true {
+              touchedGroups.insert(group)
+            }
           }
           next.sync = sync
+          self.reconcileGroupEntries(&next, groups: touchedGroups)
+          sync = next.sync!
           next.clips = next.clips.filter {
             $0.kind == .files && $0.fileSource == nil || liveEntry(sync.entries[$0.id]!, sync.clear)
           }.map {
@@ -557,8 +841,65 @@ public final class ClipboardHistory {
           compareStamp(transfer.stamp, entry.seen) > 0
         else { return }
         entry.seen = transfer.stamp
+        let group =
+          !clip.isSnippet && clip.kind == .text
+          ? self.textGroupID(id: clip.id, content: clip.content) : nil
+        if let group { entry.group = group }
         next.sync!.entries[clip.id] = entry
-        clip.ocr = next.clips.first(where: { $0.id == clip.id })?.ocr
+        var mergedOCR: ImageText?
+        if let group {
+          let equivalent = next.clips.filter {
+            $0.kind == .text && !$0.isSnippet && $0.id != clip.id
+              && self.textGroupID(id: $0.id, content: $0.content) == group
+          }
+          if !equivalent.isEmpty {
+            let preferredLocal = equivalent.max {
+              self.isClipOrderedBefore($0, $1, in: next, useSyncOrder: true)
+            }!
+            if !self.isIncomingPreferred(
+              clipID: clip.id, stamp: transfer.stamp, createdAt: clip.createdAt,
+              over: preferredLocal, in: next)
+            {
+              let winnerStamp = next.sync!.entries[preferredLocal.id]?.added
+              let deleteStamp: Stamp
+              if let winnerStamp, compareStamp(winnerStamp, transfer.stamp) > 0 {
+                deleteStamp = winnerStamp
+              } else {
+                deleteStamp = self.stamp(&next)
+              }
+              entry.deleted = newest(entry.deleted, deleteStamp)
+              entry.superseded = true
+              next.sync!.entries[clip.id] = entry
+              self.reconcileGroupEntries(&next, groups: [group])
+              if let index = next.clips.firstIndex(where: { $0.id == preferredLocal.id }) {
+                next.clips[index].pinned =
+                  next.sync!.entries[preferredLocal.id]?.pin?.value ?? false
+              }
+              return
+            }
+            let equivalentIDs = Set(equivalent.map(\.id))
+            for old in equivalent {
+              if mergedOCR == nil { mergedOCR = old.ocr }
+              var oldEntry = next.sync!.entries[old.id] ?? SyncEntry()
+              oldEntry.group = group
+              let deleteStamp =
+                compareStamp(transfer.stamp, oldEntry.added) > 0
+                ? transfer.stamp : self.stamp(&next)
+              oldEntry.deleted = newest(oldEntry.deleted, deleteStamp)
+              oldEntry.superseded = true
+              next.sync!.entries[old.id] = oldEntry
+            }
+            next.clips.removeAll { !$0.isSnippet && equivalentIDs.contains($0.id) }
+          }
+          self.reconcileGroupEntries(&next, groups: [group])
+          guard var reconciled = next.sync!.entries[clip.id],
+            liveEntry(reconciled, next.sync!.clear)
+          else { return }
+          reconciled.superseded = nil
+          next.sync!.entries[clip.id] = reconciled
+          entry = reconciled
+        }
+        clip.ocr = next.clips.first(where: { $0.id == clip.id })?.ocr ?? mergedOCR
         // Receiving metadata echoed by another peer must not replace our originals.
         if clip.kind == .files, let local = next.clips.first(where: { $0.id == clip.id }),
           local.fileSource == clip.fileSource, !local.content.isEmpty

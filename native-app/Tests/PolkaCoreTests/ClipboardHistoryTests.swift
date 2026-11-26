@@ -53,6 +53,456 @@ final class ClipboardHistoryTests: XCTestCase {
     XCTAssertEqual(restarted.snapshot().clips.map(\.id), [id])
     XCTAssertEqual(restarted.deviceId, h.deviceId)
   }
+  func testEquivalentTextVariantsDeduplicateWhilePreservingMeaningfulDifferences() throws {
+    var time = 1_800_000_000_000.0
+    let path = try root().appendingPathComponent("history.enc")
+    let h = ClipboardHistory(path: path, codec: codec, now: { time })
+    try h.initialize()
+
+    // Confirmed duplicate-looking emoji/space/variation-selector variants collapse into one entry,
+    // retaining the latest original content, refreshing recency, and preserving pin state.
+    try h.add(.text, content: "❌", preview: "❌")
+    try h.pin(clipId(.text, "❌"), pinned: true)
+    time += 60_000
+    try h.add(.text, content: "❌ ", preview: "❌ ")
+    time += 60_000
+    try h.add(.text, content: "❌\u{FE0F} ", preview: "❌\u{FE0F} ")
+    let crossClips = h.snapshot().clips
+    XCTAssertEqual(crossClips.count, 1)
+    XCTAssertEqual(crossClips[0].id, clipId(.text, "❌\u{FE0F} "))
+    XCTAssertEqual(crossClips[0].content, "❌\u{FE0F} ")
+    XCTAssertEqual(crossClips[0].createdAt, 1_800_000_120_000.0)
+    XCTAssertTrue(crossClips[0].pinned)
+
+    // Equivalent check mark, NFC/NFD, and CRLF/LF variants each leave one entry with latest bytes.
+    time += 1000
+    try h.add(.text, content: "✅", preview: "✅")
+    time += 1000
+    try h.add(.text, content: "✅\u{FE0F}", preview: "✅\u{FE0F}")
+    time += 1000
+    try h.add(.text, content: "✅ ", preview: "✅ ")
+
+    time += 1000
+    try h.add(.text, content: "caf\u{00E9}", preview: "caf\u{00E9}")
+    time += 1000
+    try h.add(.text, content: "cafe\u{0301}", preview: "cafe\u{0301}")
+
+    time += 1000
+    try h.add(.text, content: "line 1\r\nline 2", preview: "line 1\r\nline 2")
+    time += 1000
+    try h.add(.text, content: "line 1\nline 2", preview: "line 1\nline 2")
+
+    XCTAssertEqual(h.snapshot().clips.count, 4)
+    XCTAssertEqual(h.find(clipId(.text, "✅ "))?.content, "✅ ")
+    XCTAssertTrue(
+      try XCTUnwrap(h.find(clipId(.text, "cafe\u{0301}"))).content.utf8.elementsEqual(
+        "cafe\u{0301}".utf8))
+    XCTAssertEqual(h.find(clipId(.text, "line 1\nline 2"))?.content, "line 1\nline 2")
+
+    // Meaningful distinctions remain separate.
+    let distinct: [String] = [
+      "  indented",
+      "indented",
+      " ❌",
+      "❌\n",
+      "echo hi",
+      "echo hi\n",
+      "col\t",
+      "col",
+      "a  b",
+      "a b",
+      "line1  \nline2",
+      "line1\nline2",
+      "first\u{2028}second ",
+      "first\u{2028}second",
+      "first\u{2029}second ",
+      "first\u{2029}second",
+      " ",
+      "  ",
+      "\u{2764}",
+      "\u{2764}\u{FE0F}",
+      "\u{2764}\u{FE0E}",
+      "✅\u{FE0E}",
+      "👍",
+      "👍🏻",
+      String(repeating: "a", count: 400) + "1",
+      String(repeating: "a", count: 400) + "2",
+      "Hello",
+      "hello",
+      "2",
+      "²",
+    ]
+    let beforeCount = h.snapshot().clips.count
+    for value in distinct {
+      time += 1000
+      try h.add(
+        .text, content: value, preview: String(decoding: value.utf16.prefix(400), as: UTF16.self))
+    }
+    XCTAssertEqual(h.snapshot().clips.count, beforeCount + distinct.count)
+    for value in distinct {
+      XCTAssertEqual(h.find(clipId(.text, value))?.content, value)
+    }
+
+    // Snippets remain independent from clipboard history deduplication.
+    let s1 = try h.createSnippet(content: "❌", name: "Cross 1")
+    let s2 = try h.createSnippet(content: "❌ ", name: "Cross 2")
+    XCTAssertNotEqual(s1, s2)
+    XCTAssertEqual(h.snapshot().snippets.count, 2)
+    XCTAssertEqual(h.find(s1)?.content, "❌")
+    XCTAssertEqual(h.find(s2)?.content, "❌ ")
+  }
+  func testExistingDuplicateHistoryCompactsOnRestartWithoutResurrectingAcrossSync() throws {
+    let time = 1_800_000_000_000.0
+    let path = try root().appendingPathComponent("history.enc")
+    let seed = ClipboardHistory(path: path, codec: codec, now: { time })
+    try seed.initialize()
+    try seed.add(.text, content: "❌", preview: "❌")
+    let idOld = clipId(.text, "❌")
+    let idNew = clipId(.text, "❌ ")
+    let device = seed.deviceId
+    // Simulate a pre-fix encrypted history file containing both equivalent variants on disk.
+    var saved =
+      try JSONSerialization.jsonObject(with: codec.decode(Data(contentsOf: path))) as! [String: Any]
+    let stampOld: [String: Any] = ["counter": 1000, "device": device]
+    let stampNew: [String: Any] = ["counter": 2000, "device": device]
+    saved["clips"] = [
+      [
+        "id": idNew, "kind": "text", "content": "❌ ", "preview": "❌ ",
+        "createdAt": 1_800_000_060_000.0, "pinned": false,
+      ],
+      [
+        "id": idOld, "kind": "text", "content": "❌", "preview": "❌",
+        "createdAt": 1_800_000_000_000.0, "pinned": true,
+      ],
+    ]
+    saved["sync"] = [
+      "device": device,
+      "counter": 2000,
+      "entries": [
+        idOld: [
+          "added": stampOld, "seen": stampOld, "pin": ["stamp": stampOld, "value": true],
+        ],
+        idNew: [
+          "added": stampNew, "seen": stampNew, "pin": ["stamp": stampNew, "value": false],
+        ],
+      ],
+    ]
+    try codec.encode(JSONSerialization.data(withJSONObject: saved)).write(to: path)
+
+    let migrated = ClipboardHistory(path: path, codec: codec, now: { time + 120_000 })
+    try migrated.initialize()
+    XCTAssertEqual(migrated.snapshot().clips.count, 1)
+    let kept = try XCTUnwrap(migrated.snapshot().clips.first)
+    XCTAssertEqual(kept.id, idNew)
+    XCTAssertEqual(kept.content, "❌ ")
+    XCTAssertTrue(kept.pinned)
+    XCTAssertEqual(kept.createdAt, 1_800_000_060_000.0)
+    // Old ID is tombstoned so a peer holding the old entry removes it instead of resurrecting.
+    let manifest = try migrated.manifest()
+    XCTAssertFalse(liveEntry(try XCTUnwrap(manifest.entries[idOld]), manifest.clear))
+    XCTAssertTrue(liveEntry(try XCTUnwrap(manifest.entries[idNew]), manifest.clear))
+
+    // Restarting again keeps the single compacted entry intact.
+    let restarted = ClipboardHistory(path: path, codec: codec, now: { time + 180_000 })
+    try restarted.initialize()
+    XCTAssertEqual(restarted.snapshot().clips.map(\.id), [idNew])
+    XCTAssertTrue(restarted.find(idNew)?.pinned == true)
+
+    // Pre-sync legacy file without a sync section also compacts by createdAt and preserves pin.
+    let legacyPath = try root().appendingPathComponent("legacy-history.enc")
+    let legacySaved: [String: Any] = [
+      "version": 1,
+      "preferences": [
+        "paused": false, "pasteOnSelect": true, "hoverEnabled": true, "retentionDays": 7,
+        "accelerator": "CommandOrControl+Shift+V",
+      ],
+      "clips": [
+        [
+          "id": idOld, "kind": "text", "content": "❌", "preview": "❌",
+          "createdAt": 1_800_000_000_000.0, "pinned": true,
+        ],
+        [
+          "id": idNew, "kind": "text", "content": "❌ ", "preview": "❌ ",
+          "createdAt": 1_800_000_060_000.0, "pinned": false,
+        ],
+      ],
+    ]
+    try codec.encode(JSONSerialization.data(withJSONObject: legacySaved)).write(to: legacyPath)
+    let legacyMigrated = ClipboardHistory(path: legacyPath, codec: codec, now: { time + 120_000 })
+    try legacyMigrated.initialize()
+    XCTAssertEqual(legacyMigrated.snapshot().clips.map(\.id), [idNew])
+    XCTAssertTrue(legacyMigrated.find(idNew)?.pinned == true)
+  }
+  func testEquivalentVariantsConvergeAcrossSyncPreservePinAndDoNotResurrect() throws {
+    // Both sync directions (newer received second, and older received second) converge identically.
+    for bSyncsFirst in [false, true] {
+      var aTime = 1_800_000_000_000.0
+      var bTime = 1_800_000_000_000.0
+      let a = try history(clock: { aTime })
+      let b = try history(clock: { bTime })
+      try a.add(.text, content: "❌", preview: "❌")
+      let idOld = clipId(.text, "❌")
+      aTime += 500
+      try a.pin(idOld, pinned: true)
+
+      bTime += 60_000
+      try b.add(.text, content: "❌\u{FE0F} ", preview: "❌\u{FE0F} ")
+      let idNew = clipId(.text, "❌\u{FE0F} ")
+
+      if bSyncsFirst {
+        try exchange(b, a)
+        try exchange(a, b)
+      } else {
+        try exchange(a, b)
+        try exchange(b, a)
+      }
+      XCTAssertEqual(a.snapshot().clips.map(\.id), [idNew])
+      XCTAssertEqual(b.snapshot().clips.map(\.id), [idNew])
+      XCTAssertEqual(a.find(idNew)?.content, "❌\u{FE0F} ")
+      XCTAssertEqual(b.find(idNew)?.content, "❌\u{FE0F} ")
+      XCTAssertTrue(a.find(idNew)?.pinned == true)
+      XCTAssertTrue(b.find(idNew)?.pinned == true)
+      // Transfer preserves exact content-hash identity for older-peer wire validation.
+      let transfer = try XCTUnwrap(a.transfer(idNew))
+      XCTAssertEqual(transfer.clip.id, clipId(.text, transfer.clip.content))
+
+      // Deleting the merged entry removes it everywhere without resurrecting the old variant.
+      aTime += 10_000
+      try a.remove(idNew)
+      try exchange(a, b)
+      XCTAssertTrue(a.snapshot().clips.isEmpty)
+      XCTAssertTrue(b.snapshot().clips.isEmpty)
+      // Re-exchanging manifests after deletion never resurrects either variant.
+      try exchange(b, a)
+      XCTAssertTrue(a.snapshot().clips.isEmpty)
+      XCTAssertTrue(b.snapshot().clips.isEmpty)
+    }
+  }
+  func testExactImageRecopyRefreshesRecencyAndPreservesPinAndCachedOCR() throws {
+    var time = 1_800_000_000_000.0
+    let h = try history(clock: { time })
+    let content = Data([137, 80, 78, 71, 13, 10, 26, 10]).base64EncodedString()
+    try h.add(.image, content: content, preview: "data:image/png;base64,\(content)")
+    let image = try XCTUnwrap(h.imageTextImages().first)
+    try h.pin(image.id, pinned: true)
+    let ocr = ImageText(version: "fixture", status: .ready, text: "Saved OCR", languages: ["en"])
+    try h.saveImageText(image.id, incarnation: image.incarnation, result: ocr)
+
+    time += 60_000
+    try h.add(.image, content: content, preview: "data:image/png;base64,\(content)")
+    let clips = h.snapshot().clips
+    XCTAssertEqual(clips.count, 1)
+    XCTAssertEqual(clips[0].id, image.id)
+    XCTAssertEqual(clips[0].createdAt, 1_800_000_060_000.0)
+    XCTAssertTrue(clips[0].pinned)
+    XCTAssertEqual(clips[0].ocr, ocr)
+  }
+  func testDeleteOfMergedEntryTombstonesPriorEquivalentIDsAcrossOfflineRecopyAndRestart() throws {
+    for bSyncsFirst in [false, true] {
+      var aTime = 1_800_000_000_000.0
+      var bTime = 1_800_000_000_000.0
+      let aPath = try root().appendingPathComponent("a-history.enc")
+      let bPath = try root().appendingPathComponent("b-history.enc")
+      var a = ClipboardHistory(path: aPath, codec: codec, now: { aTime })
+      let b = ClipboardHistory(path: bPath, codec: codec, now: { bTime })
+      try a.initialize()
+      try b.initialize()
+
+      try a.add(.text, content: "X", preview: "X")
+      try exchange(a, b)
+      XCTAssertEqual(b.snapshot().clips.map(\.content), ["X"])
+
+      // Offline: A copies equivalent "X ", restarts, B recopies "X", then A deletes "X ".
+      aTime += 10_000
+      try a.add(.text, content: "X ", preview: "X ")
+      let aRestarted = ClipboardHistory(path: aPath, codec: codec, now: { aTime })
+      try aRestarted.initialize()
+      a = aRestarted
+
+      bTime += 20_000
+      try b.add(.text, content: "X", preview: "X")
+
+      aTime += 30_000
+      try a.remove(clipId(.text, "X "))
+
+      if bSyncsFirst {
+        try exchange(b, a)
+        try exchange(a, b)
+      } else {
+        try exchange(a, b)
+        try exchange(b, a)
+      }
+      XCTAssertTrue(a.snapshot().clips.isEmpty)
+      XCTAssertTrue(b.snapshot().clips.isEmpty)
+
+      // Copying "X" again after deletion reappears cleanly on both peers.
+      bTime += 50_000
+      try b.add(.text, content: "X", preview: "X")
+      try exchange(b, a)
+      XCTAssertEqual(a.snapshot().clips.map(\.content), ["X"])
+      XCTAssertEqual(b.snapshot().clips.map(\.content), ["X"])
+    }
+  }
+  func testOfflinePinOnSupersededVariantSurvivesManifestMergeInBothDirections() throws {
+    for bSyncsFirst in [false, true] {
+      for pinAfterReplacement in [true, false] {
+        for recopyReplacement in [false, true] {
+          var aTime = 1_800_000_000_000.0
+          var bTime = 1_800_000_000_000.0
+          let aPath = try root().appendingPathComponent("pin-a-history.enc")
+          var a = ClipboardHistory(path: aPath, codec: codec, now: { aTime })
+          try a.initialize()
+          let b = try history(clock: { bTime })
+
+          try a.add(.text, content: "X", preview: "X")
+          try exchange(a, b)
+
+          // Offline: A replaces "X" with "X " (optionally restarting and recopying "X ")
+          // while B pins "X".
+          aTime += 20_000
+          try a.add(.text, content: "X ", preview: "X ")
+          if recopyReplacement {
+            let aRestarted = ClipboardHistory(path: aPath, codec: codec, now: { aTime })
+            try aRestarted.initialize()
+            a = aRestarted
+            aTime += 5000
+            try a.add(.text, content: "X ", preview: "X ")
+          }
+          bTime += pinAfterReplacement ? 30_000 : 10_000
+          try b.pin(clipId(.text, "X"), pinned: true)
+
+          if bSyncsFirst {
+            try exchange(b, a)
+            try exchange(a, b)
+          } else {
+            try exchange(a, b)
+            try exchange(b, a)
+          }
+          let idNew = clipId(.text, "X ")
+          XCTAssertEqual(a.snapshot().clips.map(\.id), [idNew])
+          XCTAssertEqual(b.snapshot().clips.map(\.id), [idNew])
+          XCTAssertTrue(a.find(idNew)?.pinned == true)
+          XCTAssertTrue(b.find(idNew)?.pinned == true)
+
+          // Explicit unpin after merge stays unpinned on further syncs.
+          aTime += 40_000
+          try a.pin(idNew, pinned: false)
+          try exchange(a, b)
+          try exchange(b, a)
+          XCTAssertFalse(a.find(idNew)?.pinned == true)
+          XCTAssertFalse(b.find(idNew)?.pinned == true)
+        }
+      }
+    }
+
+    // Explicitly deleting or clearing a pinned entry never pins a later equivalent copy.
+    var time = 1_800_000_000_000.0
+    let a = try history(clock: { time })
+    let b = try history(clock: { time })
+    try a.add(.text, content: "Y", preview: "Y")
+    time += 1000
+    try a.pin(clipId(.text, "Y"), pinned: true)
+    try exchange(a, b)
+    time += 1000
+    try a.remove(clipId(.text, "Y"))
+    try exchange(a, b)
+    time += 1000
+    try a.add(.text, content: "Y ", preview: "Y ")
+    try exchange(a, b)
+    XCTAssertFalse(a.find(clipId(.text, "Y "))?.pinned == true)
+    XCTAssertFalse(b.find(clipId(.text, "Y "))?.pinned == true)
+
+    time += 1000
+    try a.pin(clipId(.text, "Y "), pinned: true)
+    try exchange(a, b)
+    time += 1000
+    try a.clear()
+    try exchange(a, b)
+    time += 1000
+    try a.add(.text, content: "Y", preview: "Y")
+    try exchange(a, b)
+    XCTAssertFalse(a.find(clipId(.text, "Y"))?.pinned == true)
+    XCTAssertFalse(b.find(clipId(.text, "Y"))?.pinned == true)
+
+    // Pin X, copy X , explicitly unpin X , copy X  , then sync an unrelated item:
+    // the intervening explicit unpin must prevent the oldest variant's pin from returning.
+    let c = try history(clock: { time })
+    let d = try history(clock: { time })
+    time += 1000
+    try c.add(.text, content: "X", preview: "X")
+    time += 1000
+    try c.pin(clipId(.text, "X"), pinned: true)
+    try exchange(c, d)
+    time += 1000
+    try c.add(.text, content: "X ", preview: "X ")
+    time += 1000
+    try c.pin(clipId(.text, "X "), pinned: false)
+    time += 1000
+    try c.add(.text, content: "X  ", preview: "X  ")
+    time += 1000
+    try d.add(.text, content: "unrelated", preview: "unrelated")
+    try exchange(c, d)
+    try exchange(d, c)
+    let idThird = clipId(.text, "X  ")
+    XCTAssertFalse(c.find(idThird)?.pinned == true)
+    XCTAssertFalse(d.find(idThird)?.pinned == true)
+
+    // Both start with X pinned; offline B unpins X, then A optionally recopies X before copying X :
+    // the inherited pin keeps its original stamp and B's explicit unpin remains explicit across
+    // recopies so B's newer unpin wins in both exchange directions.
+    for recopyBeforeReplace in [false, true] {
+      for bSyncsFirst in [false, true] {
+        var aTime = 1_800_000_000_000.0
+        var bTime = 1_800_000_000_000.0
+        let peerA = try history(clock: { aTime })
+        let peerB = try history(clock: { bTime })
+        try peerA.add(.text, content: "X", preview: "X")
+        aTime += 1000
+        try peerA.pin(clipId(.text, "X"), pinned: true)
+        try exchange(peerA, peerB)
+        XCTAssertTrue(peerB.find(clipId(.text, "X"))?.pinned == true)
+
+        bTime += 5000
+        try peerB.pin(clipId(.text, "X"), pinned: false)
+        if recopyBeforeReplace {
+          aTime += 8000
+          try peerA.add(.text, content: "X", preview: "X")
+        }
+        aTime += 10_000
+        try peerA.add(.text, content: "X ", preview: "X ")
+
+        if bSyncsFirst {
+          try exchange(peerB, peerA)
+          try exchange(peerA, peerB)
+        } else {
+          try exchange(peerA, peerB)
+          try exchange(peerB, peerA)
+        }
+        let replacementID = clipId(.text, "X ")
+        XCTAssertEqual(peerA.snapshot().clips.map(\.id), [replacementID])
+        XCTAssertEqual(peerB.snapshot().clips.map(\.id), [replacementID])
+        XCTAssertFalse(peerA.find(replacementID)?.pinned == true)
+        XCTAssertFalse(peerB.find(replacementID)?.pinned == true)
+      }
+    }
+  }
+  func testRemoveThroughSupersededIDRemovesVisibleSurvivorFromSnapshotAndManifest() throws {
+    var time = 1_800_000_000_000.0
+    let h = try history(clock: { time })
+    try h.add(.text, content: "Y", preview: "Y")
+    let firstID = clipId(.text, "Y")
+    time += 1000
+    try h.add(.text, content: "Y ", preview: "Y ")
+    let secondID = clipId(.text, "Y ")
+    XCTAssertEqual(h.snapshot().clips.map(\.id), [secondID])
+
+    time += 1000
+    try h.remove(firstID)
+    XCTAssertTrue(h.snapshot().clips.isEmpty)
+    let manifest = try h.manifest()
+    XCTAssertFalse(manifest.available.contains(secondID))
+    XCTAssertFalse(liveEntry(try XCTUnwrap(manifest.entries[secondID]), manifest.clear))
+  }
   func testStandaloneAndEditedSnippetIndependentFromHistoryAndClear() throws {
     let h = try history()
     var p = h.getPreferences()

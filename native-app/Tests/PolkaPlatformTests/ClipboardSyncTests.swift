@@ -103,6 +103,40 @@ final class ClipboardSyncTests: XCTestCase {
     XCTAssertNil(
       String(data: try Data(contentsOf: ar.appendingPathComponent("sync.enc")), encoding: .utf8))
   }
+  func testTLSLoopbackSyncDeduplicatesEquivalentVariantsWithoutResurrection() async throws {
+    let (a, sa, _) = try make("Mac A")
+    let (b, sb, _) = try make("Mac B")
+    try await sa.initialize()
+    try await sb.initialize()
+    try await sa.setEnabled(true)
+    try await sb.setEnabled(true)
+    sa.discover(id: b.deviceId, name: "Mac B", host: "127.0.0.1", port: sb.port)
+    sb.discover(id: a.deviceId, name: "Mac A", host: "127.0.0.1", port: sa.port)
+    try a.add(.text, content: "❌", preview: "❌")
+    try a.pin(clipId(.text, "❌"), pinned: true)
+    try sa.invite()
+    try await sb.pair(try XCTUnwrap(sa.state().invitation?.code))
+    try await exchange(sa, sb)
+    XCTAssertEqual(b.snapshot().clips.map(\.content), ["❌"])
+
+    // Recopying a visually equivalent variant on B replaces A's old entry over TLS sync.
+    try b.add(.text, content: "❌ ", preview: "❌ ")
+    try await exchange(sa, sb)
+    let idNew = clipId(.text, "❌ ")
+    XCTAssertEqual(a.snapshot().clips.map(\.id), [idNew])
+    XCTAssertEqual(b.snapshot().clips.map(\.id), [idNew])
+    XCTAssertEqual(a.find(idNew)?.content, "❌ ")
+    XCTAssertTrue(a.find(idNew)?.pinned == true)
+    XCTAssertTrue(b.find(idNew)?.pinned == true)
+
+    // Removing the merged entry stays removed on both Macs after further sync rounds.
+    try a.remove(idNew)
+    try await exchange(sa, sb)
+    XCTAssertTrue(a.snapshot().clips.isEmpty)
+    XCTAssertTrue(b.snapshot().clips.isEmpty)
+    await sa.stop()
+    await sb.stop()
+  }
   func testChangedCertificatePinRejectsBeforePairing() async throws {
     let (a, sa, _) = try make("Mac A")
     let (b, sb, _) = try make("Mac B")
